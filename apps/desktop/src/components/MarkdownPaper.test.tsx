@@ -3551,6 +3551,17 @@ describe("MarkdownPaper editing", () => {
     await settleMarkdownListener();
   });
 
+  it("keeps Tab inside plain text blocks as indentation", async () => {
+    const { editor, view } = await renderEditor("Alphabeta");
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    moveCursor(view, findTextPosition(view, "beta"));
+
+    expect(pressShortcut(view, "Tab")).toBe(true);
+    expect(serializeMarkdown(view.state.doc).trimEnd()).toBe("Alpha  beta");
+    await settleMarkdownListener();
+  });
+
   it("exits a terminal code block so text can be added below it", async () => {
     const source = ["## Pull image", "", "```", "sudo docker pull image", "```"].join("\n");
     const { editor, view } = await renderEditor(source);

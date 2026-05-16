@@ -156,6 +156,20 @@ function moveBelowTerminalBlock(view: EditorView, paragraph: ReturnType<typeof p
   return true;
 }
 
+const plainTextIndentation = "  ";
+
+function insertPlainTextIndentation(view: EditorView) {
+  const { selection } = view.state;
+  if (!(selection instanceof TextSelection)) return false;
+  if (!selection.$to.parent.isTextblock) return false;
+
+  const position = selection.empty ? selection.from : selection.to;
+  view.dispatch(view.state.tr.insertText(plainTextIndentation, position, position).scrollIntoView());
+  view.focus();
+
+  return true;
+}
+
 export const markraMarkdownShortcuts = (configuredShortcuts: MarkdownShortcutMap = {}) => $prose((ctx) => {
   const strong = strongSchema.type(ctx);
   const emphasis = emphasisSchema.type(ctx);
@@ -208,6 +222,12 @@ export const markraMarkdownShortcuts = (configuredShortcuts: MarkdownShortcutMap
           return true;
         } else if (event.key === "ArrowDown" && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
           const handled = moveBelowTerminalBlock(view, paragraph);
+          if (!handled) return false;
+
+          event.preventDefault();
+          return true;
+        } else if (event.key === "Tab" && !hasModifier) {
+          const handled = insertPlainTextIndentation(view);
           if (!handled) return false;
 
           event.preventDefault();
