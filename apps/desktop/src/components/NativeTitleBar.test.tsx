@@ -147,10 +147,11 @@ describe("NativeTitleBar", () => {
 
     expect(screen.getByRole("tablist", { name: "Open documents" })).toBeInTheDocument();
     expect(container.querySelector(".native-titlebar")).toHaveStyle({
-      left: "220px"
+      left: "221px"
     });
     expect(container.querySelector(".native-titlebar-sidebar-spacer")).not.toBeInTheDocument();
     expect(container.querySelector(".native-title-slot")).not.toHaveStyle({ paddingLeft: "232px" });
+    expect(container.querySelector(".native-title-slot")).toHaveClass("pl-4");
   });
 
   it("toggles the right-side Markra AI panel from the file action area", () => {

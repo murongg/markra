@@ -99,6 +99,25 @@ describe("MarkdownFileTreeDrawer", () => {
     expect(toggleMarkdownFiles).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the resize handle below the Windows titlebar tab strip", () => {
+    const { container } = render(
+      <MarkdownFileTreeDrawer
+        currentPath={null}
+        files={[]}
+        open
+        outlineItems={[]}
+        platform="windows"
+        rootName="Obsidian Vault"
+        width={288}
+        onOpenFile={() => {}}
+        onResize={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".markdown-file-tree-resizer")).toHaveClass("top-10", "bottom-0");
+  });
+
   it("keeps the Windows sidebar toggle reachable when the drawer is collapsed", () => {
     const toggleMarkdownFiles = vi.fn();
     const { container } = render(

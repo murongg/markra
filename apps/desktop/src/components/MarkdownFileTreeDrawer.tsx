@@ -513,7 +513,7 @@ export function MarkdownFileTreeDrawer({
       >
         {open && onResize && resolvedWidth !== null ? (
           <div
-            className="absolute inset-y-0 right-0 z-30 w-2 cursor-col-resize touch-none outline-none hover:[&>span]:bg-(--accent) focus-visible:[&>span]:bg-(--accent)"
+            className="markdown-file-tree-resizer absolute top-10 right-0 bottom-0 z-30 w-2 cursor-col-resize touch-none outline-none hover:[&>span]:bg-(--accent) focus-visible:[&>span]:bg-(--accent)"
             role="separator"
             tabIndex={0}
             aria-label={label("app.resizeMarkdownFiles")}
