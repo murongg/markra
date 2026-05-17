@@ -346,6 +346,11 @@ describe("Markra workspace", () => {
     expect(screen.getAllByText("vault").length).toBeGreaterThan(0);
     await waitFor(() => expect(mockedListNativeMarkdownFilesForPath).toHaveBeenCalledWith(mockFolderPath));
     expect(mockedListNativeMarkdownFilesForPath).not.toHaveBeenCalledWith("/mock-files/vault/docs/deep");
+    expect(mockedSaveStoredWorkspaceState).not.toHaveBeenCalledWith({ filePath: null });
+    expect(mockedSaveStoredWorkspaceState).not.toHaveBeenCalledWith(expect.objectContaining({
+      filePath: null,
+      folderPath: mockFolderPath
+    }));
     expect(mockedSaveStoredWorkspaceState).not.toHaveBeenCalledWith(expect.objectContaining({
       folderPath: "/mock-files/vault/docs/deep"
     }));
@@ -1112,6 +1117,13 @@ describe("Markra workspace", () => {
     expect(mockedOpenNativeMarkdownFolder).toHaveBeenCalledTimes(1);
     expect(mockedListNativeMarkdownFilesForPath).toHaveBeenCalledWith(mockFolderPath);
     expect(mockedOpenNativeMarkdownPath).not.toHaveBeenCalled();
+    expect(mockedSaveStoredWorkspaceState.mock.calls.at(-1)?.[0]).toEqual({
+      aiAgentSessionId: "session-app",
+      filePath: null,
+      fileTreeOpen: true,
+      folderName: "vault",
+      folderPath: mockFolderPath
+    });
   });
 
   it("opens a remembered markdown folder from the sidebar recent folders area", async () => {
@@ -1137,6 +1149,13 @@ describe("Markra workspace", () => {
     expect(mockedSaveStoredRecentMarkdownFolder).toHaveBeenCalledWith({
       name: "notes",
       path: "/mock-files/notes"
+    });
+    expect(mockedSaveStoredWorkspaceState.mock.calls.at(-1)?.[0]).toEqual({
+      aiAgentSessionId: "session-app",
+      filePath: null,
+      fileTreeOpen: true,
+      folderName: "notes",
+      folderPath: "/mock-files/notes"
     });
   });
 

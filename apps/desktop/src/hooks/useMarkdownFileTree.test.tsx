@@ -176,6 +176,7 @@ describe("useMarkdownFileTree", () => {
     expect(mockedListNativeMarkdownFilesForPath).toHaveBeenCalledWith("/vault");
     expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({
       aiAgentSessionId: "session-folder",
+      filePath: null,
       fileTreeOpen: true,
       folderName: "vault",
       folderPath: "/vault"

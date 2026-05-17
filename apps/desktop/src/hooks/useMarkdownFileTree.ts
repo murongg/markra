@@ -32,6 +32,7 @@ type UseMarkdownFileTreeOptions = {
 };
 
 type OpenMarkdownFolderOptions = {
+  beforeOpenFolder?: () => unknown | Promise<unknown>;
   pickerTitle?: string;
 };
 
@@ -99,7 +100,12 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     saveStoredRecentMarkdownFolder(folder).catch(() => {});
   }, []);
 
-  const openFolderPath = useCallback((path: string, name = pathNameFromPath(path), preferredSessionId?: string | null) => {
+  const openFolderPath = useCallback((
+    path: string,
+    name = pathNameFromPath(path),
+    preferredSessionId?: string | null,
+    clearFilePath = true
+  ) => {
     const folderName = name || pathNameFromPath(path);
     const sessionId = preferredSessionId?.trim() ? preferredSessionId : createAiAgentSessionId();
     setSourcePath(path);
@@ -107,9 +113,10 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     setOpen(true);
     rememberFolder({ name: folderName, path });
     onWorkspaceSessionChange?.(sessionId);
-    // Folder navigation is restored independently from the last active document.
+    // Opening a folder replaces the startup workspace, so clear the previous file path in the same write.
     persistWorkspaceState({
       aiAgentSessionId: sessionId,
+      ...(clearFilePath ? { filePath: null } : {}),
       fileTreeOpen: true,
       folderName,
       folderPath: path
@@ -122,6 +129,7 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     );
     if (!folder) return null;
 
+    await options.beforeOpenFolder?.();
     openFolderPath(folder.path, folder.name);
     return folder;
   }, [openFolderPath]);

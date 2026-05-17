@@ -1334,21 +1334,21 @@ export default function App() {
     const canDiscard = await confirmCanDiscardCurrentDocument();
     if (!canDiscard) return;
 
-    const folder = await openMarkdownFolder({
+    await openMarkdownFolder({
+      beforeOpenFolder: () => {
+        setActiveImageFile(null);
+        clearOpenDocument({ persistWorkspace: false });
+      },
       pickerTitle: translate("app.openFolder")
     });
-    if (folder) {
-      setActiveImageFile(null);
-      clearOpenDocument();
-    }
   }, [clearOpenDocument, confirmCanDiscardCurrentDocument, openMarkdownFolder, translate]);
   const handleOpenRecentMarkdownFolder = useCallback(async (folder: RecentMarkdownFolder) => {
     const canDiscard = await confirmCanDiscardCurrentDocument();
     if (!canDiscard) return;
 
     setActiveImageFile(null);
+    clearOpenDocument({ persistWorkspace: false });
     openRecentFolder(folder);
-    clearOpenDocument();
   }, [clearOpenDocument, confirmCanDiscardCurrentDocument, openRecentFolder]);
   const clearExportSnapshot = useCallback((id: number) => {
     setExportSnapshot((current) => current?.id === id ? null : current);

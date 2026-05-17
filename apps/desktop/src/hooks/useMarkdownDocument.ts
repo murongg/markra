@@ -146,11 +146,15 @@ type UseMarkdownDocumentOptions = {
   getCurrentMarkdown: (fallbackContent: string) => string;
   isCurrentMarkdownEquivalent?: (markdown: string) => boolean | undefined;
   onMarkdownTreeChange?: (path: string) => unknown | Promise<unknown>;
-  onTreeRootFromFolderPath: (path: string, name: string, sessionId?: string | null) => unknown;
+  onTreeRootFromFolderPath: (path: string, name: string, sessionId?: string | null, clearFilePath?: boolean) => unknown;
   onTreeRootFromFilePath: (path: string) => unknown;
   onWorkspaceSessionChange?: (sessionId: string) => unknown;
   preferencesReady?: boolean;
   restoreWorkspaceOnStartup?: boolean;
+};
+
+type ClearOpenDocumentOptions = {
+  persistWorkspace?: boolean;
 };
 
 type OpenMarkdownFileOptions = {
@@ -395,7 +399,7 @@ export function useMarkdownDocument({
     });
   }, [confirmCanDiscardCurrentDocument, documentTabsEnabled, resetToBlankDocument]);
 
-  const clearOpenDocument = useCallback(() => {
+  const clearOpenDocument = useCallback((options: ClearOpenDocumentOptions = {}) => {
     const nextDocument = {
       path: null,
       name: "",
@@ -410,7 +414,7 @@ export function useMarkdownDocument({
     setActiveTabId(null);
     setDocument(nextDocument);
     documentRef.current = nextDocument;
-    persistWorkspaceState({ filePath: null });
+    if (options.persistWorkspace !== false) persistWorkspaceState({ filePath: null });
   }, []);
 
   const applyNativeMarkdownFile = useCallback(
@@ -479,7 +483,7 @@ export function useMarkdownDocument({
       if (!canDiscard) return;
 
       const sessionId = resolveWorkspaceSessionId();
-      clearOpenDocument();
+      clearOpenDocument({ persistWorkspace: false });
       onTreeRootFromFolderPath(target.folder.path, target.folder.name, sessionId);
       return;
     }
@@ -656,7 +660,7 @@ export function useMarkdownDocument({
         }
 
         const sessionId = resolveWorkspaceSessionId();
-        clearOpenDocument();
+        clearOpenDocument({ persistWorkspace: false });
         onTreeRootFromFolderPath(target.path, target.name, sessionId);
         return;
       }
@@ -731,7 +735,7 @@ export function useMarkdownDocument({
     if (!folderPath) return;
 
     const sessionId = resolveWorkspaceSessionId();
-    clearOpenDocument();
+    clearOpenDocument({ persistWorkspace: false });
     onTreeRootFromFolderPath(folderPath, pathNameFromPath(folderPath), sessionId);
   }, [clearOpenDocument, onTreeRootFromFolderPath, resolveWorkspaceSessionId]);
 
@@ -802,8 +806,8 @@ export function useMarkdownDocument({
           assignWorkspaceSessionId(sessionId);
 
           if (workspace.folderPath && workspace.fileTreeOpen) {
-            clearOpenDocument();
-            onTreeRootFromFolderPath(workspace.folderPath, workspace.folderName ?? workspace.folderPath, sessionId);
+            clearOpenDocument({ persistWorkspace: false });
+            onTreeRootFromFolderPath(workspace.folderPath, workspace.folderName ?? workspace.folderPath, sessionId, !workspace.filePath);
             restoredWorkspace = true;
           }
 
