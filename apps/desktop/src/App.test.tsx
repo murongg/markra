@@ -2115,6 +2115,42 @@ describe("Markra workspace", () => {
     expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-engine", "milkdown");
   });
 
+  it("keeps a restored workspace file in source mode without rerunning startup restore", async () => {
+    const restoredContent = "# Restored source\n\nBack from the saved workspace.";
+    mockedGetStoredWorkspaceState.mockResolvedValue({
+      aiAgentSessionId: "session-app",
+      filePath: mockNativePath,
+      fileTreeOpen: true,
+      folderName: "vault",
+      folderPath: mockFolderPath
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { name: "native.md", path: mockNativePath, relativePath: "native.md" }
+    ]);
+    mockedReadNativeMarkdownFile.mockResolvedValue({
+      content: restoredContent,
+      name: "native.md",
+      path: mockNativePath
+    });
+
+    renderApp();
+
+    expect(await screen.findByText("Restored source")).toBeInTheDocument();
+    await waitFor(() => expect(mockedReadNativeMarkdownFile).toHaveBeenCalledTimes(1));
+    mockedReadNativeMarkdownFile.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+    expect(sourceEditor).toHaveValue(restoredContent);
+
+    await settleEditorUpdates();
+
+    expect(screen.getByRole("textbox", { name: "Markdown source" })).toHaveValue(restoredContent);
+    expect(screen.getByRole("button", { name: "Switch to visual mode" })).toBeInTheDocument();
+    expect(mockedReadNativeMarkdownFile).not.toHaveBeenCalled();
+  });
+
   it("keeps source and visual editors synchronized in split mode", async () => {
     const { container } = renderApp();
 

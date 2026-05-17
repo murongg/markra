@@ -172,6 +172,7 @@ export function useMarkdownDocument({
   const untitledTabIndexRef = useRef(1);
   const workspaceSessionIdRef = useRef<string | null>(null);
   const openedFromNativeRef = useRef(false);
+  const startupWorkspaceRestoreAttemptedRef = useRef(false);
   const outlineItems = useMemo(() => getMarkdownOutline(document.content), [document.content]);
   const wordCount = useMemo(() => getWordCount(document.content), [document.content]);
 
@@ -754,6 +755,9 @@ export function useMarkdownDocument({
     if (!nativeOpenedPathsReady) return;
     if (openedFromNativeRef.current) return;
     if (!preferencesReady) return;
+    if (startupWorkspaceRestoreAttemptedRef.current) return;
+
+    startupWorkspaceRestoreAttemptedRef.current = true;
 
     let active = true;
 
