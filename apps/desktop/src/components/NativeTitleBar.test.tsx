@@ -154,6 +154,40 @@ describe("NativeTitleBar", () => {
     expect(container.querySelector(".native-title-slot")).toHaveClass("pl-4");
   });
 
+  it("keeps Windows titlebar file actions outside the drag region", () => {
+    const toggleSourceMode = vi.fn();
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        platform="windows"
+        sourceMode={false}
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleSourceMode={toggleSourceMode}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".native-titlebar")).not.toHaveAttribute("data-tauri-drag-region");
+    expect(container.querySelector(".document-actions")).not.toHaveAttribute("data-tauri-drag-region");
+    expect(container.querySelector(".native-title-slot")).toHaveAttribute("data-tauri-drag-region");
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+
+    expect(toggleSourceMode).toHaveBeenCalledTimes(1);
+  });
+
   it("toggles the right-side Markra AI panel from the file action area", () => {
     const toggleAiAgent = vi.fn();
     const { container } = render(

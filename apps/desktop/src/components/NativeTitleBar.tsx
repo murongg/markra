@@ -458,7 +458,6 @@ export function NativeTitleBar({
           className={`native-titlebar group/titlebar fixed inset-x-0 top-0 z-10 grid h-10 grid-cols-[minmax(0,1fr)_164px] select-none items-center ${titlebarSurfaceClassName} [-webkit-user-select:none]`}
           style={windowsTitlebarStyle}
           aria-label={label("app.windowDragRegion")}
-          data-tauri-drag-region
         >
           {renderTitleContent("native-title-slot min-w-0 h-10 pr-3 pl-4")}
           {renderDocumentActions(
@@ -472,7 +471,6 @@ export function NativeTitleBar({
       <header
         className="native-titlebar fixed top-0 right-3.5 z-10 flex h-10 w-auto select-none items-center justify-end [-webkit-user-select:none]"
         aria-label={label("app.windowDragRegion")}
-        data-tauri-drag-region
       >
         {renderDocumentActions(
           "document-actions relative flex h-10 items-center justify-end gap-0.5 text-(--text-secondary) opacity-40 transition-[opacity,background-color,color] duration-150 ease-out hover:opacity-100 focus-within:opacity-100"
