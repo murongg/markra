@@ -7,11 +7,6 @@ use tauri::{utils::config::Color, Manager, WebviewUrl, WebviewWindowBuilder};
 const BLANK_EDITOR_WINDOW_LABEL_PREFIX: &str = "markra-editor-";
 const BLANK_EDITOR_WINDOW_URL: &str = "index.html?blank=1";
 const MAIN_WINDOW_LABEL: &str = "main";
-// Windows native menu bars reveal the window surface when transparency is enabled.
-#[cfg(target_os = "windows")]
-const EDITOR_WINDOW_TRANSPARENT: bool = false;
-#[cfg(not(target_os = "windows"))]
-const EDITOR_WINDOW_TRANSPARENT: bool = true;
 const EDITOR_WINDOW_DECORATIONS: bool = true;
 #[cfg(test)]
 pub(crate) const OPEN_BLANK_EDITOR_WINDOW_COMMAND: &str = "open_blank_editor_window";
@@ -19,10 +14,6 @@ pub(crate) const OPEN_BLANK_EDITOR_WINDOW_COMMAND: &str = "open_blank_editor_win
 pub(crate) const OPEN_SETTINGS_WINDOW_COMMAND: &str = "open_settings_window";
 const SETTINGS_WINDOW_LABEL: &str = "markra-settings";
 const SETTINGS_WINDOW_URL: &str = "index.html?settings=1";
-#[cfg(target_os = "windows")]
-const SETTINGS_WINDOW_TRANSPARENT: bool = false;
-#[cfg(not(target_os = "windows"))]
-const SETTINGS_WINDOW_TRANSPARENT: bool = true;
 const SETTINGS_WINDOW_DECORATIONS: bool = true;
 const SETTINGS_WINDOW_WIDTH: f64 = 1040.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 720.0;
@@ -34,6 +25,22 @@ const SETTINGS_WINDOW_SHADOW: bool = true;
 const SETTINGS_WINDOW_HIDDEN_TITLE: bool = true;
 
 static NEXT_EDITOR_WINDOW_ID: AtomicUsize = AtomicUsize::new(1);
+
+fn current_window_chrome_platform() -> &'static str {
+    std::env::consts::OS
+}
+
+fn transparent_window_chrome_for_platform(platform: &str) -> bool {
+    platform == "macos"
+}
+
+fn transparent_window_background_color_for_platform(platform: &str) -> Option<Color> {
+    if transparent_window_chrome_for_platform(platform) {
+        return Some(Color(255, 255, 255, 0));
+    }
+
+    None
+}
 
 fn next_blank_editor_window_label() -> String {
     let id = NEXT_EDITOR_WINDOW_ID.fetch_add(1, Ordering::Relaxed);
@@ -219,7 +226,7 @@ where
 }
 
 fn editor_window_transparent() -> bool {
-    EDITOR_WINDOW_TRANSPARENT
+    transparent_window_chrome_for_platform(current_window_chrome_platform())
 }
 
 fn editor_window_decorations() -> bool {
@@ -239,7 +246,7 @@ pub(crate) fn open_blank_editor_window(app: tauri::AppHandle) {
 }
 
 fn settings_window_transparent() -> bool {
-    SETTINGS_WINDOW_TRANSPARENT
+    transparent_window_chrome_for_platform(current_window_chrome_platform())
 }
 
 fn settings_window_decorations() -> bool {
@@ -262,14 +269,8 @@ fn settings_window_shadow() -> bool {
     SETTINGS_WINDOW_SHADOW
 }
 
-#[cfg(target_os = "windows")]
 fn settings_window_background_color() -> Option<Color> {
-    None
-}
-
-#[cfg(not(target_os = "windows"))]
-fn settings_window_background_color() -> Option<Color> {
-    Some(Color(255, 255, 255, 0))
+    transparent_window_background_color_for_platform(current_window_chrome_platform())
 }
 
 #[cfg(target_os = "macos")]
@@ -357,21 +358,28 @@ mod tests {
     }
 
     #[test]
-    fn editor_window_transparency_is_disabled_only_on_windows() {
-        #[cfg(target_os = "windows")]
-        assert!(!editor_window_transparent());
-
-        #[cfg(not(target_os = "windows"))]
-        assert!(editor_window_transparent());
+    fn secondary_window_transparency_is_enabled_only_on_macos() {
+        assert!(transparent_window_chrome_for_platform("macos"));
+        assert!(!transparent_window_chrome_for_platform("windows"));
+        assert!(!transparent_window_chrome_for_platform("linux"));
     }
 
     #[test]
-    fn settings_window_transparency_is_disabled_only_on_windows() {
-        #[cfg(target_os = "windows")]
-        assert!(!settings_window_transparent());
+    fn editor_window_transparency_matches_current_platform_strategy() {
+        #[cfg(target_os = "macos")]
+        assert!(editor_window_transparent());
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(target_os = "macos"))]
+        assert!(!editor_window_transparent());
+    }
+
+    #[test]
+    fn settings_window_transparency_matches_current_platform_strategy() {
+        #[cfg(target_os = "macos")]
         assert!(settings_window_transparent());
+
+        #[cfg(not(target_os = "macos"))]
+        assert!(!settings_window_transparent());
     }
 
     #[test]
@@ -437,6 +445,21 @@ mod tests {
     }
 
     #[test]
+    fn linux_main_window_config_disables_transparency() {
+        let config_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.linux.conf.json");
+        let config: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(config_path).expect("Linux Tauri config should exist"),
+        )
+        .expect("Linux Tauri config should be valid JSON");
+        let transparent = config
+            .pointer("/app/windows/0/transparent")
+            .and_then(serde_json::Value::as_bool);
+
+        assert_eq!(transparent, Some(false));
+    }
+
+    #[test]
     fn settings_window_uses_roomier_default_size() {
         assert_eq!(settings_window_inner_size(), (1040.0, 720.0));
         assert_eq!(settings_window_min_inner_size(), (860.0, 600.0));
@@ -444,17 +467,33 @@ mod tests {
     }
 
     #[test]
-    fn settings_window_background_matches_transparency_strategy() {
+    fn secondary_window_background_matches_transparency_strategy() {
+        assert_eq!(
+            transparent_window_background_color_for_platform("macos"),
+            Some(Color(255, 255, 255, 0))
+        );
+        assert_eq!(
+            transparent_window_background_color_for_platform("windows"),
+            None
+        );
+        assert_eq!(
+            transparent_window_background_color_for_platform("linux"),
+            None
+        );
+    }
+
+    #[test]
+    fn settings_window_background_matches_current_platform_strategy() {
         assert!(settings_window_shadow());
 
-        #[cfg(target_os = "windows")]
-        assert_eq!(settings_window_background_color(), None);
-
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
         assert_eq!(
             settings_window_background_color(),
             Some(Color(255, 255, 255, 0))
         );
+
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(settings_window_background_color(), None);
     }
 
     #[test]
