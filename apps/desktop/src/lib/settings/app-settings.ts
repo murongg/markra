@@ -20,6 +20,7 @@ import {
   normalizeEditorContentWidthPx,
   type EditorContentWidth
 } from "../editor-width";
+import { normalizeMarkdownTemplateEntries, type MarkdownTemplateEntry } from "../templates";
 import {
   defaultAiQuickActionPrompts,
   normalizeAiQuickActionPrompts,
@@ -113,6 +114,7 @@ export type EditorPreferences = {
   imageUpload: ImageUploadSettings;
   lineHeight: number;
   markdownShortcuts: MarkdownShortcutBindings;
+  markdownTemplates: MarkdownTemplateEntry[];
   restoreWorkspaceOnStartup: boolean;
   suggestAiPanelForComplexInlinePrompts: boolean;
   showDocumentTabs: boolean;
@@ -233,6 +235,7 @@ export const defaultEditorPreferences: EditorPreferences = {
   imageUpload: defaultImageUploadSettings,
   lineHeight: 1.65,
   markdownShortcuts: defaultMarkdownShortcuts,
+  markdownTemplates: [],
   restoreWorkspaceOnStartup: true,
   suggestAiPanelForComplexInlinePrompts: true,
   showDocumentTabs: true,
@@ -761,6 +764,7 @@ export function normalizeEditorPreferences(value: unknown): EditorPreferences {
       ? Number(preferences.lineHeight)
       : defaultEditorPreferences.lineHeight,
     markdownShortcuts: normalizeMarkdownShortcuts(preferences.markdownShortcuts),
+    markdownTemplates: normalizeMarkdownTemplateEntries(preferences.markdownTemplates),
     restoreWorkspaceOnStartup:
       typeof preferences.restoreWorkspaceOnStartup === "boolean"
         ? preferences.restoreWorkspaceOnStartup

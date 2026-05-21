@@ -16,6 +16,11 @@ pub(crate) struct MarkdownFile {
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct MarkdownTemplateFile {
+    pub(crate) contents: String,
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum MarkdownFolderEntryKind {
     Asset,
@@ -580,6 +585,32 @@ fn normalize_markdown_tree_single_file_name(file_name: &str) -> Result<String, S
     Ok(trimmed_name.to_string())
 }
 
+fn normalize_markdown_template_file_name(file_name: &str) -> Result<String, String> {
+    let trimmed_name = normalize_markdown_tree_single_file_name(file_name)?;
+    let candidate = Path::new(&trimmed_name);
+
+    if candidate
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+    {
+        return Ok(trimmed_name);
+    }
+
+    Err("Template file must use .md".to_string())
+}
+
+fn markdown_template_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|path| path.join("templates"))
+        .map_err(|error| error.to_string())
+}
+
+fn markdown_template_file_path(app: &tauri::AppHandle, file_name: &str) -> Result<PathBuf, String> {
+    Ok(markdown_template_dir(app)?.join(normalize_markdown_template_file_name(file_name)?))
+}
+
 fn encode_file_url_path(path: &str) -> String {
     let mut encoded = String::new();
 
@@ -1011,6 +1042,45 @@ pub(crate) fn read_markdown_file(
 }
 
 #[tauri::command]
+pub(crate) fn read_markdown_template_file(
+    app: tauri::AppHandle,
+    file_name: String,
+) -> Result<MarkdownTemplateFile, String> {
+    let path = markdown_template_file_path(&app, &file_name)?;
+    let contents = fs::read_to_string(path).map_err(|error| error.to_string())?;
+
+    Ok(MarkdownTemplateFile { contents })
+}
+
+#[tauri::command]
+pub(crate) fn write_markdown_template_file(
+    app: tauri::AppHandle,
+    file_name: String,
+    contents: String,
+) -> Result<(), String> {
+    let dir = markdown_template_dir(&app)?;
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    fs::write(
+        dir.join(normalize_markdown_template_file_name(&file_name)?),
+        contents,
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn delete_markdown_template_file(
+    app: tauri::AppHandle,
+    file_name: String,
+) -> Result<(), String> {
+    let path = markdown_template_file_path(&app, &file_name)?;
+    if !path.exists() {
+        return Ok(());
+    }
+
+    fs::remove_file(path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub(crate) fn open_markdown_path(
     app: tauri::AppHandle,
     title: Option<String>,
@@ -1059,6 +1129,7 @@ pub(crate) fn create_markdown_tree_file(
     root_path: String,
     file_name: String,
     parent_path: Option<String>,
+    contents: Option<String>,
 ) -> Result<MarkdownFolderFile, String> {
     let root_path = PathBuf::from(root_path);
     let root = canonical_markdown_tree_root(&root_path)?;
@@ -1072,7 +1143,7 @@ pub(crate) fn create_markdown_tree_file(
         return Err("File already exists".to_string());
     }
 
-    fs::write(&target_path, "").map_err(|error| error.to_string())?;
+    fs::write(&target_path, contents.unwrap_or_default()).map_err(|error| error.to_string())?;
 
     Ok(MarkdownFolderFile {
         kind: MarkdownFolderEntryKind::File,
@@ -1219,6 +1290,18 @@ pub(crate) fn open_markdown_folder_in_new_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_markdown_template_file_names() {
+        assert_eq!(
+            normalize_markdown_template_file_name(" standup.md ")
+                .expect("template file name should normalize"),
+            "standup.md"
+        );
+        assert!(normalize_markdown_template_file_name("../standup.md").is_err());
+        assert!(normalize_markdown_template_file_name("standup.markdown").is_err());
+        assert!(normalize_markdown_template_file_name("standup").is_err());
+    }
 
     #[test]
     fn resolves_markdown_file_or_folder_path() {
@@ -1411,6 +1494,7 @@ mod tests {
             root.to_string_lossy().to_string(),
             unexpected_file_name,
             None,
+            None,
         )
         .is_err());
         assert!(!unexpected_file.exists());
@@ -1512,6 +1596,7 @@ mod tests {
             root.to_string_lossy().to_string(),
             "Daily note".to_string(),
             None,
+            None,
         )
         .expect("markdown file should be created");
 
@@ -1530,6 +1615,20 @@ mod tests {
             fs::read_to_string(root.join("Daily note.md"))
                 .expect("created file should be readable"),
             ""
+        );
+
+        let templated = create_markdown_tree_file(
+            root.to_string_lossy().to_string(),
+            "Meeting".to_string(),
+            None,
+            Some("# Meeting\n\n- [ ] Follow up\n".to_string()),
+        )
+        .expect("templated markdown file should be created");
+
+        assert_eq!(templated.relative_path, "Meeting.md");
+        assert_eq!(
+            fs::read_to_string(root.join("Meeting.md")).expect("templated file should be readable"),
+            "# Meeting\n\n- [ ] Follow up\n"
         );
 
         let renamed = rename_markdown_tree_file(
@@ -1911,6 +2010,7 @@ mod tests {
         assert!(create_markdown_tree_file(
             root.to_string_lossy().to_string(),
             "../escape.md".to_string(),
+            None,
             None
         )
         .is_err());

@@ -7,6 +7,7 @@ import {
   confirmNativeUnsavedMarkdownDocumentDiscard,
   createNativeMarkdownTreeFile,
   createNativeMarkdownTreeFolder,
+  deleteNativeMarkdownTemplateFile,
   deleteNativeMarkdownTreeFile,
   downloadNativeWebImage,
   installNativeMarkdownFileDrop,
@@ -20,12 +21,14 @@ import {
   openNativeMarkdownPath,
   readNativeMarkdownImageFile,
   readNativeMarkdownFile,
+  readNativeMarkdownTemplateFile,
   resolveNativeMarkdownPath,
   saveNativeClipboardImage,
   saveNativeHtmlFile,
   saveNativePdfFile,
   renameNativeMarkdownTreeFile,
   saveNativeMarkdownFile,
+  writeNativeMarkdownTemplateFile,
   uploadNativeS3Image,
   uploadNativeWebDavImage,
   watchNativeMarkdownFile,
@@ -268,6 +271,27 @@ describe("native file access", () => {
     });
   });
 
+  it("reads, writes, and deletes markdown template files from the native template directory", async () => {
+    mockedInvoke.mockResolvedValueOnce({
+      contents: "# Template"
+    });
+
+    await expect(readNativeMarkdownTemplateFile("standup.md")).resolves.toBe("# Template");
+    await writeNativeMarkdownTemplateFile("standup.md", "# Updated");
+    await deleteNativeMarkdownTemplateFile("standup.md");
+
+    expect(mockedInvoke).toHaveBeenNthCalledWith(1, "read_markdown_template_file", {
+      fileName: "standup.md"
+    });
+    expect(mockedInvoke).toHaveBeenNthCalledWith(2, "write_markdown_template_file", {
+      contents: "# Updated",
+      fileName: "standup.md"
+    });
+    expect(mockedInvoke).toHaveBeenNthCalledWith(3, "delete_markdown_template_file", {
+      fileName: "standup.md"
+    });
+  });
+
   it("reads a local markdown image as a data URL for vision models", async () => {
     mockedInvoke.mockResolvedValue({
       bytes: [104, 101, 108, 108, 111],
@@ -323,6 +347,7 @@ describe("native file access", () => {
       .mockResolvedValueOnce({ kind: "folder", path: "/mock-files/Research", relativePath: "Research" })
       .mockResolvedValueOnce({ kind: "folder", path: "/mock-files/docs/Sprint", relativePath: "docs/Sprint" })
       .mockResolvedValueOnce({ path: "/mock-files/Daily note.md", relativePath: "Daily note.md" })
+      .mockResolvedValueOnce({ path: "/mock-files/Template note.md", relativePath: "Template note.md" })
       .mockResolvedValueOnce({ path: "/mock-files/Renamed.md", relativePath: "Renamed.md" })
       .mockResolvedValueOnce(undefined);
 
@@ -342,6 +367,9 @@ describe("native file access", () => {
       name: "Daily note.md",
       path: "/mock-files/Daily note.md",
       relativePath: "Daily note.md"
+    });
+    await createNativeMarkdownTreeFile(mockFolderPath, "Template note", {
+      contents: "# Template note\n\nFrom template."
     });
     await expect(renameNativeMarkdownTreeFile(mockFolderPath, mockReadmePath, "Renamed.md")).resolves.toEqual({
       name: "Renamed.md",
@@ -365,12 +393,18 @@ describe("native file access", () => {
       parentPath: null,
       rootPath: mockFolderPath
     });
-    expect(mockedInvoke).toHaveBeenNthCalledWith(4, "rename_markdown_tree_file", {
+    expect(mockedInvoke).toHaveBeenNthCalledWith(4, "create_markdown_tree_file", {
+      fileName: "Template note",
+      parentPath: null,
+      rootPath: mockFolderPath,
+      contents: "# Template note\n\nFrom template."
+    });
+    expect(mockedInvoke).toHaveBeenNthCalledWith(5, "rename_markdown_tree_file", {
       fileName: "Renamed.md",
       path: mockReadmePath,
       rootPath: mockFolderPath
     });
-    expect(mockedInvoke).toHaveBeenNthCalledWith(5, "delete_markdown_tree_file", {
+    expect(mockedInvoke).toHaveBeenNthCalledWith(6, "delete_markdown_tree_file", {
       path: "/mock-files/Renamed.md",
       rootPath: mockFolderPath
     });

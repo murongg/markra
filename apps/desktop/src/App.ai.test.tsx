@@ -155,6 +155,7 @@ describe("Markra AI workspace", () => {
       },
       lineHeight: 1.65,
       markdownShortcuts: defaultMarkdownShortcuts,
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       showDocumentTabs: true,
       splitVisualPanePercent: 50,

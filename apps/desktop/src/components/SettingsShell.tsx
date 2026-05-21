@@ -4,6 +4,7 @@ import {
   HardDrive,
   Keyboard,
   KeyRound,
+  LayoutTemplate,
   Palette,
   PenLine,
   SlidersHorizontal,
@@ -60,6 +61,11 @@ const settingsCategories: SettingsCategoryDefinition[] = [
     labelKey: "settings.categories.editor"
   },
   {
+    icon: LayoutTemplate,
+    id: "templates",
+    labelKey: "settings.categories.templates"
+  },
+  {
     icon: Keyboard,
     id: "keyboardShortcuts",
     labelKey: "settings.sections.keyboardShortcuts"
@@ -79,11 +85,13 @@ function categoryLabel(categoryId: SettingsCategory, translate: Translate) {
 
 export function SettingsSidebar({
   activeCategory,
+  appVersion,
   onCategoryChange,
   platform,
   translate
 }: {
   activeCategory: SettingsCategory;
+  appVersion: string;
   onCategoryChange: (category: SettingsCategory) => unknown;
   platform: DesktopPlatform;
   translate: Translate;
@@ -113,7 +121,7 @@ export function SettingsSidebar({
       </nav>
 
       <div className="border-t border-(--border-default) px-7 py-4 text-[12px] leading-5 font-[560] text-(--text-secondary)">
-        Markra v0.0.1
+        Markra v{appVersion}
       </div>
     </aside>
   );

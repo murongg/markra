@@ -10,6 +10,10 @@ type MarkdownFileResponse = {
   contents: string;
 };
 
+type MarkdownTemplateFileResponse = {
+  contents: string;
+};
+
 type MarkdownFolderFileResponse = {
   kind?: "asset" | "file" | "folder";
   path: string;
@@ -53,6 +57,11 @@ export type NativeMarkdownOpenTarget =
       kind: "folder";
       folder: NativeMarkdownFolder;
     };
+
+export type CreateNativeMarkdownTreeFileOptions = {
+  contents?: string | null;
+  parentPath?: string | null;
+};
 
 export type NativeMarkdownDroppedTarget =
   | {
@@ -261,6 +270,27 @@ export async function readNativeMarkdownFile(path: string): Promise<NativeMarkdo
   };
 }
 
+export async function readNativeMarkdownTemplateFile(fileName: string): Promise<string> {
+  const file = await invoke<MarkdownTemplateFileResponse>("read_markdown_template_file", {
+    fileName
+  });
+
+  return file.contents;
+}
+
+export async function writeNativeMarkdownTemplateFile(fileName: string, contents: string) {
+  await invoke("write_markdown_template_file", {
+    contents,
+    fileName
+  });
+}
+
+export async function deleteNativeMarkdownTemplateFile(fileName: string) {
+  await invoke("delete_markdown_template_file", {
+    fileName
+  });
+}
+
 function bytesToBase64(bytes: number[]) {
   let binary = "";
   const chunkSize = 0x8000;
@@ -316,13 +346,27 @@ function markdownFolderFileFromResponse(file: MarkdownFolderFileResponse): Nativ
 export async function createNativeMarkdownTreeFile(
   rootPath: string,
   fileName: string,
-  parentPath: string | null = null
+  optionsOrParentPath: CreateNativeMarkdownTreeFileOptions | string | null = null
 ): Promise<NativeMarkdownFolderFile> {
-  const file = await invoke<MarkdownFolderFileResponse>("create_markdown_tree_file", {
+  const options = typeof optionsOrParentPath === "object" && optionsOrParentPath !== null
+    ? optionsOrParentPath
+    : { parentPath: optionsOrParentPath };
+  const args: {
+    contents?: string;
+    fileName: string;
+    parentPath: string | null;
+    rootPath: string;
+  } = {
     fileName,
-    parentPath: normalizeNativeParentPath(parentPath),
+    parentPath: normalizeNativeParentPath(options.parentPath),
     rootPath
-  });
+  };
+
+  if (typeof options.contents === "string") {
+    args.contents = options.contents;
+  }
+
+  const file = await invoke<MarkdownFolderFileResponse>("create_markdown_tree_file", args);
 
   return markdownFolderFileFromResponse(file);
 }

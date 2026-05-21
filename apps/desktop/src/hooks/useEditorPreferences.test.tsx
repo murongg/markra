@@ -62,6 +62,7 @@ vi.mock("../lib/settings/app-settings", () => ({
       toggleMarkdownFiles: "Mod+Shift+M",
       toggleSourceMode: "Mod+Alt+S"
     },
+    markdownTemplates: [],
     restoreWorkspaceOnStartup: true,
     showDocumentTabs: true,
     splitVisualPanePercent: 50,
@@ -138,6 +139,7 @@ describe("useEditorPreferences", () => {
         toggleReadOnlyMode: "Mod+Alt+L",
         toggleSourceMode: "Mod+Alt+S"
       },
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
@@ -214,6 +216,7 @@ describe("useEditorPreferences", () => {
           toggleReadOnlyMode: "Mod+Alt+L",
           toggleSourceMode: "Mod+Alt+S"
         },
+        markdownTemplates: [],
         restoreWorkspaceOnStartup: false,
         suggestAiPanelForComplexInlinePrompts: true,
         showDocumentTabs: false,

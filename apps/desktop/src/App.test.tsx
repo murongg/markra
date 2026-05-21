@@ -66,6 +66,7 @@ import {
   mockedTakeNativeOpenedMarkdownPaths,
   mockedTestAiProviderConnection,
   mockedWatchNativeMarkdownFile,
+  mockedWriteNativeMarkdownTemplateFile,
   renderApp
 } from "./test/app-harness";
 import type { NativeMenuHandlers } from "./test/app-harness";
@@ -180,6 +181,7 @@ describe("Markra workspace", () => {
       imageUpload: defaultImageUpload,
       lineHeight: 1.65,
       markdownShortcuts: defaultMarkdownShortcuts,
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
@@ -219,6 +221,7 @@ describe("Markra workspace", () => {
         imageUpload: defaultImageUpload,
         lineHeight: 1.65,
         markdownShortcuts: defaultMarkdownShortcuts,
+        markdownTemplates: [],
         restoreWorkspaceOnStartup: true,
         suggestAiPanelForComplexInlinePrompts: true,
         showDocumentTabs: true,
@@ -246,6 +249,7 @@ describe("Markra workspace", () => {
         imageUpload: defaultImageUpload,
         lineHeight: 1.65,
         markdownShortcuts: defaultMarkdownShortcuts,
+        markdownTemplates: [],
         restoreWorkspaceOnStartup: true,
         suggestAiPanelForComplexInlinePrompts: true,
         showDocumentTabs: true,
@@ -596,11 +600,13 @@ describe("Markra workspace", () => {
     expect(settingsGroups[0]).not.toHaveClass("divide-y");
     expect(settingsGroups.some((group) => group.classList.contains("divide-y"))).toBe(true);
     expect(screen.getByText(`Markra ${desktopPackage.version}`)).toBeInTheDocument();
+    expect(screen.getByText(`Markra v${desktopPackage.version}`)).toBeInTheDocument();
     const categoryButtons = Array.from(container.querySelectorAll(".settings-sidebar nav button"));
-    expect(categoryButtons).toHaveLength(9);
+    expect(categoryButtons).toHaveLength(10);
     expect(categoryButtons[0]).toHaveAttribute("aria-current", "page");
     expect(categoryButtons[1]).not.toHaveAttribute("aria-current");
-    expect(categoryButtons[7]).toHaveTextContent("Keyboard shortcuts");
+    expect(categoryButtons[7]).toHaveTextContent("Templates");
+    expect(categoryButtons[8]).toHaveTextContent("Keyboard shortcuts");
     const languageSelect = container.querySelector("select");
     expect(languageSelect).toHaveValue("en");
     expect(container.querySelector('[role="group"]')).not.toBeInTheDocument();
@@ -634,6 +640,11 @@ describe("Markra workspace", () => {
     expect(document.getElementById("markra-custom-theme-style")).toHaveTextContent("--accent: #0969da");
     await waitFor(() => expect(mockedSaveStoredCustomThemeCss).toHaveBeenCalledWith(":root[data-theme=\"custom\"] { --accent: #0969da; }"));
     await waitFor(() => expect(mockedNotifyAppCustomThemeCssChanged).toHaveBeenCalledWith(":root[data-theme=\"custom\"] { --accent: #0969da; }"));
+
+    fireEvent.click(categoryButtons[7]);
+    expect(categoryButtons[7]).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("heading", { level: 2, name: "Modèles" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ajouter un modèle" })).toBeInTheDocument();
   });
 
   it("syncs toolbar button order in the settings window after another window changes it", async () => {
@@ -655,6 +666,7 @@ describe("Markra workspace", () => {
       imageUpload: defaultImageUpload,
       lineHeight: 1.65,
       markdownShortcuts: defaultMarkdownShortcuts,
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
@@ -759,6 +771,7 @@ describe("Markra workspace", () => {
         ...defaultMarkdownShortcuts,
         bold: "Mod+Alt+B"
       },
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
@@ -1401,6 +1414,61 @@ describe("Markra workspace", () => {
       })
     );
     await waitFor(() => expect(mockedDeleteNativeMarkdownTreeFile).toHaveBeenCalledWith(mockFolderPath, docsPath));
+  });
+
+  it("saves a sidebar markdown file as a custom template", async () => {
+    const templatePath = `${mockFolderPath}/standup.md`;
+    const templateFile = { name: "standup.md", path: templatePath, relativePath: "standup.md" };
+    mockedOpenNativeMarkdownPath.mockResolvedValue({
+      kind: "folder",
+      folder: {
+        path: mockFolderPath,
+        name: "vault"
+      }
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([templateFile]);
+    mockedReadNativeMarkdownFile.mockResolvedValue({
+      content: "# Standup\n\n## Yesterday",
+      name: "standup.md",
+      path: templatePath
+    });
+
+    renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    const fileButton = await screen.findByRole("button", { name: "standup.md" });
+
+    fireEvent.contextMenu(fileButton);
+    const contextHandlers = mockedShowNativeMarkdownFileTreeContextMenu.mock.calls.at(-1)?.[0];
+
+    await act(async () => {
+      await contextHandlers?.saveFileAsTemplate?.(templateFile);
+    });
+
+    await waitFor(() => expect(mockedReadNativeMarkdownFile).toHaveBeenCalledWith(templatePath));
+    await waitFor(() =>
+      expect(mockedWriteNativeMarkdownTemplateFile).toHaveBeenCalledWith("custom-template.md", "# Standup\n\n## Yesterday")
+    );
+    expect(mockedSaveStoredEditorPreferences).toHaveBeenCalledWith(expect.objectContaining({
+      markdownTemplates: [
+        expect.objectContaining({
+          fileName: "custom-template.md",
+          id: "custom-template",
+          name: "standup",
+          suggestedName: "standup"
+        })
+      ]
+    }));
+    expect(mockedNotifyAppEditorPreferencesChanged).toHaveBeenCalledWith(expect.objectContaining({
+      markdownTemplates: [
+        expect.objectContaining({
+          fileName: "custom-template.md",
+          id: "custom-template",
+          name: "standup",
+          suggestedName: "standup"
+        })
+      ]
+    }));
   });
 
   it("opens a markdown file from the current folder tree", async () => {
@@ -2474,6 +2542,7 @@ describe("Markra workspace", () => {
       imageUpload: defaultImageUpload,
       lineHeight: 1.65,
       markdownShortcuts: defaultMarkdownShortcuts,
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: false,
@@ -2601,6 +2670,7 @@ describe("Markra workspace", () => {
       imageUpload: defaultImageUpload,
       lineHeight: 1.65,
       markdownShortcuts: defaultMarkdownShortcuts,
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: false,

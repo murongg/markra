@@ -97,6 +97,9 @@ function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) 
       <button type="button" onClick={() => tree.createFile("Daily note")}>
         Create
       </button>
+      <button type="button" onClick={() => tree.createFile("Daily note", null, "# Daily note\n")}>
+        Create from template
+      </button>
       <button type="button" onClick={() => tree.createFolder("Research")}>
         Create folder
       </button>
@@ -405,6 +408,14 @@ describe("useMarkdownFileTree", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(mockedCreateNativeMarkdownTreeFile).toHaveBeenCalledWith("/vault", "Daily note"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Create from template" }));
+    await waitFor(() =>
+      expect(mockedCreateNativeMarkdownTreeFile).toHaveBeenCalledWith("/vault", "Daily note", {
+        contents: "# Daily note\n",
+        parentPath: null
+      })
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
     await waitFor(() => expect(mockedCreateNativeMarkdownTreeFolder).toHaveBeenCalledWith("/vault", "Research"));

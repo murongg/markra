@@ -13,6 +13,7 @@ import {
   FileText,
   Folder,
   ImageIcon,
+  LayoutTemplate,
   ListChevronsDownUp,
   ListChevronsUpDown,
   PanelLeft,
@@ -30,9 +31,17 @@ import type { NativeMarkdownFolderFile } from "../lib/tauri";
 import { showNativeMarkdownFileTreeContextMenu } from "../lib/tauri";
 import { resolveDesktopPlatform, type DesktopPlatform } from "../lib/platform";
 import type { RecentMarkdownFolder } from "../lib/settings/app-settings";
+import {
+  markdownTemplateTitleFromFileName,
+  mergeMarkdownTemplates,
+  renderMarkdownTemplate,
+  suggestedMarkdownTemplateFileName,
+  type MarkdownTemplate
+} from "../lib/templates";
 
 type MarkdownFileTreeDrawerProps = {
   currentPath: string | null;
+  customTemplates?: readonly MarkdownTemplate[];
   files: NativeMarkdownFolderFile[];
   language?: AppLanguage;
   maxWidth?: number;
@@ -45,7 +54,7 @@ type MarkdownFileTreeDrawerProps = {
   rootPath?: string | null;
   rootName: string;
   width?: number;
-  onCreateFile?: (fileName: string, parentPath?: string | null) => unknown | Promise<unknown>;
+  onCreateFile?: (fileName: string, parentPath?: string | null, contents?: string) => unknown | Promise<unknown>;
   onCreateFolder?: (folderName: string, parentPath?: string | null) => unknown | Promise<unknown>;
   onDeleteFile?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   onOpenFile: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
@@ -57,6 +66,7 @@ type MarkdownFileTreeDrawerProps = {
   onResize?: (width: number) => unknown;
   onResizeEnd?: () => unknown;
   onResizeStart?: () => unknown;
+  onSaveFileAsTemplate?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   onSelectOutlineItem: (item: MarkdownOutlineItem, index: number) => unknown;
   onToggleMarkdownFiles?: () => unknown;
 };
@@ -77,6 +87,8 @@ type FileNode = {
 };
 
 type TreeNode = FolderNode | FileNode;
+
+const emptyMarkdownTemplates: readonly MarkdownTemplate[] = [];
 
 function sortTreeNodes(nodes: TreeNode[]) {
   nodes.sort((a, b) => {
@@ -229,6 +241,7 @@ const fileTreeContextRowSelectionClassName = "select-none [-webkit-user-select:n
 
 export function MarkdownFileTreeDrawer({
   currentPath,
+  customTemplates = emptyMarkdownTemplates,
   files,
   language = "en",
   maxWidth = 440,
@@ -253,6 +266,7 @@ export function MarkdownFileTreeDrawer({
   onResize,
   onResizeEnd,
   onResizeStart,
+  onSaveFileAsTemplate,
   onSelectOutlineItem,
   onToggleMarkdownFiles
 }: MarkdownFileTreeDrawerProps) {
@@ -270,13 +284,17 @@ export function MarkdownFileTreeDrawer({
   const [creatingFile, setCreatingFile] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [creatingParentPath, setCreatingParentPath] = useState<string | null>(null);
+  const [creatingTemplate, setCreatingTemplate] = useState<MarkdownTemplate | null>(null);
+  const [creatingTemplateStartedAt, setCreatingTemplateStartedAt] = useState<Date | null>(null);
   const [newFileName, setNewFileName] = useState("");
   const [newFolderName, setNewFolderName] = useState("");
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameFileName, setRenameFileName] = useState("");
   const fullTree = useMemo(() => buildMarkdownFileTree(files, rootPath), [files, rootPath]);
   const tree = useMemo(() => filterMarkdownFileTree(fullTree, searchQuery), [fullTree, searchQuery]);
   const folderPaths = useMemo(() => collectMarkdownFolderPaths(fullTree), [fullTree]);
+  const availableMarkdownTemplates = useMemo(() => mergeMarkdownTemplates(customTemplates), [customTemplates]);
   const label = (key: Parameters<typeof t>[1]) => t(language, key);
   const drawerStateClass = open
     ? "translate-x-0 opacity-100"
@@ -328,16 +346,20 @@ export function MarkdownFileTreeDrawer({
     });
   };
 
-  const startCreatingFile = (parentPath: string | null = null) => {
+  const startCreatingFile = (parentPath: string | null = null, template: MarkdownTemplate | null = null) => {
     if (!fileCreationAvailable) return;
 
+    const startedAt = new Date();
     setCreatingFolder(false);
     setNewFolderName("");
     setRenamingPath(null);
     setRenameFileName("");
     setCreatingParentPath(normalizeCreateParentPath(parentPath));
+    setCreatingTemplate(template);
+    setCreatingTemplateStartedAt(template ? startedAt : null);
     setCreatingFile(true);
-    setNewFileName("");
+    setNewFileName(template ? suggestedMarkdownTemplateFileName(template, { now: startedAt, title: "" }) : "");
+    setTemplateMenuOpen(false);
   };
 
   const startCreatingFolder = (parentPath: string | null = null) => {
@@ -345,11 +367,14 @@ export function MarkdownFileTreeDrawer({
 
     setCreatingFile(false);
     setNewFileName("");
+    setCreatingTemplate(null);
+    setCreatingTemplateStartedAt(null);
     setRenamingPath(null);
     setRenameFileName("");
     setCreatingParentPath(normalizeCreateParentPath(parentPath));
     setCreatingFolder(true);
     setNewFolderName("");
+    setTemplateMenuOpen(false);
   };
 
   const commitCreateFolder = () => {
@@ -381,25 +406,43 @@ export function MarkdownFileTreeDrawer({
       setCreatingFile(false);
       setNewFileName("");
       setCreatingParentPath(null);
+      setCreatingTemplate(null);
+      setCreatingTemplateStartedAt(null);
       return;
     }
 
-    if (creatingParentPath) {
+    const contents = creatingTemplate
+      ? renderMarkdownTemplate(creatingTemplate, {
+        now: creatingTemplateStartedAt ?? new Date(),
+        title: markdownTemplateTitleFromFileName(normalizedName)
+      })
+      : undefined;
+
+    if (creatingParentPath && contents !== undefined) {
+      onCreateFile?.(normalizedName, creatingParentPath, contents);
+    } else if (creatingParentPath) {
       onCreateFile?.(normalizedName, creatingParentPath);
+    } else if (contents !== undefined) {
+      onCreateFile?.(normalizedName, undefined, contents);
     } else {
       onCreateFile?.(normalizedName);
     }
     setCreatingFile(false);
     setNewFileName("");
     setCreatingParentPath(null);
+    setCreatingTemplate(null);
+    setCreatingTemplateStartedAt(null);
   };
 
   const startRenamingFile = (file: NativeMarkdownFolderFile) => {
     setCreatingFile(false);
     setNewFileName("");
+    setCreatingTemplate(null);
+    setCreatingTemplateStartedAt(null);
     setCreatingFolder(false);
     setNewFolderName("");
     setCreatingParentPath(null);
+    setTemplateMenuOpen(false);
     setRenamingPath(file.path);
     setRenameFileName(file.name);
   };
@@ -420,9 +463,12 @@ export function MarkdownFileTreeDrawer({
   const cancelFileTreeInputs = () => {
     setCreatingFile(false);
     setNewFileName("");
+    setCreatingTemplate(null);
+    setCreatingTemplateStartedAt(null);
     setCreatingFolder(false);
     setNewFolderName("");
     setCreatingParentPath(null);
+    setTemplateMenuOpen(false);
     setRenamingPath(null);
     setRenameFileName("");
   };
@@ -460,12 +506,20 @@ export function MarkdownFileTreeDrawer({
       {
         canOpenFileToSide: (targetFile) => targetFile.path !== currentPath,
         createFile: fileCreationAvailable ? () => startCreatingFile(createTargetFolderPath) : undefined,
+        createFileFromTemplates: fileCreationAvailable
+          ? availableMarkdownTemplates.map((template) => ({
+            create: () => startCreatingFile(createTargetFolderPath, template),
+            id: template.id,
+            name: template.name
+          }))
+          : undefined,
         createFolder: folderCreationAvailable ? () => startCreatingFolder(createTargetFolderPath) : undefined,
         deleteFile: (targetFile) => {
           onDeleteFile?.(targetFile);
         },
         openFileToSide: onOpenFileToSide,
-        renameFile: startRenamingFile
+        renameFile: startRenamingFile,
+        saveFileAsTemplate: onSaveFileAsTemplate
       },
       language,
       file
@@ -639,7 +693,7 @@ export function MarkdownFileTreeDrawer({
       <>
         {creatingFile ? (
           <li key="__creating-file">
-            <div className={`relative grid h-8 grid-cols-[17px_minmax(0,1fr)] items-center gap-1.5 py-0 pr-2 text-[13px] leading-none text-(--text-secondary) ${rowIndentClass} ${rowBranchClass}`}>
+            <div className={`relative grid h-8 ${creatingTemplate ? "grid-cols-[17px_minmax(0,1fr)_auto]" : "grid-cols-[17px_minmax(0,1fr)]"} items-center gap-1.5 py-0 pr-2 text-[13px] leading-none text-(--text-secondary) ${rowIndentClass} ${rowBranchClass}`}>
               <FileText aria-hidden="true" className="shrink-0" size={15} />
               <input
                 aria-label={label("app.newMarkdownFileName")}
@@ -661,9 +715,16 @@ export function MarkdownFileTreeDrawer({
                     setCreatingFile(false);
                     setNewFileName("");
                     setCreatingParentPath(null);
+                    setCreatingTemplate(null);
+                    setCreatingTemplateStartedAt(null);
                   }
                 }}
               />
+              {creatingTemplate ? (
+                <span className="max-w-24 truncate rounded-sm bg-(--bg-active) px-1.5 text-[11px] leading-5 text-(--text-secondary)">
+                  {creatingTemplate.name}
+                </span>
+              ) : null}
             </div>
           </li>
         ) : null}
@@ -1020,6 +1081,41 @@ export function MarkdownFileTreeDrawer({
                     >
                       <Plus aria-hidden="true" size={14} />
                     </IconButton>
+                    <div className="relative">
+                      <IconButton
+                        className="rounded-md"
+                        label={label("app.newMarkdownFileFromTemplate")}
+                        pressed={templateMenuOpen}
+                        onClick={() => setTemplateMenuOpen((open) => !open)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setTemplateMenuOpen(false);
+                          }
+                        }}
+                      >
+                        <LayoutTemplate aria-hidden="true" size={14} />
+                      </IconButton>
+                      {templateMenuOpen ? (
+                        <div
+                          className="absolute top-8 right-0 z-40 min-w-40 rounded-md border border-(--border-default) bg-(--bg-primary) py-1 shadow-[0_12px_30px_color-mix(in_srgb,var(--text-heading)_14%,transparent)]"
+                          role="menu"
+                          aria-label={label("app.newMarkdownFileFromTemplate")}
+                        >
+                          {availableMarkdownTemplates.map((template, index) => (
+                            <button
+                              key={`${template.id}-${index}`}
+                              className="flex h-7 w-full items-center gap-2 border-0 bg-transparent px-2.5 text-left text-[12px] leading-none text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none"
+                              role="menuitem"
+                              type="button"
+                              onClick={() => startCreatingFile(null, template)}
+                            >
+                              {template.name}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   </>
                 ) : folderExpansionAvailable ? (
                   <IconButton

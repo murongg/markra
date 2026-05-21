@@ -15,6 +15,7 @@ import {
   listenNativeOpenedMarkdownPaths,
   readNativeMarkdownImageFile,
   readNativeMarkdownFile,
+  readNativeMarkdownTemplateFile,
   resolveNativeMarkdownPath,
   saveNativeHtmlFile,
   saveNativeMarkdownFile,
@@ -26,6 +27,7 @@ import {
   takeNativeOpenedMarkdownPaths,
   renameNativeMarkdownTreeFile,
   watchNativeMarkdownFile,
+  writeNativeMarkdownTemplateFile,
   watchNativeMarkdownTree
 } from "../lib/tauri";
 import {
@@ -111,6 +113,7 @@ vi.mock("../lib/tauri", () => ({
   listenNativeOpenedMarkdownPaths: vi.fn(),
   readNativeMarkdownImageFile: vi.fn(),
   readNativeMarkdownFile: vi.fn(),
+  readNativeMarkdownTemplateFile: vi.fn(),
   requestNativeAiJson: vi.fn(),
   requestNativeChat: vi.fn(),
   requestNativeChatStream: vi.fn(),
@@ -126,6 +129,7 @@ vi.mock("../lib/tauri", () => ({
   uploadNativeS3Image: vi.fn(),
   uploadNativeWebDavImage: vi.fn(),
   watchNativeMarkdownFile: vi.fn(),
+  writeNativeMarkdownTemplateFile: vi.fn(),
   watchNativeMarkdownTree: vi.fn(),
   listNativeMarkdownFilesForPath: vi.fn(),
   takeNativeOpenedMarkdownPaths: vi.fn(),
@@ -472,6 +476,7 @@ export const mockedOpenNativeMarkdownPath = vi.mocked(openNativeMarkdownPath);
 export const mockedListenNativeOpenedMarkdownPaths = vi.mocked(listenNativeOpenedMarkdownPaths);
 export const mockedReadNativeMarkdownImageFile = vi.mocked(readNativeMarkdownImageFile);
 export const mockedReadNativeMarkdownFile = vi.mocked(readNativeMarkdownFile);
+export const mockedReadNativeMarkdownTemplateFile = vi.mocked(readNativeMarkdownTemplateFile);
 export const mockedResolveNativeMarkdownPath = vi.mocked(resolveNativeMarkdownPath);
 export const mockedSaveNativeHtmlFile = vi.mocked(saveNativeHtmlFile);
 export const mockedSaveNativeMarkdownFile = vi.mocked(saveNativeMarkdownFile);
@@ -483,6 +488,7 @@ export const mockedListNativeMarkdownFilesForPath = vi.mocked(listNativeMarkdown
 export const mockedTakeNativeOpenedMarkdownPaths = vi.mocked(takeNativeOpenedMarkdownPaths);
 export const mockedRenameNativeMarkdownTreeFile = vi.mocked(renameNativeMarkdownTreeFile);
 export const mockedWatchNativeMarkdownFile = vi.mocked(watchNativeMarkdownFile);
+export const mockedWriteNativeMarkdownTemplateFile = vi.mocked(writeNativeMarkdownTemplateFile);
 export const mockedWatchNativeMarkdownTree = vi.mocked(watchNativeMarkdownTree);
 export const mockedInstallNativeApplicationMenu = vi.mocked(installNativeApplicationMenu);
 export const mockedInstallNativeEditorContextMenu = vi.mocked(installNativeEditorContextMenu);
@@ -627,6 +633,7 @@ export function installAppTestHarness() {
     mockedListenNativeOpenedMarkdownPaths.mockReset();
     mockedReadNativeMarkdownImageFile.mockReset();
     mockedReadNativeMarkdownFile.mockReset();
+    mockedReadNativeMarkdownTemplateFile.mockReset();
     mockedResolveNativeMarkdownPath.mockReset();
     mockedSaveNativeHtmlFile.mockReset();
     mockedSaveNativePdfFile.mockReset();
@@ -637,6 +644,7 @@ export function installAppTestHarness() {
     mockedListNativeMarkdownFilesForPath.mockReset();
     mockedTakeNativeOpenedMarkdownPaths.mockReset();
     mockedWatchNativeMarkdownFile.mockReset();
+    mockedWriteNativeMarkdownTemplateFile.mockReset();
     mockedWatchNativeMarkdownTree.mockReset();
     mockedInstallNativeApplicationMenu.mockReset();
     mockedInstallNativeEditorContextMenu.mockReset();
@@ -712,6 +720,8 @@ export function installAppTestHarness() {
       path: "/mock-files/assets/image.png",
       src: "assets/image.png"
     });
+    mockedReadNativeMarkdownTemplateFile.mockRejectedValue(new Error("template file is not mocked"));
+    mockedWriteNativeMarkdownTemplateFile.mockResolvedValue(undefined);
     mockedResolveNativeMarkdownPath.mockImplementation(async (path) => ({
       kind: path === mockFolderPath ? "folder" : "file",
       name: path === mockFolderPath ? "vault" : path.split("/").pop() ?? path,
@@ -809,6 +819,7 @@ export function installAppTestHarness() {
       },
       lineHeight: 1.65,
       markdownShortcuts: defaultMarkdownShortcuts,
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,

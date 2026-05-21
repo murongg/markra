@@ -21,10 +21,16 @@ export type NativeMenuHandlers = Partial<Record<NativeMenuCommand, () => unknown
 export type NativeMarkdownFileTreeContextMenuHandlers = {
   canOpenFileToSide?: (file: NativeMarkdownFolderFile) => boolean;
   createFile?: () => unknown | Promise<unknown>;
+  createFileFromTemplates?: Array<{
+    create: () => unknown | Promise<unknown>;
+    id: string;
+    name: string;
+  }>;
   createFolder?: () => unknown | Promise<unknown>;
   deleteFile?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   openFileToSide?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   renameFile?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
+  saveFileAsTemplate?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
 };
 
 export type NativeEditorContextMenuOptions = {
@@ -324,8 +330,19 @@ export function createNativeMarkdownFileTreeContextMenuItems(
   const label = (key: I18nKey) => menuLabel(language, key);
   const fileIsFolder = file?.kind === "folder";
   const fileIsAsset = file?.kind === "asset";
-  const items: Array<MenuItemOptions | PredefinedMenuItemOptions> = [
+  const templateItems = handlers.createFileFromTemplates?.map((template) =>
+    customItem(
+      `markra:file-tree:new-from-template:${template.id}`,
+      template.name,
+      undefined,
+      template.create
+    )
+  ) ?? [];
+  const items: Array<MenuItemOptions | PredefinedMenuItemOptions | SubmenuOptions> = [
     customItem("markra:file-tree:new", label("app.newMarkdownFile"), undefined, handlers.createFile),
+    ...(templateItems.length > 0
+      ? [submenu("markra:file-tree:new-from-template", label("app.newMarkdownFileFromTemplate"), templateItems)]
+      : []),
     customItem("markra:file-tree:new-folder", label("app.newMarkdownFolder"), undefined, handlers.createFolder)
   ];
 
@@ -350,6 +367,16 @@ export function createNativeMarkdownFileTreeContextMenuItems(
         undefined,
         canOpenFileToSide ? () => handlers.openFileToSide?.(file) : undefined,
         canOpenFileToSide
+      )
+    );
+  }
+  if (!fileIsAsset && handlers.saveFileAsTemplate) {
+    items.push(
+      customItem(
+        "markra:file-tree:save-as-template",
+        label("app.saveMarkdownFileAsTemplate"),
+        undefined,
+        () => handlers.saveFileAsTemplate?.(file)
       )
     );
   }

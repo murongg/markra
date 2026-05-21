@@ -6,52 +6,53 @@ function translate(key: Parameters<typeof t>[1]) {
   return t("en", key);
 }
 
+function renderSettingsSidebar(onCategoryChange = vi.fn()) {
+  render(
+    <SettingsSidebar
+      activeCategory="general"
+      appVersion="9.9.9"
+      platform="macos"
+      translate={translate}
+      onCategoryChange={onCategoryChange}
+    />
+  );
+
+  return onCategoryChange;
+}
+
 describe("SettingsShell", () => {
   it("shows keyboard shortcuts as its own settings category", () => {
-    const onCategoryChange = vi.fn();
-
-    render(
-      <SettingsSidebar
-        activeCategory="general"
-        platform="macos"
-        translate={translate}
-        onCategoryChange={onCategoryChange}
-      />
-    );
+    const onCategoryChange = renderSettingsSidebar();
 
     fireEvent.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
 
     expect(onCategoryChange).toHaveBeenCalledWith("keyboardShortcuts");
   });
 
-  it("shows storage as its own settings category", () => {
-    const onCategoryChange = vi.fn();
+  it("shows the configured app version in the sidebar footer", () => {
+    renderSettingsSidebar();
 
-    render(
-      <SettingsSidebar
-        activeCategory="general"
-        platform="macos"
-        translate={translate}
-        onCategoryChange={onCategoryChange}
-      />
-    );
+    expect(screen.getByText("Markra v9.9.9")).toBeInTheDocument();
+  });
+
+  it("shows storage as its own settings category", () => {
+    const onCategoryChange = renderSettingsSidebar();
 
     fireEvent.click(screen.getByRole("button", { name: "Storage" }));
 
     expect(onCategoryChange).toHaveBeenCalledWith("storage");
   });
 
-  it("shows AI and providers as separate settings categories", () => {
-    const onCategoryChange = vi.fn();
+  it("shows templates as its own settings category", () => {
+    const onCategoryChange = renderSettingsSidebar();
 
-    render(
-      <SettingsSidebar
-        activeCategory="general"
-        platform="macos"
-        translate={translate}
-        onCategoryChange={onCategoryChange}
-      />
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Templates" }));
+
+    expect(onCategoryChange).toHaveBeenCalledWith("templates");
+  });
+
+  it("shows AI and providers as separate settings categories", () => {
+    const onCategoryChange = renderSettingsSidebar();
 
     fireEvent.click(screen.getByRole("button", { name: "AI" }));
     fireEvent.click(screen.getByRole("button", { name: "Providers" }));
@@ -78,6 +79,16 @@ describe("SettingsShell", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Storage" })).toBeInTheDocument();
+  });
+
+  it("uses the templates category title for the active panel", () => {
+    render(
+      <SettingsContent activeCategory="templates" translate={translate}>
+        <div />
+      </SettingsContent>
+    );
+
+    expect(screen.getByRole("heading", { name: "Templates" })).toBeInTheDocument();
   });
 
   it("uses the provider category title for the provider panel", () => {

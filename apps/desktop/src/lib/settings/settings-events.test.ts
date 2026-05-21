@@ -144,6 +144,7 @@ describe("settings events", () => {
       },
       lineHeight: 1.8,
       markdownShortcuts: defaultMarkdownShortcuts,
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: false,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,

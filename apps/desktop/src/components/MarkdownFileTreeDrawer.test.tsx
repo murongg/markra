@@ -530,6 +530,120 @@ describe("MarkdownFileTreeDrawer", () => {
     expect(renameFile).toHaveBeenCalledWith(markdownFiles[0], "Renamed.md");
   });
 
+  it("starts a markdown file from a lightweight template", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-21T09:30:00"));
+    const createFile = vi.fn();
+
+    try {
+      render(
+        <MarkdownFileTreeDrawer
+          currentPath="/vault/Untitled.md"
+          files={markdownFiles}
+          open
+          outlineItems={[]}
+          rootName="Obsidian Vault"
+          onCreateFile={createFile}
+          onOpenFile={() => {}}
+          onSelectOutlineItem={() => {}}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "New from template" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Daily note" }));
+
+      const newFileInput = screen.getByRole("textbox", { name: "New file name" });
+
+      expect(newFileInput).toHaveValue("2026-05-21");
+      expect(screen.getByText("Daily note")).toBeInTheDocument();
+
+      fireEvent.keyDown(newFileInput, { key: "Enter" });
+
+      expect(createFile).toHaveBeenCalledWith(
+        "2026-05-21",
+        undefined,
+        expect.stringContaining("# 2026-05-21")
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts a markdown file from a custom template", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-21T09:30:00"));
+    const createFile = vi.fn();
+
+    try {
+      render(
+        <MarkdownFileTreeDrawer
+          currentPath="/vault/Untitled.md"
+          customTemplates={[
+            {
+              id: "standup",
+              name: "Standup",
+              suggestedName: "{{date}} standup",
+              content: "# {{title}}\n\n## Yesterday"
+            }
+          ]}
+          files={markdownFiles}
+          open
+          outlineItems={[]}
+          rootName="Obsidian Vault"
+          onCreateFile={createFile}
+          onOpenFile={() => {}}
+          onSelectOutlineItem={() => {}}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "New from template" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Standup" }));
+
+      const newFileInput = screen.getByRole("textbox", { name: "New file name" });
+
+      expect(newFileInput).toHaveValue("2026-05-21 standup");
+
+      fireEvent.keyDown(newFileInput, { key: "Enter" });
+
+      expect(createFile).toHaveBeenCalledWith(
+        "2026-05-21 standup",
+        undefined,
+        expect.stringContaining("## Yesterday")
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses edited built-in templates without showing the original duplicate", () => {
+    render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        customTemplates={[
+          {
+            id: "daily-note",
+            name: "Daily note edited",
+            suggestedName: "{{date}} edited",
+            content: "# Edited daily"
+          }
+        ]}
+        files={markdownFiles}
+        open
+        outlineItems={[]}
+        rootName="Obsidian Vault"
+        onCreateFile={vi.fn()}
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New from template" }));
+
+    expect(screen.getByRole("menuitem", { name: "Daily note edited" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Daily note" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Meeting note" })).toBeInTheDocument();
+  });
+
   it("cancels the rename input when the blank file tree area is clicked", () => {
     const renameFile = vi.fn();
 
@@ -600,6 +714,81 @@ describe("MarkdownFileTreeDrawer", () => {
     fireEvent.keyDown(newFolderInput, { key: "Enter" });
 
     expect(createFolder).toHaveBeenCalledWith("Research");
+  });
+
+  it("starts template creation from the native file tree context menu", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-21T09:30:00"));
+    const createFile = vi.fn();
+
+    try {
+      render(
+        <MarkdownFileTreeDrawer
+          currentPath="/vault/Untitled.md"
+          files={markdownFiles}
+          open
+          outlineItems={[]}
+          rootName="Obsidian Vault"
+          onCreateFile={createFile}
+          onOpenFile={() => {}}
+          onSelectOutlineItem={() => {}}
+        />
+      );
+
+      fireEvent.contextMenu(screen.getByText("Obsidian Vault"));
+      const contextHandlers = mockedShowNativeMarkdownFileTreeContextMenu.mock.calls[0]?.[0];
+
+      act(() => {
+        contextHandlers?.createFileFromTemplates?.[0]?.create();
+      });
+
+      const newFileInput = screen.getByRole("textbox", { name: "New file name" });
+      expect(newFileInput).toHaveValue("2026-05-21");
+
+      fireEvent.keyDown(newFileInput, { key: "Enter" });
+
+      expect(createFile).toHaveBeenCalledWith(
+        "2026-05-21",
+        undefined,
+        expect.stringContaining("Date: 2026-05-21")
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("saves a markdown file as a template from the native file tree context menu", () => {
+    const saveFileAsTemplate = vi.fn();
+
+    render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        open
+        outlineItems={[]}
+        rootName="Obsidian Vault"
+        onOpenFile={() => {}}
+        onSaveFileAsTemplate={saveFileAsTemplate}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "AWS.md" }));
+
+    expect(mockedShowNativeMarkdownFileTreeContextMenu).toHaveBeenCalledWith(
+      expect.objectContaining({
+        saveFileAsTemplate: expect.any(Function)
+      }),
+      "en",
+      markdownFiles[1]
+    );
+
+    const contextHandlers = mockedShowNativeMarkdownFileTreeContextMenu.mock.calls[0]?.[0];
+    act(() => {
+      contextHandlers?.saveFileAsTemplate?.(markdownFiles[1]);
+    });
+
+    expect(saveFileAsTemplate).toHaveBeenCalledWith(markdownFiles[1]);
   });
 
   it("creates folders inside the folder selected from the context menu", () => {

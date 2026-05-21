@@ -183,6 +183,7 @@ describe("app settings", () => {
       },
       lineHeight: 1.65,
       markdownShortcuts: defaultMarkdownShortcuts,
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
@@ -384,6 +385,21 @@ describe("app settings", () => {
         italic: "Mod+S",
         quote: "Shift+B"
       },
+      markdownTemplates: [
+        {
+          content: "# legacy content is migrated to the template file layer",
+          fileName: " standup.md ",
+          id: " standup ",
+          name: " Standup ",
+          suggestedName: " {{date}} standup "
+        },
+        {
+          fileName: "../unsafe.md",
+          id: "",
+          name: "",
+          suggestedName: ""
+        }
+      ],
       restoreWorkspaceOnStartup: false,
       showWordCount: false
     });
@@ -422,6 +438,14 @@ describe("app settings", () => {
         ...defaultMarkdownShortcuts,
         bold: "Mod+Alt+B"
       },
+      markdownTemplates: [
+        {
+          fileName: "standup.md",
+          id: "standup",
+          name: "Standup",
+          suggestedName: "{{date}} standup"
+        }
+      ],
       restoreWorkspaceOnStartup: false,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
@@ -675,6 +699,7 @@ describe("app settings", () => {
       },
       lineHeight: 1.65,
       markdownShortcuts: defaultMarkdownShortcuts,
+      markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
@@ -725,6 +750,14 @@ describe("app settings", () => {
         ...defaultMarkdownShortcuts,
         bold: "Mod+Alt+B"
       },
+      markdownTemplates: [
+        {
+          fileName: "weekly-review.md",
+          id: "weekly-review",
+          name: "Weekly review",
+          suggestedName: "{{date}} weekly"
+        }
+      ],
       restoreWorkspaceOnStartup: false,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: false,
@@ -773,6 +806,14 @@ describe("app settings", () => {
         ...defaultMarkdownShortcuts,
         bold: "Mod+Alt+B"
       },
+      markdownTemplates: [
+        {
+          fileName: "weekly-review.md",
+          id: "weekly-review",
+          name: "Weekly review",
+          suggestedName: "{{date}} weekly"
+        }
+      ],
       restoreWorkspaceOnStartup: false,
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: false,

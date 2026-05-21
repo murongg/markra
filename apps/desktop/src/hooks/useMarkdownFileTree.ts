@@ -168,13 +168,22 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     forgetRecentFolder(folder.path);
   }, [forgetRecentFolder]);
 
-  const createFile = useCallback(async (fileName: string, parentPath: string | null = null) => {
+  const createFile = useCallback(async (fileName: string, parentPath: string | null = null, contents?: string) => {
     if (!sourcePath) return null;
 
     const normalizedParentPath = normalizeTreeParentPath(parentPath);
-    const file = normalizedParentPath
-      ? await createNativeMarkdownTreeFile(sourcePath, fileName, normalizedParentPath)
-      : await createNativeMarkdownTreeFile(sourcePath, fileName);
+    let file: NativeMarkdownFolderFile;
+
+    if (normalizedParentPath && contents !== undefined) {
+      file = await createNativeMarkdownTreeFile(sourcePath, fileName, { contents, parentPath: normalizedParentPath });
+    } else if (normalizedParentPath) {
+      file = await createNativeMarkdownTreeFile(sourcePath, fileName, normalizedParentPath);
+    } else if (contents === undefined) {
+      file = await createNativeMarkdownTreeFile(sourcePath, fileName);
+    } else {
+      file = await createNativeMarkdownTreeFile(sourcePath, fileName, { contents, parentPath: null });
+    }
+
     await refresh(sourcePath);
     return file;
   }, [refresh, sourcePath]);

@@ -96,10 +96,18 @@ import {
   downloadNativeWebImage,
   readNativeMarkdownImageFile,
   readNativeMarkdownFile,
+  readNativeMarkdownTemplateFile,
   saveNativeHtmlFile,
   saveNativePdfFile,
+  writeNativeMarkdownTemplateFile,
   type NativeMarkdownFolderFile
 } from "./lib/tauri";
+import {
+  createCustomMarkdownTemplateFromFile,
+  loadMarkdownTemplatesFromEntries,
+  markdownTemplateEntryFromTemplate,
+  type MarkdownTemplate
+} from "./lib/templates";
 
 const aiAgentPanelDefaultWidth = 384;
 const aiAgentPanelMinWidth = 320;
@@ -200,6 +208,7 @@ export default function App() {
   const editorPreferences = useEditorPreferences();
   const exportSettings = useExportSettings();
   const webSearchSettings = useWebSearchSettings();
+  const [markdownTemplates, setMarkdownTemplates] = useState<MarkdownTemplate[]>([]);
   const [aiAgentSessionId, setAiAgentSessionId] = useState<string | null>(null);
   const [aiAgentOpen, setAiAgentOpen] = useState(false);
   const [aiAgentPanelWidth, setAiAgentPanelWidth] = useState(aiAgentPanelDefaultWidth);
@@ -256,6 +265,23 @@ export default function App() {
     webSearchEnabled: false
   });
   const translate = useCallback((key: I18nKey) => t(appLanguage.language, key), [appLanguage.language]);
+  useEffect(() => {
+    let cancelled = false;
+
+    loadMarkdownTemplatesFromEntries(
+      editorPreferences.preferences.markdownTemplates,
+      readNativeMarkdownTemplateFile
+    ).then((templates) => {
+      if (!cancelled) setMarkdownTemplates(templates);
+    }).catch(() => {
+      if (!cancelled) setMarkdownTemplates([]);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editorPreferences.preferences.markdownTemplates]);
+
   const editor = useEditorController();
   const getEditorCurrentMarkdown = editor.getCurrentMarkdown;
   const handleMilkdownEditorReady = editor.handleEditorReady;
@@ -1292,9 +1318,13 @@ export default function App() {
       .then(() => notifyAppEditorPreferencesChanged(nextPreferences))
       .catch(() => {});
   }, [editorPreferences.preferences]);
-  const handleCreateMarkdownTreeFile = useCallback(async (fileName: string, parentPath: string | null = null) => {
+  const handleCreateMarkdownTreeFile = useCallback(async (
+    fileName: string,
+    parentPath: string | null = null,
+    contents?: string
+  ) => {
     try {
-      const file = await createMarkdownTreeFile(fileName, parentPath);
+      const file = await createMarkdownTreeFile(fileName, parentPath, contents);
       if (file) {
         captureActiveDocumentViewState();
         setActiveImageFile(null);
@@ -1360,6 +1390,54 @@ export default function App() {
       // Leave the file visible when native deletion fails.
     }
   }, [deleteMarkdownTreeFile, detachDeletedDocumentFile, translate]);
+  const handleSaveMarkdownFileAsTemplate = useCallback(async (file: NativeMarkdownFolderFile) => {
+    if (file.kind === "asset" || file.kind === "folder") return;
+
+    try {
+      const markdownFile = await readNativeMarkdownFile(file.path);
+      if (!markdownFile.content.trim()) {
+        showAppToast({
+          message: translate("app.markdownTemplateSaveFailed"),
+          status: "error"
+        });
+        return;
+      }
+
+      const template = createCustomMarkdownTemplateFromFile(markdownFile, [
+        ...editorPreferences.preferences.markdownTemplates,
+        ...markdownTemplates
+      ]);
+      const templateEntry = markdownTemplateEntryFromTemplate(template);
+      const storedMarkdownTemplates = [
+        ...editorPreferences.preferences.markdownTemplates,
+        templateEntry
+      ];
+      const nextPreferences = {
+        ...editorPreferences.preferences,
+        markdownTemplates: storedMarkdownTemplates
+      };
+
+      await writeNativeMarkdownTemplateFile(templateEntry.fileName, template.content);
+      await saveStoredEditorPreferences(nextPreferences);
+      notifyAppEditorPreferencesChanged(nextPreferences).catch(() => {});
+      setMarkdownTemplates((currentTemplates) => [
+        ...currentTemplates,
+        {
+          ...template,
+          fileName: templateEntry.fileName
+        }
+      ]);
+      showAppToast({
+        message: translate("app.markdownTemplateSaved"),
+        status: "success"
+      });
+    } catch {
+      showAppToast({
+        message: translate("app.markdownTemplateSaveFailed"),
+        status: "error"
+      });
+    }
+  }, [editorPreferences.preferences, markdownTemplates, translate]);
   const handleOpenTreeFile = useCallback(async (file: NativeMarkdownFolderFile) => {
     captureActiveDocumentViewState();
 
@@ -2098,6 +2176,7 @@ export default function App() {
           <div className="markdown-file-tree-slot min-h-0 overflow-hidden">
             <MarkdownFileTreeDrawer
               currentPath={activeImageFile?.path ?? (hasOpenDocument ? document.path : null)}
+              customTemplates={markdownTemplates}
               files={fileTreeFiles}
               folderOpen={Boolean(fileTree.sourcePath)}
               language={appLanguage.language}
@@ -2125,6 +2204,7 @@ export default function App() {
               onResize={resizeFileTree}
               onResizeEnd={endFileTreeResize}
               onResizeStart={startFileTreeResize}
+              onSaveFileAsTemplate={handleSaveMarkdownFileAsTemplate}
               onSelectOutlineItem={editor.selectOutlineItem}
               onToggleMarkdownFiles={handleFileTreeToggle}
             />

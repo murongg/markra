@@ -8,6 +8,7 @@ import {
   GeneralSettings,
   KeyboardShortcutsSettings,
   StorageSettings,
+  TemplatesSettings,
   WebSearchSettings
 } from "./SettingsSections";
 import { SettingsContent, SettingsSidebar } from "./SettingsShell";
@@ -30,13 +31,17 @@ export function SettingsWindow() {
     exportSettings,
     handleAddAiProvider,
     handleFetchAiProviderModels,
+    handleCreateMarkdownTemplate,
+    handleDeleteMarkdownTemplate,
     handleResetWelcomeDocument,
     handleSaveAiSettings,
     handleTestAiProvider,
     handleUpdateAiSettings,
     handleUpdateEditorPreferences,
+    handleUpdateMarkdownTemplate,
     handleUpdateExportSettings,
     handleUpdateWebSearchSettings,
+    markdownTemplates,
     selectedAiProvider,
     setActiveCategory,
     setSelectedAiProviderId,
@@ -69,6 +74,7 @@ export function SettingsWindow() {
       <div className="settings-layout grid h-screen grid-cols-[180px_minmax(0,1fr)]">
         <SettingsSidebar
           activeCategory={activeCategory}
+          appVersion={appVersion}
           platform={platform}
           translate={translate}
           onCategoryChange={setActiveCategory}
@@ -137,6 +143,16 @@ export function SettingsWindow() {
               preferences={editorPreferences}
               translate={translate}
               onUpdatePreferences={handleUpdateEditorPreferences}
+            />
+          ) : null}
+          {activeCategory === "templates" ? (
+            <TemplatesSettings
+              preferences={editorPreferences}
+              templates={markdownTemplates}
+              translate={translate}
+              onCreateTemplate={handleCreateMarkdownTemplate}
+              onDeleteTemplate={handleDeleteMarkdownTemplate}
+              onUpdateTemplate={handleUpdateMarkdownTemplate}
             />
           ) : null}
           {activeCategory === "keyboardShortcuts" ? (

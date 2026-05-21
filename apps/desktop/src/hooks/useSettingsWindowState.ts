@@ -35,7 +35,17 @@ import {
   notifyAppExportSettingsChanged,
   notifyAppWebSearchSettingsChanged
 } from "../lib/settings/settings-events";
-import { requestNativeAiJson } from "../lib/tauri";
+import {
+  deleteNativeMarkdownTemplateFile,
+  readNativeMarkdownTemplateFile,
+  requestNativeAiJson,
+  writeNativeMarkdownTemplateFile
+} from "../lib/tauri";
+import {
+  loadMarkdownTemplatesFromEntries,
+  markdownTemplateEntryFromTemplate,
+  type MarkdownTemplate
+} from "../lib/templates";
 import { useAppLanguage } from "./useAppLanguage";
 import { useAppTheme } from "./useAppTheme";
 
@@ -47,6 +57,7 @@ export type SettingsCategory =
   | "storage"
   | "appearance"
   | "editor"
+  | "templates"
   | "keyboardShortcuts"
   | "export";
 
@@ -57,6 +68,7 @@ export function useSettingsWindowState() {
   const [aiSettings, setAiSettings] = useState<AiProviderSettings>(() => createDefaultAiSettings());
   const [aiSettingsSaved, setAiSettingsSaved] = useState(false);
   const [editorPreferences, setEditorPreferences] = useState<EditorPreferences>(defaultEditorPreferences);
+  const [markdownTemplates, setMarkdownTemplates] = useState<MarkdownTemplate[]>([]);
   const [exportSettings, setExportSettings] = useState<ExportSettings>(defaultExportSettings);
   const [webSearchSettings, setWebSearchSettings] = useState<WebSearchSettings>(defaultWebSearchSettings);
   const [selectedAiProviderId, setSelectedAiProviderId] = useState<string | undefined>(
@@ -124,11 +136,29 @@ export function useSettingsWindowState() {
     let stopListening: (() => unknown) | null = null;
 
     getStoredEditorPreferences().then((preferences) => {
-      if (!cancelled) setEditorPreferences(preferences);
+      if (cancelled) return;
+
+      setEditorPreferences(preferences);
+      loadMarkdownTemplatesFromEntries(preferences.markdownTemplates, readNativeMarkdownTemplateFile)
+        .then((templates) => {
+          if (!cancelled) setMarkdownTemplates(templates);
+        })
+        .catch(() => {
+          if (!cancelled) setMarkdownTemplates([]);
+        });
     }).catch(() => {});
 
     listenAppEditorPreferencesChanged((preferences) => {
-      if (!cancelled) setEditorPreferences(preferences);
+      if (cancelled) return;
+
+      setEditorPreferences(preferences);
+      loadMarkdownTemplatesFromEntries(preferences.markdownTemplates, readNativeMarkdownTemplateFile)
+        .then((templates) => {
+          if (!cancelled) setMarkdownTemplates(templates);
+        })
+        .catch(() => {
+          if (!cancelled) setMarkdownTemplates([]);
+        });
     }).then((cleanup) => {
       if (cancelled) {
         cleanup();
@@ -196,6 +226,54 @@ export function useSettingsWindowState() {
       .catch(() => {});
   }, []);
 
+  const handleSaveMarkdownTemplate = useCallback((template: MarkdownTemplate) => {
+    const entry = markdownTemplateEntryFromTemplate(template);
+    const nextPreferences = {
+      ...editorPreferences,
+      markdownTemplates: editorPreferences.markdownTemplates.some((storedTemplate) => storedTemplate.id === entry.id)
+        ? editorPreferences.markdownTemplates.map((storedTemplate) => storedTemplate.id === entry.id ? entry : storedTemplate)
+        : [...editorPreferences.markdownTemplates, entry]
+    };
+    const nextTemplate = {
+      ...template,
+      fileName: entry.fileName
+    };
+
+    setEditorPreferences(nextPreferences);
+    setMarkdownTemplates((currentTemplates) =>
+      currentTemplates.some((storedTemplate) => storedTemplate.id === nextTemplate.id)
+        ? currentTemplates.map((storedTemplate) => storedTemplate.id === nextTemplate.id ? nextTemplate : storedTemplate)
+        : [...currentTemplates, nextTemplate]
+    );
+
+    writeNativeMarkdownTemplateFile(entry.fileName, template.content)
+      .then(() => saveStoredEditorPreferences(nextPreferences))
+      .then(() => notifyAppEditorPreferencesChanged(nextPreferences))
+      .catch(() => {});
+  }, [editorPreferences]);
+
+  const handleDeleteMarkdownTemplate = useCallback((template: MarkdownTemplate) => {
+    const entry = editorPreferences.markdownTemplates.find((storedTemplate) => storedTemplate.id === template.id);
+    const nextPreferences = {
+      ...editorPreferences,
+      markdownTemplates: editorPreferences.markdownTemplates.filter((storedTemplate) => storedTemplate.id !== template.id)
+    };
+
+    setEditorPreferences(nextPreferences);
+    setMarkdownTemplates((currentTemplates) =>
+      currentTemplates.filter((storedTemplate) => storedTemplate.id !== template.id)
+    );
+
+    const deleteTemplateFile = entry
+      ? deleteNativeMarkdownTemplateFile(entry.fileName)
+      : Promise.resolve();
+
+    deleteTemplateFile
+      .then(() => saveStoredEditorPreferences(nextPreferences))
+      .then(() => notifyAppEditorPreferencesChanged(nextPreferences))
+      .catch(() => {});
+  }, [editorPreferences]);
+
   const handleUpdateExportSettings = useCallback((settings: ExportSettings) => {
     const normalizedSettings = normalizeExportSettings(settings);
     setExportSettings(normalizedSettings);
@@ -225,6 +303,9 @@ export function useSettingsWindowState() {
     handleResetWelcomeDocument,
     handleSaveAiSettings,
     handleTestAiProvider,
+    handleCreateMarkdownTemplate: handleSaveMarkdownTemplate,
+    handleDeleteMarkdownTemplate,
+    handleUpdateMarkdownTemplate: handleSaveMarkdownTemplate,
     handleUpdateAiSettings,
     handleUpdateEditorPreferences,
     handleUpdateExportSettings,
@@ -232,6 +313,7 @@ export function useSettingsWindowState() {
     selectedAiProvider,
     setActiveCategory,
     setSelectedAiProviderId,
+    markdownTemplates,
     translate,
     webSearchSettings,
     welcomeReset

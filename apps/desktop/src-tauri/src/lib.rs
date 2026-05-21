@@ -15,11 +15,12 @@ use ai_http::{request_ai_provider_json, request_native_chat, request_native_chat
 use external_urls::open_external_url;
 use image_upload::{upload_s3_image, upload_webdav_image};
 use markdown_files::{
-    create_markdown_tree_file, create_markdown_tree_folder, delete_markdown_tree_file,
-    export_pdf_file, list_markdown_files_for_path, open_markdown_file_in_new_window,
-    open_markdown_folder_in_new_window, open_markdown_path, read_markdown_file,
-    read_markdown_image_file, rename_markdown_tree_file, resolve_markdown_path,
-    save_clipboard_image, write_markdown_file,
+    create_markdown_tree_file, create_markdown_tree_folder, delete_markdown_template_file,
+    delete_markdown_tree_file, export_pdf_file, list_markdown_files_for_path,
+    open_markdown_file_in_new_window, open_markdown_folder_in_new_window, open_markdown_path,
+    read_markdown_file, read_markdown_image_file, read_markdown_template_file,
+    rename_markdown_tree_file, resolve_markdown_path, save_clipboard_image, write_markdown_file,
+    write_markdown_template_file,
 };
 use menu::{
     create_application_menu, emit_native_menu_command, install_application_menu,
@@ -109,6 +110,9 @@ pub fn run() {
             resolve_markdown_path,
             read_markdown_file,
             read_markdown_image_file,
+            read_markdown_template_file,
+            write_markdown_template_file,
+            delete_markdown_template_file,
             save_clipboard_image,
             open_blank_editor_window,
             open_settings_window,

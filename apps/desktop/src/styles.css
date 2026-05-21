@@ -1480,6 +1480,47 @@
     @apply my-2;
   }
 
+  .markdown-paper.settings-template-preview {
+    @apply min-h-60 overflow-auto rounded-md bg-(--bg-secondary) px-4 py-3 text-[13px] leading-6;
+  }
+
+  .markdown-paper.settings-template-preview h1 {
+    @apply mb-3 border-0 pb-0 text-[21px] leading-7;
+  }
+
+  .markdown-paper.settings-template-preview h2 {
+    @apply mt-5 mb-2.5 border-0 pb-0 text-[17px] leading-6;
+  }
+
+  .markdown-paper.settings-template-preview h3 {
+    @apply mt-4 mb-2 text-[14px] leading-5;
+  }
+
+  .markdown-paper.settings-template-preview p {
+    @apply mb-3;
+  }
+
+  .markdown-paper.settings-template-preview ul,
+  .markdown-paper.settings-template-preview ol {
+    @apply mt-2 mb-4;
+  }
+
+  .markdown-paper.settings-template-preview li {
+    @apply my-1.5;
+  }
+
+  .markdown-paper.settings-template-preview blockquote {
+    @apply my-3 pl-3.5;
+  }
+
+  .markdown-paper.settings-template-preview pre {
+    @apply my-3 rounded-md px-3 py-2.5;
+  }
+
+  .markdown-paper.settings-template-preview > :last-child {
+    @apply mb-0;
+  }
+
   .markdown-paper .tableWrapper {
     @apply my-6 overflow-x-auto;
   }

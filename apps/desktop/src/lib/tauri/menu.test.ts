@@ -417,9 +417,11 @@ describe("native menu", () => {
   it("shows native markdown file tree actions for a file target", async () => {
     const createFile = vi.fn();
     const createFolder = vi.fn();
+    const createDailyNote = vi.fn();
     const renameFile = vi.fn();
     const deleteFile = vi.fn();
     const openFileToSide = vi.fn();
+    const saveFileAsTemplate = vi.fn();
     const file = {
       name: "README.md",
       path: "/vault/README.md",
@@ -428,34 +430,48 @@ describe("native menu", () => {
 
     await showNativeMarkdownFileTreeContextMenu({
       createFile,
+      createFileFromTemplates: [
+        { create: createDailyNote, id: "daily-note", name: "Daily note" }
+      ],
       createFolder,
       deleteFile,
       openFileToSide,
-      renameFile
+      renameFile,
+      saveFileAsTemplate
     }, "en", file);
 
     const items = latestMenuItems();
     const newFile = menuItemById(items, "markra:file-tree:new");
+    const templateMenu = menuItemById(items, "markra:file-tree:new-from-template");
+    const dailyNote = menuItemById(menuItemChildren(templateMenu), "markra:file-tree:new-from-template:daily-note");
     const newFolder = menuItemById(items, "markra:file-tree:new-folder");
     const openToSide = menuItemById(items, "markra:file-tree:open-to-side");
+    const saveAsTemplate = menuItemById(items, "markra:file-tree:save-as-template");
     const rename = menuItemById(items, "markra:file-tree:rename");
     const deleteItem = menuItemById(items, "markra:file-tree:delete");
 
     expect(newFile).toMatchObject({ text: "New file" });
+    expect(templateMenu).toMatchObject({ text: "New from template" });
+    expect(dailyNote).toMatchObject({ text: "Daily note" });
     expect(newFolder).toMatchObject({ text: "New Folder" });
     expect(openToSide).toMatchObject({ text: "Open to side" });
+    expect(saveAsTemplate).toMatchObject({ text: "Save as template" });
     expect(rename).toMatchObject({ text: "Rename file" });
     expect(deleteItem).toMatchObject({ text: "Delete file" });
 
     newFile.action?.("markra:file-tree:new");
+    dailyNote.action?.("markra:file-tree:new-from-template:daily-note");
     newFolder.action?.("markra:file-tree:new-folder");
     openToSide.action?.("markra:file-tree:open-to-side");
+    saveAsTemplate.action?.("markra:file-tree:save-as-template");
     rename.action?.("markra:file-tree:rename");
     deleteItem.action?.("markra:file-tree:delete");
 
     expect(createFile).toHaveBeenCalledTimes(1);
+    expect(createDailyNote).toHaveBeenCalledTimes(1);
     expect(createFolder).toHaveBeenCalledTimes(1);
     expect(openFileToSide).toHaveBeenCalledWith(file);
+    expect(saveFileAsTemplate).toHaveBeenCalledWith(file);
     expect(renameFile).toHaveBeenCalledWith(file);
     expect(deleteFile).toHaveBeenCalledWith(file);
     expect(popup).toHaveBeenCalledTimes(1);
