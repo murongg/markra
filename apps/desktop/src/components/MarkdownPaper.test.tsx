@@ -135,6 +135,11 @@ function moveCursor(view: EditorView, position: number) {
   view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, position)));
 }
 
+function focusEditor(view: EditorView) {
+  view.focus();
+  fireEvent.focus(view.dom);
+}
+
 function selectNode(view: EditorView, position: number) {
   view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, position)));
 }
@@ -4786,7 +4791,7 @@ describe("MarkdownPaper editing", () => {
     expect(nestedList).not.toHaveClass("markra-list-collapsed-content");
   });
 
-  it("expands a rendered heading back to editable markdown source when clicked", async () => {
+  it("keeps a rendered heading in visual mode when clicked", async () => {
     const { container, editor, view } = await renderEditor("## Title");
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
 
@@ -4795,79 +4800,122 @@ describe("MarkdownPaper editing", () => {
 
     fireEvent.click(heading!);
 
-    expect(container.querySelector(".ProseMirror h2")).not.toBeInTheDocument();
-    expect(container.querySelector(".ProseMirror")?.textContent).toBe("## Title");
-
-    view.dispatch(view.state.tr.delete(1, view.state.doc.content.size - 1).insertText("### Revised", 1));
-
-    expect(pressEnter(view)).toBe(true);
-
-    expect(container.querySelector(".ProseMirror h3")).toHaveTextContent("Revised");
-    expect(container.querySelector(".ProseMirror")?.textContent).toBe("Revised");
-    expect(serializeMarkdown(view.state.doc)).toContain("### Revised");
+    expect(container.querySelector(".ProseMirror h2")).toHaveTextContent("Title");
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe("Title");
+    expect(serializeMarkdown(view.state.doc)).toContain("## Title");
     await settleMarkdownListener();
   });
 
-  it("preserves inline markdown when expanding and finalizing a rendered heading", async () => {
-    const { container, view } = await renderEditor("## **Bold**");
-
-    fireEvent.click(container.querySelector<HTMLElement>(".ProseMirror h2")!);
-
-    expect(container.querySelector(".ProseMirror")?.textContent).toBe("## **Bold**");
-
-    expect(pressEnter(view)).toBe(true);
-
-    expect(container.querySelector(".ProseMirror h2 strong")).toHaveTextContent("Bold");
-    expect(container.querySelector(".ProseMirror")?.textContent).toBe("Bold");
-    await settleMarkdownListener();
-  });
-
-  it("finalizes expanded heading source when the cursor leaves the source", async () => {
+  it("marks the active rendered heading with a quiet level control", async () => {
     const { container, view } = await renderEditor("## Title\n\nTail");
 
-    fireEvent.click(container.querySelector<HTMLElement>(".ProseMirror h2")!);
+    focusEditor(view);
+    moveCursor(view, findTextPosition(view, "Title"));
 
-    expect(container.querySelector(".ProseMirror h2")).not.toBeInTheDocument();
-    expect(container.querySelector(".ProseMirror")?.textContent).toBe("## TitleTail");
+    const heading = container.querySelector<HTMLElement>(".ProseMirror h2");
+    const levelButton = screen.getByRole("button", { name: "Heading level H2" });
 
-    moveCursor(view, findTextPosition(view, "Tail"));
-
-    expect(container.querySelector(".ProseMirror h2")).toHaveTextContent("Title");
+    expect(heading).toHaveClass("markra-heading-editing");
+    expect(heading).toHaveAttribute("data-heading-level", "H2");
+    expect(heading).toHaveAttribute("aria-label", "Title");
+    expect(levelButton).toHaveClass("markra-heading-level-button");
+    expect(levelButton).toHaveAttribute("data-heading-level", "H2");
+    expect(levelButton).toHaveAttribute("aria-haspopup", "listbox");
+    expect(levelButton).toHaveAttribute("aria-expanded", "false");
+    expect(heading).toContainElement(levelButton);
+    expect(screen.queryByRole("listbox", { name: "Heading level" })).not.toBeInTheDocument();
     expect(container.querySelector(".ProseMirror")?.textContent).toBe("TitleTail");
+  });
+
+  it("shows the heading level control only while editing the heading", async () => {
+    const { container, view } = await renderEditor("## Title\n\nTail");
+
+    moveCursor(view, findTextPosition(view, "Title"));
+
+    const heading = container.querySelector<HTMLElement>(".ProseMirror h2");
+
+    expect(heading).not.toHaveClass("markra-heading-editing");
+    expect(screen.queryByRole("button", { name: "Heading level H2" })).not.toBeInTheDocument();
+
+    focusEditor(view);
+    moveCursor(view, findTextPosition(view, "Title"));
+
+    expect(heading).toHaveClass("markra-heading-editing");
+    expect(screen.getByRole("button", { name: "Heading level H2" })).toBeInTheDocument();
+
+    fireEvent.blur(view.dom);
+
+    expect(heading).not.toHaveClass("markra-heading-editing");
+    expect(screen.queryByRole("button", { name: "Heading level H2" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the heading level control hidden while read-only", async () => {
+    const { container, view } = await renderEditor("## Title", {
+      readOnly: true
+    });
+
+    focusEditor(view);
+    moveCursor(view, findTextPosition(view, "Title"));
+
+    const heading = container.querySelector<HTMLElement>(".ProseMirror h2");
+
+    expect(container.querySelector(".ProseMirror")).toHaveAttribute("contenteditable", "false");
+    expect(heading).not.toHaveClass("markra-heading-editing");
+    expect(screen.queryByRole("button", { name: "Heading level H2" })).not.toBeInTheDocument();
+  });
+
+  it("opens a heading level list and applies the selected level", async () => {
+    const { container, editor, view } = await renderEditor("## Title");
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    focusEditor(view);
+    moveCursor(view, findTextPosition(view, "Title"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Heading level H2" }));
+
+    expect(screen.getByRole("listbox", { name: "Heading level" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "H1",
+      "H2",
+      "H3",
+      "H4",
+      "H5",
+      "H6"
+    ]);
+    expect(screen.getByRole("option", { name: "H2" })).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(screen.getByRole("option", { name: "H3" }));
+
+    expect(container.querySelector(".ProseMirror h3")).toHaveTextContent("Title");
+    expect(serializeMarkdown(view.state.doc)).toContain("### Title");
+    expect(screen.queryByRole("listbox", { name: "Heading level" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Heading level H3" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps inline heading formatting rendered while editing the heading", async () => {
+    const { container, view } = await renderEditor("## **Bold**");
+
+    focusEditor(view);
+    moveCursor(view, findTextPosition(view, "Bold"));
+
+    expect(container.querySelector(".ProseMirror h2 strong")).toHaveTextContent("Bold");
+    expect(container.querySelector(".ProseMirror h2")).toHaveClass("markra-heading-editing");
+    expect(container.querySelector(".ProseMirror")?.textContent).not.toContain("##");
     await settleMarkdownListener();
   });
 
-  it("finalizes expanded heading source after clicking editor blank space", async () => {
-    const { container, view } = await renderEditor("## Title");
+  it("edits heading text directly without expanding markdown source", async () => {
+    const { container, editor, view } = await renderEditor("## Title");
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
 
-    fireEvent.click(container.querySelector<HTMLElement>(".ProseMirror h2")!);
+    focusEditor(view);
+    moveCursor(view, findTextPosition(view, "Title", "Title".length));
 
-    expect(container.querySelector(".ProseMirror h2")).not.toBeInTheDocument();
-    expect(container.querySelector(".ProseMirror")?.textContent).toBe("## Title");
+    insertTextDirectly(view, " Revised");
 
-    fireEvent.pointerDown(view.dom);
-
-    await waitFor(() => {
-      expect(container.querySelector(".ProseMirror h2")).toHaveTextContent("Title");
-    });
-    expect(container.querySelector(".ProseMirror")?.textContent).toBe("Title");
-    await settleMarkdownListener();
-  });
-
-  it("finalizes expanded heading source after clicking paper blank space", async () => {
-    const { container } = await renderEditor("## Title");
-
-    fireEvent.click(container.querySelector<HTMLElement>(".ProseMirror h2")!);
-
-    expect(container.querySelector(".ProseMirror h2")).not.toBeInTheDocument();
-    expect(container.querySelector(".ProseMirror")?.textContent).toBe("## Title");
-
-    fireEvent.pointerDown(screen.getByLabelText("Markdown editor"));
-
-    await waitFor(() => {
-      expect(container.querySelector(".ProseMirror h2")).toHaveTextContent("Title");
-    });
-    expect(container.querySelector(".ProseMirror")?.textContent).toBe("Title");
+    expect(container.querySelector(".ProseMirror h2")).toHaveTextContent("Title Revised");
+    expect(container.querySelector(".ProseMirror h2")).toHaveClass("markra-heading-editing");
+    expect(serializeMarkdown(view.state.doc)).toContain("## Title Revised");
     await settleMarkdownListener();
   });
 

@@ -38,6 +38,20 @@ describe("editor stylesheet", () => {
     expect(styles).toContain("background-clip: content-box");
   });
 
+  it("keeps primary editor headings free of divider underlines", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const headingStart = styles.indexOf(".markdown-paper h1 {");
+    const headingEnd = styles.indexOf(".markdown-paper h3 {");
+    const headingStyles = styles.slice(headingStart, headingEnd);
+
+    expect(headingStart).toBeGreaterThanOrEqual(0);
+    expect(headingEnd).toBeGreaterThan(headingStart);
+    expect(headingStyles).not.toContain("border-b");
+    expect(headingStyles).not.toContain("border-color: var(--editor-border)");
+    expect(headingStyles).toContain("text-[44px]");
+    expect(headingStyles).toContain("text-[31px]");
+  });
+
   it("positions collapsible list controls", () => {
     const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
     const buttonStart = styles.indexOf(".markdown-paper .markra-list-toggle-button {");
@@ -49,6 +63,24 @@ describe("editor stylesheet", () => {
     expect(buttonStyles).toContain("top: calc((1lh - 1rem) / 2);");
     expect(styles).toContain(".markdown-paper .markra-list-toggle-item:hover > .markra-list-toggle-button");
     expect(styles).toContain(".markdown-paper .markra-list-collapsed-content");
+  });
+
+  it("shows a quiet inline level list control for the active rendered heading", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const labelStart = styles.indexOf(".markdown-paper .markra-heading-level-control {");
+    const labelEnd = styles.indexOf(".markdown-paper .markra-heading-toggle-heading");
+    const labelStyles = styles.slice(labelStart, labelEnd);
+
+    expect(labelStart).toBeGreaterThanOrEqual(0);
+    expect(labelEnd).toBeGreaterThan(labelStart);
+    expect(labelStyles).toContain("position: relative");
+    expect(labelStyles).toContain("display: inline-grid");
+    expect(labelStyles).toContain("margin-right");
+    expect(labelStyles).toContain(".markdown-paper .markra-heading-level-list");
+    expect(labelStyles).toContain("[role=\"option\"]");
+    expect(labelStyles).toContain(".markdown-paper .markra-heading-level-button::before");
+    expect(labelStyles).not.toContain("left:");
+    expect(labelStyles).toContain("color: color-mix");
   });
 
   it("keeps table add controls hidden until table hover or focus", () => {
