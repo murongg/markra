@@ -1269,6 +1269,94 @@
     @apply mt-7.5 mb-3 text-2xl leading-[1.28];
   }
 
+  .markdown-paper .markra-heading-editing {
+    @apply relative;
+  }
+
+  .markdown-paper .markra-heading-level-control {
+    position: relative;
+    display: inline-grid;
+    margin-right: 0.5rem;
+    vertical-align: 0.18em;
+  }
+
+  .markdown-paper .markra-heading-level-button {
+    display: grid;
+    place-content: center;
+    width: 1.75rem;
+    height: 1.25rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    padding: 0;
+    color: color-mix(in srgb, var(--editor-text-secondary) 58%, transparent);
+    font-family: var(--editor-font-family);
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 1;
+    transition:
+      background-color 150ms ease-out,
+      border-color 150ms ease-out,
+      color 150ms ease-out;
+  }
+
+  .markdown-paper .markra-heading-level-button::before {
+    content: attr(data-heading-level);
+  }
+
+  .markdown-paper .markra-heading-level-button:hover,
+  .markdown-paper .markra-heading-level-button:focus-visible {
+    border-color: var(--editor-border);
+    background: var(--editor-bg-secondary);
+    color: var(--editor-text-secondary);
+    outline: none;
+  }
+
+  .markdown-paper .markra-heading-level-list {
+    position: absolute;
+    z-index: 70;
+    inset-block-start: calc(100% + 4px);
+    inset-inline-start: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px;
+    width: 6.25rem;
+    border: 1px solid var(--editor-border);
+    border-radius: 6px;
+    background: var(--editor-paper-bg);
+    padding: 4px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  }
+
+  .markdown-paper .markra-heading-level-list [role="option"] {
+    display: grid;
+    height: 1.5rem;
+    cursor: pointer;
+    place-content: center;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    padding: 0;
+    color: var(--editor-text-secondary);
+    font-family: var(--editor-font-family);
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1;
+  }
+
+  .markdown-paper .markra-heading-level-list [role="option"]:hover,
+  .markdown-paper .markra-heading-level-list [role="option"]:focus-visible {
+    background: var(--editor-bg-secondary);
+    color: var(--editor-text-heading);
+    outline: none;
+  }
+
+  .markdown-paper .markra-heading-level-list [role="option"][aria-selected="true"] {
+    background: var(--editor-bg-secondary);
+    color: var(--editor-text-heading);
+  }
+
   .markdown-paper .markra-heading-toggle-heading {
     @apply relative;
     --markra-heading-toggle-center-offset: 0px;

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { defaultValueCtx, Editor, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
+import { defaultValueCtx, Editor, editorViewCtx, editorViewOptionsCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { Plugin } from "@milkdown/kit/prose/state";
-import { headingSchema, imageSchema, linkSchema, paragraphSchema } from "@milkdown/kit/preset/commonmark";
+import { imageSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { Milkdown, MilkdownProvider, useEditor, useInstance } from "@milkdown/react";
 import { $prose } from "@milkdown/kit/utils";
 import type { AiSelectionContext } from "@markra/ai";
@@ -15,7 +15,7 @@ import {
   markraCalloutSerializerPlugin,
   markraClipboardImagePluginWithOptions,
   markraCodeBlockPlugin,
-  markraHeadingSourcePlugin,
+  markraHeadingLevelPlugin,
   markraHeadingTogglePlugin,
   markraListTogglePlugin,
   markraLinkImageLivePlugin,
@@ -29,7 +29,6 @@ import {
   markraSearchPlugin,
   markraSlashCommands,
   markraTableControlsPlugin,
-  normalizeHeadingSourceDocument,
   normalizeMarkdownShortcuts,
   serializeLinkImageLiveMarkdown,
   type MarkdownShortcutMap,
@@ -237,15 +236,9 @@ function MilkdownEditorSurface({
           ctx.get(listenerCtx).updated((editorCtx, doc) => {
             try {
               const view = editorCtx.get(editorViewCtx);
-              const normalizedDoc = normalizeHeadingSourceDocument(
-                view.state,
-                paragraphSchema.type(editorCtx),
-                headingSchema.type(editorCtx),
-                editorCtx.get(parserCtx)
-              );
               onMarkdownChange(
                 serializeLinkImageLiveMarkdown(
-                  normalizedDoc === view.state.doc ? doc : normalizedDoc,
+                  view.state.doc === doc ? doc : view.state.doc,
                   editorCtx.get(serializerCtx),
                   linkSchema.type(editorCtx),
                   imageSchema.type(editorCtx)
@@ -289,7 +282,7 @@ function MilkdownEditorSurface({
         )
         .use(markraTableControlsPlugin(tableControlLabels))
         .use(markraLinkImageLivePlugin(resolveImageSrc))
-        .use(markraHeadingSourcePlugin)
+        .use(markraHeadingLevelPlugin)
         .use(
           markraRawHtmlPlugin({
             htmlSourceApplyLabel: t(language, "editor.htmlSourceApply"),

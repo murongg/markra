@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { editorViewCtx, parserCtx, serializerCtx, type Editor } from "@milkdown/kit/core";
-import { headingSchema, imageSchema, linkSchema, paragraphSchema } from "@milkdown/kit/preset/commonmark";
+import { imageSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { Slice, type Node as ProseNode } from "@milkdown/kit/prose/model";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
@@ -12,7 +12,6 @@ import {
   confirmAiEditorResultApplied,
   listAiEditorPreviewResults,
   findVisibleSearchMatchesInState,
-  normalizeHeadingSourceDocument,
   scrollAiEditorPreviewIntoView,
   scrollSearchMatchIntoView,
   serializeLinkImageLiveMarkdown,
@@ -274,14 +273,8 @@ export function useEditorController() {
     try {
       return editorRef.current?.action((ctx) => {
         const view = ctx.get(editorViewCtx);
-        const normalizedDoc = normalizeHeadingSourceDocument(
-          view.state,
-          paragraphSchema.type(ctx),
-          headingSchema.type(ctx),
-          ctx.get(parserCtx)
-        );
         return serializeLinkImageLiveMarkdown(
-          normalizedDoc,
+          view.state.doc,
           ctx.get(serializerCtx),
           linkSchema.type(ctx),
           imageSchema.type(ctx)
@@ -303,13 +296,7 @@ export function useEditorController() {
         const serializer = ctx.get(serializerCtx);
         const link = linkSchema.type(ctx);
         const image = imageSchema.type(ctx);
-        const normalizedDoc = normalizeHeadingSourceDocument(
-          view.state,
-          paragraphSchema.type(ctx),
-          headingSchema.type(ctx),
-          parseMarkdown
-        );
-        const currentMarkdown = serializeLinkImageLiveMarkdown(normalizedDoc, serializer, link, image);
+        const currentMarkdown = serializeLinkImageLiveMarkdown(view.state.doc, serializer, link, image);
         const parsedMarkdown = serializeLinkImageLiveMarkdown(parseMarkdown(markdown), serializer, link, image);
 
         return comparableSerializedMarkdown(currentMarkdown) === comparableSerializedMarkdown(parsedMarkdown);

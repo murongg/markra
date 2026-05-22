@@ -51,6 +51,24 @@ describe("editor stylesheet", () => {
     expect(styles).toContain(".markdown-paper .markra-list-collapsed-content");
   });
 
+  it("shows a quiet inline level list control for the active rendered heading", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const labelStart = styles.indexOf(".markdown-paper .markra-heading-level-control {");
+    const labelEnd = styles.indexOf(".markdown-paper .markra-heading-toggle-heading");
+    const labelStyles = styles.slice(labelStart, labelEnd);
+
+    expect(labelStart).toBeGreaterThanOrEqual(0);
+    expect(labelEnd).toBeGreaterThan(labelStart);
+    expect(labelStyles).toContain("position: relative");
+    expect(labelStyles).toContain("display: inline-grid");
+    expect(labelStyles).toContain("margin-right");
+    expect(labelStyles).toContain(".markdown-paper .markra-heading-level-list");
+    expect(labelStyles).toContain("[role=\"option\"]");
+    expect(labelStyles).toContain(".markdown-paper .markra-heading-level-button::before");
+    expect(labelStyles).not.toContain("left:");
+    expect(labelStyles).toContain("color: color-mix");
+  });
+
   it("keeps table add controls hidden until table hover or focus", () => {
     const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
     const tableControlStart = styles.indexOf(".markdown-paper .markra-table-control {");

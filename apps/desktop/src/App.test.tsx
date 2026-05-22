@@ -3626,7 +3626,7 @@ describe("Markra workspace", () => {
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
   });
 
-  it("keeps a clean file unmodified when a heading is expanded for source editing", async () => {
+  it("keeps a clean file unmodified when clicking a rendered heading", async () => {
     mockOpenMarkdownFile({
       content: "### C\n\nSummary content.",
       name: "test.md",
@@ -3641,7 +3641,7 @@ describe("Markra workspace", () => {
 
     fireEvent.click(heading);
 
-    expect(await screen.findByText("### C")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "C" })).toBeInTheDocument();
     await settleEditorUpdates();
 
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
