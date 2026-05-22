@@ -1256,13 +1256,11 @@
   }
 
   .markdown-paper h1 {
-    @apply m-0 mb-4.5 border-b border-(--border-default) pb-2.5 text-[44px] leading-[1.15] max-[900px]:text-[34px];
-    border-color: var(--editor-border);
+    @apply m-0 mb-6 text-[44px] leading-[1.15] max-[900px]:text-[34px];
   }
 
   .markdown-paper h2 {
-    @apply mt-9 mb-4.5 border-b border-(--border-default) pb-1.5 text-[31px] leading-[1.22] max-[900px]:text-[26px];
-    border-color: var(--editor-border);
+    @apply mt-9 mb-5 text-[31px] leading-[1.22] max-[900px]:text-[26px];
   }
 
   .markdown-paper h3 {

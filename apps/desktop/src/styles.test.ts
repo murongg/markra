@@ -38,6 +38,20 @@ describe("editor stylesheet", () => {
     expect(styles).toContain("background-clip: content-box");
   });
 
+  it("keeps primary editor headings free of divider underlines", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const headingStart = styles.indexOf(".markdown-paper h1 {");
+    const headingEnd = styles.indexOf(".markdown-paper h3 {");
+    const headingStyles = styles.slice(headingStart, headingEnd);
+
+    expect(headingStart).toBeGreaterThanOrEqual(0);
+    expect(headingEnd).toBeGreaterThan(headingStart);
+    expect(headingStyles).not.toContain("border-b");
+    expect(headingStyles).not.toContain("border-color: var(--editor-border)");
+    expect(headingStyles).toContain("text-[44px]");
+    expect(headingStyles).toContain("text-[31px]");
+  });
+
   it("positions collapsible list controls", () => {
     const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
     const buttonStart = styles.indexOf(".markdown-paper .markra-list-toggle-button {");
