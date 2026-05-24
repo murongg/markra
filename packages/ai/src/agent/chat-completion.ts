@@ -35,7 +35,7 @@ export type ChatCompletionStreamOptions = {
   onToolCallDelta?: (delta: ChatToolCallDelta) => unknown;
   streamTransport?: ChatCompletionStreamTransport;
   thinkingEnabled?: boolean;
-  tools?: import("@mariozechner/pi-ai").Tool[];
+  tools?: import("@earendil-works/pi-ai").Tool[];
   useVercelAiSdk?: boolean;
   webSearchEnabled?: boolean;
 };

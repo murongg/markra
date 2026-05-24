@@ -19,7 +19,7 @@ import {
   requestStyleForProviderType
 } from "@markra/providers";
 import { isRecord } from "@markra/shared";
-import type { Tool as PiTool } from "@mariozechner/pi-ai";
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import {
   jsonSchema,
   streamText,

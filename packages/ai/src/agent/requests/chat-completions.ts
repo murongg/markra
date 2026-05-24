@@ -1,4 +1,4 @@
-import type { Tool } from "@mariozechner/pi-ai";
+import type { Tool } from "@earendil-works/pi-ai";
 import { buildOpenAiCompatibleFunctionTools } from "../tool-builders/openai-compatible";
 import { mergeRequestBody } from "./shared";
 

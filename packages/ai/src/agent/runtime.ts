@@ -1,4 +1,4 @@
-import { Agent } from "@mariozechner/pi-agent-core";
+import { Agent } from "@earendil-works/pi-agent-core";
 
 import { chatCompletionStream } from "./chat-completion";
 import type { InlineAiAgentInput } from "./runtime/types";

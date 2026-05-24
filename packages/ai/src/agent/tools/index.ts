@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { BatchEditToolFactory } from "./batch-edit";
 import { DeleteContentToolFactory } from "./delete-content";
 import { GetEditorContextToolFactory } from "./get-editor-context";

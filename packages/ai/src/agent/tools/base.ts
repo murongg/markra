@@ -1,5 +1,5 @@
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
-import type { TSchema } from "@mariozechner/pi-ai";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { TSchema } from "@earendil-works/pi-ai";
 import type { AiDiffResult } from "../inline";
 import type { DocumentAgentToolContext, DocumentAgentToolState } from "./context";
 import { previewPreparedResult } from "./results";

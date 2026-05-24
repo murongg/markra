@@ -7,7 +7,7 @@ import type {
   StopReason,
   TextContent,
   ToolCall
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 
 import type { ChatMessage } from "../chat/types";
 import type { AssistantContentBlock } from "./types";

@@ -1,5 +1,5 @@
-import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import type { ThinkingContent, TextContent, ToolCall } from "@mariozechner/pi-ai";
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { ThinkingContent, TextContent, ToolCall } from "@earendil-works/pi-ai";
 
 import type { AiProviderConfig } from "@markra/providers";
 import type { ChatCompletionStreamOptions } from "../chat-completion";

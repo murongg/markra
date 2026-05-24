@@ -1,4 +1,4 @@
-import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { applyAgentEventToProcesses, createInitialAgentProcesses } from "./process-trace";
 import type { I18nKey } from "@markra/shared";
 

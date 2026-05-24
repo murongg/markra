@@ -46,7 +46,7 @@ const milkdownDependencies = dependencyPattern([
 ]);
 const tauriDependencies = dependencyPattern(["@tauri-apps"]);
 const iconDependencies = dependencyPattern(["lucide-react", "lucide-static"]);
-const piAgentDependencies = dependencyPattern(["@mariozechner/pi-agent-core", "@mariozechner/pi-ai", "typebox"]);
+const piAgentDependencies = dependencyPattern(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai", "typebox"]);
 const codeEditorDependencies = dependencyPattern(["@codemirror", "codemirror"]);
 const dndDependencies = dependencyPattern(["@dnd-kit"]);
 const mathDependencies = dependencyPattern(["katex"]);

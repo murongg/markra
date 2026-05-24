@@ -1,4 +1,4 @@
-import type { Tool } from "@mariozechner/pi-ai";
+import type { Tool } from "@earendil-works/pi-ai";
 
 export function buildOpenAiCompatibleFunctionTools(tools: Tool[] | undefined) {
   return (tools ?? []).map((tool) => ({

@@ -1,4 +1,4 @@
-import { type StreamFn } from "@mariozechner/pi-agent-core";
+import { type StreamFn } from "@earendil-works/pi-agent-core";
 import {
   createAssistantMessageEventStream,
   type Context,
@@ -6,7 +6,7 @@ import {
   type ThinkingContent,
   type TextContent,
   type ToolCall
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 
 import type { AiProviderConfig } from "@markra/providers";
 import { createAssistantMessage, messagesFromPiContext, stopReasonFromFinishReason } from "./messages";

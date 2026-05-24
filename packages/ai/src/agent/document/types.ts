@@ -1,4 +1,4 @@
-import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AiProviderConfig } from "@markra/providers";
 import type { ChatImageAttachment } from "../chat/types";
 import type { AiDiffResult, AiDiffTarget, AiDocumentAnchor, AiHeadingAnchor, AiSelectionContext } from "../inline";

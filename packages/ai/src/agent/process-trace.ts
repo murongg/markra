@@ -1,4 +1,4 @@
-import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { I18nKey } from "@markra/shared";
 
 export type AiAgentProcessKind = "ai_call" | "assistant_message" | "tool_call";

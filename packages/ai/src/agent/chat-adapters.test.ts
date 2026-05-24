@@ -4,7 +4,7 @@ import {
 } from "./chat-adapters";
 import { buildInlineAiMessages } from "./inline-prompt";
 import type { AiProviderConfig } from "@markra/providers";
-import type { Tool } from "@mariozechner/pi-ai";
+import type { Tool } from "@earendil-works/pi-ai";
 
 function provider(overrides: Partial<AiProviderConfig>): AiProviderConfig {
   return {

@@ -1,4 +1,4 @@
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import type { AiDiffResult } from "../inline";
 import { diffTargetFromAnchor } from "./anchors";
 import { DocumentAgentToolFactory } from "./base";

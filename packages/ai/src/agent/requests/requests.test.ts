@@ -1,4 +1,4 @@
-import type { Tool } from "@mariozechner/pi-ai";
+import type { Tool } from "@earendil-works/pi-ai";
 import { buildChatCompletionsRequestBody } from "./chat-completions";
 import { buildResponsesRequestBody } from "./responses";
 import type { ChatMessage } from "../chat/types";

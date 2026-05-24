@@ -1,5 +1,5 @@
-import { Type } from "@mariozechner/pi-ai";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import { Type } from "@earendil-works/pi-ai";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { AiDiffResult } from "../inline";
 import { DocumentAgentToolFactory } from "./base";
 import type { BatchEditOperation } from "./params";

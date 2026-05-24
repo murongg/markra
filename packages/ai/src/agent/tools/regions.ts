@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { AiDiffResult, AiDiffTarget, AiDocumentAnchor, AiSelectionContext } from "../inline";
 import {
   buildDocumentAnchors,

@@ -1,4 +1,4 @@
-import { Type } from "@mariozechner/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
 import { buildDocumentAnchors, buildSectionAnchors } from "./anchors";
 import { DocumentAgentToolFactory } from "./base";
 import { typedReadDocumentArgs } from "./params";
