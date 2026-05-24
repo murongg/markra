@@ -3,6 +3,7 @@ export * from "./block-drag.ts";
 export * from "./callout.ts";
 export * from "./code-block.ts";
 export * from "./clipboard-images.ts";
+export * from "./frontmatter.ts";
 export * from "./heading-level.ts";
 export * from "./heading-toggle.ts";
 export * from "./input-rules.ts";

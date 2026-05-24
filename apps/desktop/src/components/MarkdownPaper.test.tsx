@@ -748,6 +748,138 @@ describe("MarkdownPaper editing", () => {
     expect(serializeMarkdown(view.state.doc)).toContain(source);
   });
 
+  it.each([
+    {
+      label: "YAML",
+      source: [
+        "---",
+        'title: "Mock post"',
+        "pubDate: 2026-01-02T03:04:05+08:00",
+        "---",
+        "",
+        "# Body"
+      ].join("\n")
+    },
+    {
+      label: "TOML",
+      source: [
+        "+++",
+        '"title" = "Mock post"',
+        '"pubDate" = "2026-01-02T03:04:05+08:00"',
+        "+++",
+        "",
+        "# Body"
+      ].join("\n")
+    },
+    {
+      label: "JSON",
+      source: [
+        "{",
+        '  "title": "Mock post",',
+        '  "pubDate": "2026-01-02T03:04:05+08:00"',
+        "}",
+        "",
+        "# Body"
+      ].join("\n")
+    }
+  ])("preserves $label frontmatter as a dedicated editor block", async ({ source }) => {
+    const { editor, view } = await renderEditor(source);
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    expect(view.state.doc.child(0).type.name).toBe("frontmatter");
+    expect(serializeMarkdown(view.state.doc)).toBe(`${source}\n`);
+  });
+
+  it("preserves JSON frontmatter with blank lines inside the object", async () => {
+    const source = [
+      "{",
+      '  "title": "Mock post",',
+      "",
+      '  "description": "Draft metadata"',
+      "}",
+      "",
+      "# Body"
+    ].join("\n");
+    const { editor, view } = await renderEditor(source);
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    expect(view.state.doc.child(0).type.name).toBe("frontmatter");
+    expect(serializeMarkdown(view.state.doc)).toBe(`${source}\n`);
+  });
+
+  it("preserves JSON frontmatter with nested objects and braces inside strings", async () => {
+    const source = [
+      "{",
+      '  "title": "Mock {post}",',
+      '  "draft": true,',
+      '  "meta": {',
+      '    "description": "Synthetic } metadata"',
+      "  }",
+      "}",
+      "",
+      "# Body"
+    ].join("\n");
+    const { editor, view } = await renderEditor(source);
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    expect(view.state.doc.child(0).type.name).toBe("frontmatter");
+    expect(serializeMarkdown(view.state.doc)).toBe(`${source}\n`);
+  });
+
+  it.each([
+    {
+      label: "empty YAML",
+      source: ["---", "---", "", "# Body"].join("\n")
+    },
+    {
+      label: "empty TOML",
+      source: ["+++", "+++", "", "# Body"].join("\n")
+    },
+    {
+      label: "empty JSON",
+      source: ["{}", "", "# Body"].join("\n")
+    }
+  ])("preserves $label frontmatter", async ({ source }) => {
+    const { editor, view } = await renderEditor(source);
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    expect(view.state.doc.child(0).type.name).toBe("frontmatter");
+    expect(serializeMarkdown(view.state.doc)).toBe(`${source}\n`);
+  });
+
+  it.each([
+    {
+      label: "malformed JSON object",
+      source: ["{", '  "title": "Mock post",', "}", "", "# Body"].join("\n")
+    },
+    {
+      label: "top-level JSON array",
+      source: ["[", '  "not metadata"', "]", "", "# Body"].join("\n")
+    },
+    {
+      label: "non-leading YAML block",
+      source: ["# Intro", "", "---", "title: nope", "---"].join("\n")
+    },
+    {
+      label: "inline JSON prose",
+      source: '{"title":"Mock post"} is ordinary text'
+    },
+    {
+      label: "fenced JSON code block",
+      source: ["```json", '{"title":"Mock post"}', "```", "", "# Body"].join("\n")
+    }
+  ])("does not promote $label to frontmatter", async ({ source }) => {
+    const { view } = await renderEditor(source);
+    let hasFrontmatter = false;
+
+    view.state.doc.descendants((node) => {
+      hasFrontmatter = node.type.name === "frontmatter";
+      return !hasFrontmatter;
+    });
+
+    expect(hasFrontmatter).toBe(false);
+  });
+
   it("renders Mermaid code blocks as folded diagrams and reveals source for editing", async () => {
     const source = ["```mermaid", "flowchart TD", "  A --> B", "```", "", "After"].join("\n");
     const { container, editor, view } = await renderEditor(source);

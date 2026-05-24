@@ -15,6 +15,8 @@ import {
   markraCalloutSerializerPlugin,
   markraClipboardImagePluginWithOptions,
   markraCodeBlockPlugin,
+  markraFrontmatterRemarkPlugin,
+  markraFrontmatterSchema,
   markraHeadingLevelPlugin,
   markraHeadingTogglePlugin,
   markraListTogglePlugin,
@@ -257,8 +259,10 @@ function MilkdownEditorSurface({
         .use(markraReadOnlyTransactionGuard(readOnlyRef))
         .use(listener)
         .use(history)
+        .use(markraFrontmatterRemarkPlugin)
         .use(markraMathRemarkPlugin)
         .use(markraCommonmark)
+        .use(markraFrontmatterSchema)
         .use(markraGfm)
         .use(markraCalloutSerializerPlugin);
 
