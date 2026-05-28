@@ -1,0 +1,71 @@
+{
+  "name": "@markra/app",
+  "version": "0.0.1",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./runtime": {
+      "types": "./src/runtime/index.ts",
+      "default": "./src/runtime/index.ts"
+    },
+    "./settings": {
+      "types": "./src/lib/settings/app-settings.ts",
+      "default": "./src/lib/settings/app-settings.ts"
+    },
+    "./styles.css": "./src/styles.css",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/lint": "6.9.5",
+    "@codemirror/state": "6.6.0",
+    "@codemirror/view": "6.41.1",
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/sortable": "10.0.0",
+    "@dnd-kit/utilities": "3.2.2",
+    "@earendil-works/pi-agent-core": "0.75.5",
+    "@markra/ai": "workspace:*",
+    "@markra/editor": "workspace:*",
+    "@markra/markdown": "workspace:*",
+    "@markra/providers": "workspace:*",
+    "@markra/shared": "workspace:*",
+    "@markra/ui": "workspace:*",
+    "@milkdown/kit": "^7.20.0",
+    "@milkdown/react": "^7.20.0",
+    "codemirror": "6.0.2",
+    "katex": "0.16.45",
+    "lucide-react": "1.14.0",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "react-markdown": "^10.1.0",
+    "remark-breaks": "4.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "6.0.0",
+    "sonner": "^2.0.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@types/node": "24.10.0",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
+    "jsdom": "29.1.1",
+    "tailwindcss": "^4.2.4",
+    "typescript": "6.0.3",
+    "vite": "8.0.10",
+    "vitest": "4.1.5"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@markra/scripts",
+  "version": "0.0.1",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./vite": {
+      "types": "./src/vite/index.ts",
+      "default": "./src/vite/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json --noEmit",
+    "test": "vitest run",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "@vitejs/plugin-react": "6.0.1",
+    "jsdom": "29.1.1",
+    "typescript": "6.0.3",
+    "vite": "8.0.10",
+    "vitest": "4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0"
+  }
+}

@@ -1,0 +1,841 @@
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { NativeTitleBar } from "./NativeTitleBar";
+
+function mockTitlebarActionRects(actionIds: string[]) {
+  actionIds.forEach((id, index) => {
+    const element = document.querySelector(`[data-titlebar-action="${id}"]`) as HTMLElement;
+    const left = index * 28;
+    vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+      bottom: 24,
+      height: 24,
+      left,
+      right: left + 24,
+      top: 0,
+      width: 24,
+      x: left,
+      y: 0,
+      toJSON: () => ({})
+    } as DOMRect);
+  });
+}
+
+async function settleSortableDrag() {
+  await new Promise((resolve) => {
+    window.setTimeout(resolve, 60);
+  });
+}
+
+describe("NativeTitleBar", () => {
+  it("renders centered title and file actions inside the drag region", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+    const titlebar = container.querySelector(".native-titlebar");
+
+    expect(screen.getByLabelText("Window drag region")).toHaveAttribute("data-tauri-drag-region");
+    expect(screen.getByRole("heading", { name: "Draft.md" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Markdown or Folder" }).closest(".titlebar-spacer")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Markdown" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Toggle Markra AI" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Toggle file list" })).toBeInTheDocument();
+    expect(container.querySelector("[data-titlebar-action='open']")).not.toBeInTheDocument();
+    expect(within(container.querySelector(".document-actions") as HTMLElement).queryByRole("button", { name: "Open Markdown or Folder" })).not.toBeInTheDocument();
+    expect(titlebar).toHaveClass("grid-cols-[164px_minmax(0,1fr)_164px]");
+    expect(titlebar).toHaveClass("h-10");
+    expect(container.querySelector(".document-actions")).toHaveClass("h-10");
+    expect(container.querySelector("[data-titlebar-action='aiAgent']")).toHaveClass("transition-transform");
+  });
+
+  it("uses custom titlebar content instead of the centered document title", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        markdownFilesWidth={220}
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Draft.md" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Open documents" })).toBeInTheDocument();
+    expect(container.querySelector(".native-titlebar")).not.toHaveAttribute("data-tauri-drag-region");
+    expect(container.querySelector(".native-title-slot")).not.toHaveAttribute("data-tauri-drag-region");
+    expect(screen.getByRole("tab", { name: "Draft.md" }).closest("[data-tauri-drag-region]")).toBeNull();
+    expect(container.querySelector(".native-titlebar")).toHaveClass("bg-(--bg-primary)");
+    expect(container.querySelector(".native-titlebar")).not.toHaveClass("border-b");
+    expect(container.querySelector(".native-titlebar")).toHaveStyle({
+      background: "linear-gradient(to right, var(--bg-secondary) 0 220px, var(--bg-primary) 220px 100%)"
+    });
+    expect(container.querySelector(".native-titlebar-sidebar-divider")).toHaveStyle({ left: "219px" });
+    expect(container.querySelector(".native-title-slot")).toHaveStyle({
+      marginLeft: "56px"
+    });
+    expect(container.querySelector(".native-title-slot")).not.toHaveStyle({ transform: "translateX(110px)" });
+  });
+
+  it("places browser window chrome over the editor area when the file tree is open", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        markdownFilesWidth={288}
+        nativeWindowChrome={false}
+        platform="linux"
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+    const titlebar = container.querySelector(".native-titlebar");
+    const titleSlot = container.querySelector(".native-title-slot");
+
+    expect(titlebar).not.toHaveAttribute("data-tauri-drag-region");
+    expect(titlebar).toHaveStyle({
+      gridTemplateColumns: "auto minmax(0, 1fr) auto",
+      left: "289px"
+    });
+    expect(container.querySelector(".titlebar-spacer")).not.toHaveAttribute("data-tauri-drag-region");
+    expect(titleSlot?.getAttribute("style") ?? "").not.toContain("margin-left");
+    expect(titleSlot?.getAttribute("style") ?? "").not.toContain("transform");
+  });
+
+  it("keeps macOS titlebar tabs clear of transformed actions before the AI panel", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen
+        aiAgentWidth={384}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        markdownFilesWidth={288}
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".native-title-slot")).toHaveStyle({
+      marginLeft: "124px",
+      marginRight: "384px"
+    });
+  });
+
+  it("keeps Windows titlebar tabs beside the markdown files sidebar without covering it", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        markdownFilesWidth={220}
+        platform="windows"
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(screen.getByRole("tablist", { name: "Open documents" })).toBeInTheDocument();
+    expect(container.querySelector(".native-titlebar")).toHaveStyle({
+      left: "221px"
+    });
+    expect(container.querySelector(".native-titlebar-sidebar-spacer")).not.toBeInTheDocument();
+    expect(container.querySelector(".native-title-slot")).not.toHaveStyle({ paddingLeft: "232px" });
+    expect(container.querySelector(".native-title-slot")).toHaveClass("pl-4");
+  });
+
+  it("keeps Windows titlebar file actions outside the drag region", () => {
+    const toggleSourceMode = vi.fn();
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        platform="windows"
+        sourceMode={false}
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleSourceMode={toggleSourceMode}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".native-titlebar")).not.toHaveAttribute("data-tauri-drag-region");
+    expect(container.querySelector(".document-actions")).not.toHaveAttribute("data-tauri-drag-region");
+    expect(container.querySelector(".native-title-slot")).not.toHaveAttribute("data-tauri-drag-region");
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+
+    expect(toggleSourceMode).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggles the right-side Markra AI panel from the file action area", () => {
+    const toggleAiAgent = vi.fn();
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen
+        aiAgentWidth={512}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        onToggleAiAgent={toggleAiAgent}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: "Toggle Markra AI" });
+
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(button).toContainElement(container.querySelector(".lucide-bot"));
+    expect(container.querySelector(".document-actions")).toHaveStyle({ transform: "translateX(-512px)" });
+
+    fireEvent.click(button);
+
+    expect(toggleAiAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses separate source and visual editor mode action buttons", () => {
+    const toggleSourceMode = vi.fn();
+    const visualModeCase = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleSourceMode={toggleSourceMode}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const sourceButton = screen.getByRole("button", { name: "Switch to source mode" });
+    expect(sourceButton).toContainElement(visualModeCase.container.querySelector(".lucide-code-xml"));
+    expect(sourceButton).not.toHaveAttribute("aria-pressed");
+    expect(screen.queryByRole("button", { name: "Switch to visual mode" })).not.toBeInTheDocument();
+
+    fireEvent.click(sourceButton);
+
+    expect(toggleSourceMode).toHaveBeenCalledTimes(1);
+
+    visualModeCase.unmount();
+
+    const sourceModeCase = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        sourceMode
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleSourceMode={toggleSourceMode}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const visualButton = screen.getByRole("button", { name: "Switch to visual mode" });
+    expect(visualButton).toContainElement(sourceModeCase.container.querySelector(".lucide-eye"));
+    expect(visualButton).not.toHaveAttribute("aria-pressed");
+    expect(screen.queryByRole("button", { name: "Switch to source mode" })).not.toBeInTheDocument();
+    expect(sourceModeCase.container.querySelector(".lucide-code-xml")).not.toBeInTheDocument();
+  });
+
+  it("renders right-side file actions in the configured order and hides disabled actions", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        titlebarActions={[
+          { id: "theme", visible: true },
+          { id: "save", visible: false },
+          { id: "splitMode", visible: true },
+          { id: "aiAgent", visible: true },
+          { id: "sourceMode", visible: true }
+        ]}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleSplitMode={() => {}}
+        onToggleSourceMode={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const actionLabels = within(container.querySelector(".document-actions") as HTMLElement)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+
+    expect(actionLabels).toEqual([
+      "Switch to dark theme",
+      "Switch to split mode",
+      "Toggle Markra AI",
+      "Switch to source mode"
+    ]);
+    expect(screen.getByRole("button", { name: "Open Markdown or Folder" }).closest(".titlebar-spacer")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save Markdown" })).not.toBeInTheDocument();
+  });
+
+  it("reorders right-side file actions by holding and dragging", async () => {
+    const updateTitlebarActions = vi.fn();
+    render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        titlebarActions={[
+          { id: "aiAgent", visible: true },
+          { id: "sourceMode", visible: true },
+          { id: "save", visible: true },
+          { id: "theme", visible: true }
+        ]}
+        onTitlebarActionsChange={updateTitlebarActions}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleSourceMode={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const aiButton = screen.getByRole("button", { name: "Toggle Markra AI" });
+    mockTitlebarActionRects(["aiAgent", "sourceMode", "save", "theme", "splitMode"]);
+
+    fireEvent.mouseDown(aiButton, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.mouseMove(document, { buttons: 1, clientX: 20, clientY: 10 });
+    fireEvent.mouseMove(document, { buttons: 1, clientX: 65, clientY: 10 });
+    fireEvent.mouseUp(document, { clientX: 65, clientY: 10 });
+    await settleSortableDrag();
+
+    expect(updateTitlebarActions).toHaveBeenCalledWith([
+      { id: "sourceMode", visible: true },
+      { id: "save", visible: true },
+      { id: "aiAgent", visible: true },
+      { id: "theme", visible: true },
+      { id: "splitMode", visible: true }
+    ]);
+  });
+
+  it("reorders right-side file actions from right to left by holding and dragging", async () => {
+    const updateTitlebarActions = vi.fn();
+    render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        titlebarActions={[
+          { id: "aiAgent", visible: true },
+          { id: "sourceMode", visible: true },
+          { id: "save", visible: true },
+          { id: "theme", visible: true }
+        ]}
+        onTitlebarActionsChange={updateTitlebarActions}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleSourceMode={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const saveButton = screen.getByRole("button", { name: "Save Markdown" });
+    mockTitlebarActionRects(["aiAgent", "sourceMode", "save", "theme", "splitMode"]);
+
+    fireEvent.mouseDown(saveButton, { button: 0, clientX: 80, clientY: 10 });
+    fireEvent.mouseMove(document, { buttons: 1, clientX: 70, clientY: 10 });
+    fireEvent.mouseMove(document, { buttons: 1, clientX: 42, clientY: 10 });
+    fireEvent.mouseUp(document, { clientX: 42, clientY: 10 });
+    await settleSortableDrag();
+
+    expect(updateTitlebarActions).toHaveBeenCalledWith([
+      { id: "aiAgent", visible: true },
+      { id: "save", visible: true },
+      { id: "sourceMode", visible: true },
+      { id: "theme", visible: true },
+      { id: "splitMode", visible: true }
+    ]);
+  });
+
+  it("keeps editor width controls out of the titlebar when unavailable", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".document-actions")).not.toContainElement(
+      container.querySelector('[data-icon^="editor-width-"]')
+    );
+    expect(screen.queryByRole("button", { name: /Content width:/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Content width" })).not.toBeInTheDocument();
+  });
+
+  it("centers the document title inside the editor area when the Markra AI panel is open", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen
+        aiAgentWidth={512}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".native-title")).toHaveStyle({ transform: "translateX(-256px)" });
+    expect(container.querySelector(".document-actions")).toHaveStyle({ transform: "translateX(-512px)" });
+  });
+
+  it("centers the document title inside the editor area when the markdown files sidebar is resized", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        markdownFilesWidth={220}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".native-title")).toHaveStyle({ transform: "translateX(110px)" });
+  });
+
+  it("balances the document title between the markdown files sidebar and Markra AI panel", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen
+        aiAgentWidth={512}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        markdownFilesWidth={288}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".native-title")).toHaveStyle({ transform: "translateX(-112px)" });
+  });
+
+  it("keeps file actions synced immediately while the Markra AI panel is resizing", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen
+        aiAgentResizing
+        aiAgentWidth={448}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".document-actions")).toHaveClass("transition-none");
+    expect(container.querySelector(".document-actions")).toHaveStyle({ transform: "translateX(-448px)" });
+    expect(container.querySelector(".native-title")).toHaveStyle({ transform: "translateX(-224px)" });
+  });
+
+  it("keeps the document title synced immediately while the markdown files sidebar is resizing", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        markdownFilesResizing
+        markdownFilesWidth={440}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".native-title")).toHaveClass("transition-none");
+    expect(container.querySelector(".native-title")).toHaveStyle({ transform: "translateX(220px)" });
+  });
+
+  it("places the markdown files toggle in the traffic-light side of the titlebar", () => {
+    const toggleMarkdownFiles = vi.fn();
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={toggleMarkdownFiles}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const toggle = screen.getByRole("button", { name: "Toggle file list" });
+    const controls = container.querySelector(".mac-window-controls");
+
+    expect(controls).toBeInTheDocument();
+    expect(toggle.closest(".titlebar-spacer")).not.toHaveClass("pl-22");
+    expect(toggle.closest(".titlebar-spacer")).toHaveClass("h-10");
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(toggle).toContainElement(container.querySelector(".lucide-panel-left"));
+
+    fireEvent.click(toggle);
+
+    expect(toggleMarkdownFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps only right-aligned file actions on Windows", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen
+        aiAgentWidth={384}
+        dirty
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        quickCreateMarkdownFileVisible
+        theme="light"
+        platform="windows"
+        onCreateMarkdownFile={() => {}}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const titlebar = container.querySelector(".native-titlebar");
+
+    expect(screen.getByLabelText("Window drag region")).toBeInTheDocument();
+    expect(titlebar).toHaveClass("fixed", "right-3.5", "w-auto");
+    expect(titlebar).not.toHaveClass("inset-x-0");
+    expect(titlebar).not.toHaveClass("grid-cols-[240px_minmax(0,1fr)_240px]");
+    expect(container.querySelector(".mac-window-controls")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Draft.md" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Toggle file list" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New file" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Markdown or Folder" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Markdown" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Toggle Markra AI" })).toBeInTheDocument();
+    expect(container.querySelector(".document-actions")).toHaveClass("relative");
+    expect(container.querySelector(".document-actions")).not.toHaveStyle({ transform: "translateX(-384px)" });
+  });
+
+  it("offers separate Markdown file and folder actions from the Windows open button", () => {
+    const openMarkdown = vi.fn();
+    const openMarkdownFolder = vi.fn();
+    render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        platform="windows"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={openMarkdown}
+        onOpenMarkdownFolder={openMarkdownFolder}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Markdown or Folder" }));
+
+    expect(screen.getByRole("menu", { name: "Open Markdown or Folder" })).toHaveClass("right-0");
+    expect(screen.getByRole("menuitem", { name: "Open Markdown File" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open Folder..." }));
+
+    expect(openMarkdownFolder).toHaveBeenCalledTimes(1);
+    expect(openMarkdown).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu", { name: "Open Markdown or Folder" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the unified Markdown or folder picker on macOS", () => {
+    const openMarkdown = vi.fn();
+    const openMarkdownFolder = vi.fn();
+    render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        platform="macos"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={openMarkdown}
+        onOpenMarkdownFolder={openMarkdownFolder}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Markdown or Folder" }));
+
+    expect(openMarkdown).toHaveBeenCalledTimes(1);
+    expect(openMarkdownFolder).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu", { name: "Open Markdown or Folder" })).not.toBeInTheDocument();
+  });
+
+  it("shows a quick new file button next to the markdown files toggle when the sidebar is collapsed", () => {
+    const createMarkdownFile = vi.fn();
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        quickCreateMarkdownFileVisible
+        theme="light"
+        onCreateMarkdownFile={createMarkdownFile}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: "New file" });
+    const toggle = screen.getByRole("button", { name: "Toggle file list" });
+
+    expect(toggle).toContainElement(container.querySelector(".lucide-panel-right"));
+    expect(button.closest(".titlebar-spacer")).toHaveClass("gap-1");
+    expect(button).toContainElement(container.querySelector(".lucide-square-pen"));
+
+    fireEvent.click(button);
+
+    expect(createMarkdownFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the quick new file button when document tabs are visible", () => {
+    render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        quickCreateMarkdownFileVisible
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onCreateMarkdownFile={() => {}}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(screen.getByRole("tablist", { name: "Open documents" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New file" })).not.toBeInTheDocument();
+  });
+
+  it("uses an image icon for image preview titles", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentKind="image"
+        documentName="pasted-image.png"
+        markdownFilesOpen={false}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "pasted-image.png" })).toBeInTheDocument();
+    expect(container.querySelector(".native-title")).toContainElement(container.querySelector(".lucide-image"));
+  });
+
+  it("hides the quick new file button while the markdown files sidebar is open", () => {
+    render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        quickCreateMarkdownFileVisible
+        theme="light"
+        onCreateMarkdownFile={() => {}}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "New file" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the markdown files toggle above the shifted title hit area", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen
+        aiAgentWidth={512}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="light"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".titlebar-spacer")).toHaveClass("relative", "z-20");
+    expect(container.querySelector(".native-title")).toHaveClass("pointer-events-none");
+  });
+
+  it("shows the inverse theme action", () => {
+    const toggleTheme = vi.fn();
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        theme="dark"
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={toggleTheme}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: "Switch to light theme" });
+
+    expect(button).toContainElement(container.querySelector(".lucide-sun"));
+
+    fireEvent.click(button);
+
+    expect(toggleTheme).toHaveBeenCalledTimes(1);
+  });
+});

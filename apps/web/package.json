@@ -1,36 +1,26 @@
 {
-  "name": "@markra/desktop",
+  "name": "@markra/web",
   "version": "0.5.6",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.app.json && vite build && pnpm verify:chunks",
+    "build": "tsc -p tsconfig.app.json && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
-    "verify:chunks": "node ../../packages/scripts/src/verify-vendor-chunks.mjs dist/assets",
-    "tauri": "tauri"
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
     "@markra/app": "workspace:*",
     "@markra/editor": "workspace:*",
     "@markra/shared": "workspace:*",
-    "@tauri-apps/api": "2.11.0",
-    "@tauri-apps/plugin-dialog": "2.7.1",
-    "@tauri-apps/plugin-os": "2.3.2",
-    "@tauri-apps/plugin-process": "2.3.1",
-    "@tauri-apps/plugin-store": "^2.4.3",
-    "@tauri-apps/plugin-updater": "2.10.1",
     "react": "19.2.5",
     "react-dom": "19.2.5"
   },
   "devDependencies": {
     "@markra/scripts": "workspace:*",
     "@tailwindcss/vite": "^4.2.4",
-    "@tauri-apps/cli": "2.11.0",
-    "@testing-library/jest-dom": "6.9.1",
     "@types/node": "24.10.0",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",

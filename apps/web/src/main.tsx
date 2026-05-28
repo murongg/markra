@@ -2,9 +2,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App, { configureAppRuntime } from "@markra/app";
 import "@markra/app/styles.css";
-import { desktopRuntime } from "./runtime";
+import { createWebRuntime } from "./runtime";
 
-configureAppRuntime(desktopRuntime);
+configureAppRuntime(createWebRuntime());
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

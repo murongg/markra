@@ -14,54 +14,15 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@codemirror/lang-json':
-        specifier: 6.0.2
-        version: 6.0.2
-      '@codemirror/lint':
-        specifier: 6.9.5
-        version: 6.9.5
-      '@codemirror/state':
-        specifier: 6.6.0
-        version: 6.6.0
-      '@codemirror/view':
-        specifier: 6.41.1
-        version: 6.41.1
-      '@dnd-kit/core':
-        specifier: 6.3.1
-        version: 6.3.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      '@dnd-kit/sortable':
-        specifier: 10.0.0
-        version: 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5)
-      '@dnd-kit/utilities':
-        specifier: 3.2.2
-        version: 3.2.2(react@19.2.5)
-      '@earendil-works/pi-agent-core':
-        specifier: 0.75.5
-        version: 0.75.5(ws@8.20.0)(zod@4.4.3)
-      '@markra/ai':
+      '@markra/app':
         specifier: workspace:*
-        version: link:../../packages/ai
+        version: link:../../packages/app
       '@markra/editor':
         specifier: workspace:*
         version: link:../../packages/editor
-      '@markra/markdown':
-        specifier: workspace:*
-        version: link:../../packages/markdown
-      '@markra/providers':
-        specifier: workspace:*
-        version: link:../../packages/providers
       '@markra/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@markra/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
-      '@milkdown/kit':
-        specifier: ^7.20.0
-        version: 7.20.0(@codemirror/language@6.12.3)(@codemirror/state@6.6.0)(@codemirror/view@6.41.1)(typescript@6.0.3)
-      '@milkdown/react':
-        specifier: ^7.20.0
-        version: 7.20.0(@codemirror/language@6.12.3)(@codemirror/state@6.6.0)(@codemirror/view@6.41.1)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)
       '@tauri-apps/api':
         specifier: 2.11.0
         version: 2.11.0
@@ -80,37 +41,16 @@ importers:
       '@tauri-apps/plugin-updater':
         specifier: 2.10.1
         version: 2.10.1
-      codemirror:
-        specifier: 6.0.2
-        version: 6.0.2
-      katex:
-        specifier: 0.16.45
-        version: 0.16.45
-      lucide-react:
-        specifier: 1.14.0
-        version: 1.14.0(react@19.2.5)
       react:
         specifier: 19.2.5
         version: 19.2.5
       react-dom:
         specifier: 19.2.5
         version: 19.2.5(react@19.2.5)
-      react-markdown:
-        specifier: ^10.1.0
-        version: 10.1.0(@types/react@19.2.7)(react@19.2.5)
-      remark-breaks:
-        specifier: 4.0.0
-        version: 4.0.0
-      remark-gfm:
-        specifier: ^4.0.1
-        version: 4.0.1
-      remark-math:
-        specifier: 6.0.0
-        version: 6.0.0
-      sonner:
-        specifier: ^2.0.7
-        version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
     devDependencies:
+      '@markra/scripts':
+        specifier: workspace:*
+        version: link:../../packages/scripts
       '@tailwindcss/vite':
         specifier: ^4.2.4
         version: 4.2.4(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
@@ -120,9 +60,58 @@ importers:
       '@testing-library/jest-dom':
         specifier: 6.9.1
         version: 6.9.1
-      '@testing-library/react':
-        specifier: 16.3.2
-        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@types/node':
+        specifier: 24.10.0
+        version: 24.10.0
+      '@types/react':
+        specifier: 19.2.7
+        version: 19.2.7
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.7)
+      '@vitejs/plugin-react':
+        specifier: 6.0.1
+        version: 6.0.1(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
+      jsdom:
+        specifier: 29.1.1
+        version: 29.1.1
+      tailwindcss:
+        specifier: ^4.2.4
+        version: 4.2.4
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vite:
+        specifier: 8.0.10
+        version: 8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0)
+      vitest:
+        specifier: 4.1.5
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@24.10.0)(jsdom@29.1.1)(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
+
+  apps/web:
+    dependencies:
+      '@markra/app':
+        specifier: workspace:*
+        version: link:../../packages/app
+      '@markra/editor':
+        specifier: workspace:*
+        version: link:../../packages/editor
+      '@markra/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      react:
+        specifier: 19.2.5
+        version: 19.2.5
+      react-dom:
+        specifier: 19.2.5
+        version: 19.2.5(react@19.2.5)
+    devDependencies:
+      '@markra/scripts':
+        specifier: workspace:*
+        version: link:../../packages/scripts
+      '@tailwindcss/vite':
+        specifier: ^4.2.4
+        version: 4.2.4(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
       '@types/node':
         specifier: 24.10.0
         version: 24.10.0
@@ -224,6 +213,124 @@ importers:
         specifier: 4.1.5
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@24.10.0)(jsdom@29.1.1)(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
 
+  packages/app:
+    dependencies:
+      '@codemirror/lang-json':
+        specifier: 6.0.2
+        version: 6.0.2
+      '@codemirror/lint':
+        specifier: 6.9.5
+        version: 6.9.5
+      '@codemirror/state':
+        specifier: 6.6.0
+        version: 6.6.0
+      '@codemirror/view':
+        specifier: 6.41.1
+        version: 6.41.1
+      '@dnd-kit/core':
+        specifier: 6.3.1
+        version: 6.3.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@dnd-kit/sortable':
+        specifier: 10.0.0
+        version: 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5)
+      '@dnd-kit/utilities':
+        specifier: 3.2.2
+        version: 3.2.2(react@19.2.5)
+      '@earendil-works/pi-agent-core':
+        specifier: 0.75.5
+        version: 0.75.5(ws@8.20.0)(zod@4.4.3)
+      '@markra/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@markra/editor':
+        specifier: workspace:*
+        version: link:../editor
+      '@markra/markdown':
+        specifier: workspace:*
+        version: link:../markdown
+      '@markra/providers':
+        specifier: workspace:*
+        version: link:../providers
+      '@markra/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@markra/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@milkdown/kit':
+        specifier: ^7.20.0
+        version: 7.20.0(@codemirror/language@6.12.3)(@codemirror/state@6.6.0)(@codemirror/view@6.41.1)(typescript@6.0.3)
+      '@milkdown/react':
+        specifier: ^7.20.0
+        version: 7.20.0(@codemirror/language@6.12.3)(@codemirror/state@6.6.0)(@codemirror/view@6.41.1)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)
+      codemirror:
+        specifier: 6.0.2
+        version: 6.0.2
+      katex:
+        specifier: 0.16.45
+        version: 0.16.45
+      lucide-react:
+        specifier: 1.14.0
+        version: 1.14.0(react@19.2.5)
+      react:
+        specifier: 19.2.5
+        version: 19.2.5
+      react-dom:
+        specifier: 19.2.5
+        version: 19.2.5(react@19.2.5)
+      react-markdown:
+        specifier: ^10.1.0
+        version: 10.1.0(@types/react@19.2.7)(react@19.2.5)
+      remark-breaks:
+        specifier: 4.0.0
+        version: 4.0.0
+      remark-gfm:
+        specifier: ^4.0.1
+        version: 4.0.1
+      remark-math:
+        specifier: 6.0.0
+        version: 6.0.0
+      sonner:
+        specifier: ^2.0.7
+        version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+    devDependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.2.4
+        version: 4.2.4(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
+      '@testing-library/jest-dom':
+        specifier: 6.9.1
+        version: 6.9.1
+      '@testing-library/react':
+        specifier: 16.3.2
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@types/node':
+        specifier: 24.10.0
+        version: 24.10.0
+      '@types/react':
+        specifier: 19.2.7
+        version: 19.2.7
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.7)
+      '@vitejs/plugin-react':
+        specifier: 6.0.1
+        version: 6.0.1(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
+      jsdom:
+        specifier: 29.1.1
+        version: 29.1.1
+      tailwindcss:
+        specifier: ^4.2.4
+        version: 4.2.4
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vite:
+        specifier: 8.0.10
+        version: 8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0)
+      vitest:
+        specifier: 4.1.5
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@24.10.0)(jsdom@29.1.1)(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
+
   packages/editor:
     dependencies:
       '@markra/ai':
@@ -301,6 +408,31 @@ importers:
       vitest:
         specifier: 4.1.5
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@24.10.0)(jsdom@29.1.1)(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
+
+  packages/scripts:
+    dependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.2.4
+        version: 4.2.4(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
+      '@vitejs/plugin-react':
+        specifier: 6.0.1
+        version: 6.0.1(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
+      jsdom:
+        specifier: 29.1.1
+        version: 29.1.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vite:
+        specifier: 8.0.10
+        version: 8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0)
+      vitest:
+        specifier: 4.1.5
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@24.10.0)(jsdom@29.1.1)(vite@8.0.10(@types/node@24.10.0)(jiti@2.6.1)(yaml@2.9.0))
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.0
+        version: 24.10.0
 
   packages/shared:
     devDependencies:
