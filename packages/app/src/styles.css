@@ -1726,6 +1726,16 @@
     background: var(--editor-bg-secondary);
   }
 
+  .markdown-paper tbody tr:first-child:has(th) ~ tr:nth-child(even) td {
+    @apply bg-(--bg-primary);
+    background: var(--editor-paper-bg);
+  }
+
+  .markdown-paper tbody tr:first-child:has(th) ~ tr:nth-child(odd) td {
+    @apply bg-(--bg-secondary);
+    background: var(--editor-bg-secondary);
+  }
+
   .markdown-paper th p,
   .markdown-paper td p {
     @apply m-0;

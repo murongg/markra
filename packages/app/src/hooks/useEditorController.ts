@@ -35,7 +35,7 @@ const outlineScrollTopMargin = 24;
 const outlineScrollTopOffset = fixedTitlebarHeight + outlineScrollTopMargin;
 const aiCommandSelectionBottomMargin = 24;
 const defaultMarkdownTable = [
-  "| Column 1 | Column 2 |",
+  "|  |  |",
   "| --- | --- |",
   "|  |  |"
 ].join("\n");

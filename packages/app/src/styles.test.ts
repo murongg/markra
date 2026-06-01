@@ -36,7 +36,11 @@ describe("editor stylesheet", () => {
     expect(styles).toContain(".markdown-paper table");
     expect(styles).toContain(".markdown-paper th");
     expect(styles).toContain(".markdown-paper td");
-    expect(styles).toContain(".markdown-paper tbody tr:nth-child(even)");
+    expect(styles).toContain("background: var(--editor-bg-secondary)");
+    expect(styles).toContain("color: var(--editor-text-heading)");
+    expect(styles).toContain(".markdown-paper tbody tr:nth-child(even) td");
+    expect(styles).toContain(".markdown-paper tbody tr:first-child:has(th) ~ tr:nth-child(even) td");
+    expect(styles).toContain(".markdown-paper tbody tr:first-child:has(th) ~ tr:nth-child(odd) td");
   });
 
   it("uses app-themed custom scrollbars across scroll containers", () => {

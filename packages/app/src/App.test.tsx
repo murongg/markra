@@ -3807,8 +3807,9 @@ describe("Markra workspace", () => {
 
     await waitFor(() => {
       const currentSourceEditor = screen.getByRole("textbox", { name: "Markdown source" }) as HTMLTextAreaElement;
-      expect(currentSourceEditor.value).toContain("Column 1");
-      expect(currentSourceEditor.value).toContain("Column 2");
+      expect(currentSourceEditor.value).toMatch(/\|\s+\|\s+\|\n\|\s+-+\s+\|\s+-+\s+\|\n\|\s+\|\s+\|/u);
+      expect(currentSourceEditor.value).not.toContain("Column 1");
+      expect(currentSourceEditor.value).not.toContain("Column 2");
     });
   });
 
@@ -4663,8 +4664,12 @@ describe("Markra workspace", () => {
     });
 
     await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
-    expect(container.querySelector(".ProseMirror table")).toHaveTextContent("Column 1");
-    expect(container.querySelector(".ProseMirror table")).toHaveTextContent("Column 2");
+    const headerCells = Array.from(container.querySelectorAll(".ProseMirror table tr:first-child th")).map(
+      (cell) => cell.textContent
+    );
+    expect(headerCells).toEqual(["", ""]);
+    expect(container.querySelector(".ProseMirror table")).not.toHaveTextContent("Column 1");
+    expect(container.querySelector(".ProseMirror table")).not.toHaveTextContent("Column 2");
   });
 
   it("does not expose native editor AI context actions without selected text", async () => {

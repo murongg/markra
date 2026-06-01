@@ -216,8 +216,8 @@ function createDefaultTableNode(view: EditorView, commands: {
   tableRow: NodeType;
 }) {
   const headerRow = commands.tableHeaderRow.create(null, [
-    createTableCell(view, commands.tableHeader, commands.paragraph, "Column 1"),
-    createTableCell(view, commands.tableHeader, commands.paragraph, "Column 2")
+    createTableCell(view, commands.tableHeader, commands.paragraph),
+    createTableCell(view, commands.tableHeader, commands.paragraph)
   ]);
   const bodyRow = commands.tableRow.create(null, [
     createTableCell(view, commands.tableCell, commands.paragraph),

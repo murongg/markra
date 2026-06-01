@@ -6598,7 +6598,12 @@ describe("MarkdownPaper editing", () => {
     fireEvent.mouseDown(tableOption);
 
     await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
-    expect(container.querySelector(".ProseMirror table")).toHaveTextContent("Column 1");
+    const headerCells = Array.from(container.querySelectorAll(".ProseMirror table tr:first-child th")).map(
+      (cell) => cell.textContent
+    );
+    expect(headerCells).toEqual(["", ""]);
+    expect(container.querySelector(".ProseMirror table")).not.toHaveTextContent("Column 1");
+    expect(container.querySelector(".ProseMirror table")).not.toHaveTextContent("Column 2");
     expect(container.querySelector(".ProseMirror")?.textContent).not.toContain("/ta");
     await settleMarkdownListener();
   });
