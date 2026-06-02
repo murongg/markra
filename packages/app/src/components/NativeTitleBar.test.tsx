@@ -198,7 +198,8 @@ describe("NativeTitleBar", () => {
     const toggleSourceMode = vi.fn();
     const { container } = render(
       <NativeTitleBar
-        aiAgentOpen={false}
+        aiAgentOpen
+        aiAgentWidth={384}
         dirty={false}
         documentName="Draft.md"
         markdownFilesOpen={false}
@@ -222,10 +223,36 @@ describe("NativeTitleBar", () => {
     expect(container.querySelector(".native-titlebar")).not.toHaveAttribute("data-tauri-drag-region");
     expect(container.querySelector(".document-actions")).not.toHaveAttribute("data-tauri-drag-region");
     expect(container.querySelector(".native-title-slot")).not.toHaveAttribute("data-tauri-drag-region");
+    expect(container.querySelector(".windows-titlebar-actions")).toHaveStyle({ transform: "translateX(-384px)" });
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
 
     expect(toggleSourceMode).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps compact Windows file actions clear of the Markra AI panel", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen
+        aiAgentWidth={384}
+        dirty
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        quickCreateMarkdownFileVisible
+        theme="light"
+        platform="windows"
+        onCreateMarkdownFile={() => {}}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".windows-titlebar-actions")).toHaveStyle({ transform: "translateX(-384px)" });
+    expect(screen.getByRole("button", { name: "Open Markdown or Folder" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Toggle Markra AI" })).toBeInTheDocument();
   });
 
   it("toggles the right-side Markra AI panel from the file action area", () => {
@@ -632,6 +659,7 @@ describe("NativeTitleBar", () => {
     expect(screen.getByRole("button", { name: "Toggle Markra AI" })).toBeInTheDocument();
     expect(container.querySelector(".document-actions")).toHaveClass("relative");
     expect(container.querySelector(".document-actions")).not.toHaveStyle({ transform: "translateX(-384px)" });
+    expect(container.querySelector(".windows-titlebar-actions")).toHaveStyle({ transform: "translateX(-384px)" });
   });
 
   it("offers separate Markdown file and folder actions from the Windows open button", () => {

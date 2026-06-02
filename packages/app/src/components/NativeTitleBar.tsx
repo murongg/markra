@@ -449,6 +449,12 @@ export function NativeTitleBar({
       background: `linear-gradient(to right, var(--bg-secondary) 0 ${markdownFilesWidth}px, var(--bg-primary) ${markdownFilesWidth}px 100%)`
     }
     : undefined;
+  const windowsTitlebarActionsStyle: CSSProperties | undefined = aiAgentOpen
+    ? { transform: `translateX(-${aiAgentWidth}px)` }
+    : undefined;
+  const windowsTitlebarActionsTransitionClassName = aiAgentResizing
+    ? "transition-none"
+    : "transition-[opacity,background-color,color,transform] duration-150 ease-out";
   const titlebarGridStyle: CSSProperties = {
     ...(titlebarSurfaceStyle ?? {}),
     ...(!nativeWindowChrome && markdownFilesOpen ? { left: markdownFilesWidth + 1 } : {}),
@@ -484,7 +490,10 @@ export function NativeTitleBar({
           aria-label={label("app.windowDragRegion")}
         >
           {renderTitleContent("native-title-slot min-w-0 h-10 pr-3 pl-4")}
-          <div className="relative z-10 flex h-10 items-center justify-end gap-0.5 pr-3.5 text-(--text-secondary) opacity-40 transition-[opacity,background-color,color] duration-150 ease-out hover:opacity-100 focus-within:opacity-100">
+          <div
+            className={`windows-titlebar-actions relative z-10 flex h-10 items-center justify-end gap-0.5 pr-3.5 text-(--text-secondary) opacity-40 ${windowsTitlebarActionsTransitionClassName} hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none`}
+            style={windowsTitlebarActionsStyle}
+          >
             {renderFixedOpenAction("")}
             {renderDocumentActions("document-actions relative flex h-10 items-center justify-end gap-0.5")}
           </div>
@@ -497,7 +506,10 @@ export function NativeTitleBar({
         className="native-titlebar fixed top-0 right-3.5 z-10 flex h-10 w-auto select-none items-center justify-end [-webkit-user-select:none]"
         aria-label={label("app.windowDragRegion")}
       >
-        <div className="flex h-10 items-center justify-end gap-0.5 text-(--text-secondary) opacity-40 transition-[opacity,background-color,color] duration-150 ease-out hover:opacity-100 focus-within:opacity-100">
+        <div
+          className={`windows-titlebar-actions flex h-10 items-center justify-end gap-0.5 text-(--text-secondary) opacity-40 ${windowsTitlebarActionsTransitionClassName} hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none`}
+          style={windowsTitlebarActionsStyle}
+        >
           {renderFixedOpenAction("")}
           {renderDocumentActions("document-actions relative flex h-10 items-center justify-end gap-0.5")}
         </div>
