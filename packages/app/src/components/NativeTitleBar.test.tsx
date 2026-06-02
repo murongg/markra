@@ -312,7 +312,7 @@ describe("NativeTitleBar", () => {
     );
 
     expect(container.querySelector(".windows-titlebar-actions")).toHaveStyle({ transform: "translateX(-384px)" });
-    expect(screen.getByRole("button", { name: "Open Markdown or Folder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Markdown or Folder" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Toggle Markra AI" })).toBeInTheDocument();
   });
 
@@ -714,7 +714,7 @@ describe("NativeTitleBar", () => {
     expect(screen.queryByRole("heading", { name: "Draft.md" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Toggle file list" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New file" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open Markdown or Folder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Markdown or Folder" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Markdown" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Toggle Markra AI" })).toBeInTheDocument();
@@ -723,7 +723,7 @@ describe("NativeTitleBar", () => {
     expect(container.querySelector(".windows-titlebar-actions")).toHaveStyle({ transform: "translateX(-384px)" });
   });
 
-  it("offers separate Markdown file and folder actions from the Windows open button", () => {
+  it("omits the Markdown or folder picker from the Windows titlebar", () => {
     const openMarkdown = vi.fn();
     const openMarkdownFolder = vi.fn();
     render(
@@ -743,15 +743,10 @@ describe("NativeTitleBar", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Markdown or Folder" }));
-
-    expect(screen.getByRole("menu", { name: "Open Markdown or Folder" })).toHaveClass("right-0");
-    expect(screen.getByRole("menuitem", { name: "Open Markdown File" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Open Folder..." }));
-
-    expect(openMarkdownFolder).toHaveBeenCalledTimes(1);
-    expect(openMarkdown).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Open Markdown or Folder" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "Open Markdown or Folder" })).not.toBeInTheDocument();
+    expect(openMarkdown).not.toHaveBeenCalled();
+    expect(openMarkdownFolder).not.toHaveBeenCalled();
   });
 
   it("keeps the unified Markdown or folder picker on macOS", () => {

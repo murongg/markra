@@ -2748,6 +2748,7 @@ function WorkspaceApp() {
                   ? handleOpenTreeFileToSide
                   : undefined
               }
+              onOpenFolder={handleOpenMarkdownFolder}
               onOpenRecentFolder={handleOpenRecentMarkdownFolder}
               onOpenSettings={handleOpenSettings}
               onRemoveRecentFolder={removeRecentFolder}

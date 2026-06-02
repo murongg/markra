@@ -36,6 +36,7 @@ import {
   ChevronRight,
   FileText,
   Folder,
+  FolderOpen,
   ImageIcon,
   LayoutTemplate,
   ListChevronsDownUp,
@@ -84,6 +85,7 @@ type MarkdownFileTreeDrawerProps = {
   onDeleteFile?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   onOpenFile: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   onOpenFileToSide?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
+  onOpenFolder?: () => unknown | Promise<unknown>;
   onOpenRecentFolder?: (folder: RecentMarkdownFolder) => unknown | Promise<unknown>;
   onOpenSettings?: () => unknown | Promise<unknown>;
   onRemoveRecentFolder?: (folder: RecentMarkdownFolder) => unknown | Promise<unknown>;
@@ -512,6 +514,7 @@ export function MarkdownFileTreeDrawer({
   onDeleteFile,
   onOpenFile,
   onOpenFileToSide,
+  onOpenFolder,
   onOpenRecentFolder,
   onOpenSettings = () => {},
   onRemoveRecentFolder,
@@ -573,6 +576,7 @@ export function MarkdownFileTreeDrawer({
   const resolvedMaxWidth = Math.max(resolvedMinWidth, maxWidth);
   const resolvedWidth = clampNumber(width, resolvedMinWidth, resolvedMaxWidth);
   const showWindowsSidebarToggle = platform === "windows" && onToggleMarkdownFiles;
+  const showWindowsOpenFolderAction = platform === "windows" && onOpenFolder;
   const WindowsSidebarToggleIcon = open ? PanelLeft : PanelRight;
   const drawerTopPaddingClassName = platform === "windows" ? "pt-0" : "pt-10";
   const fileCreationAvailable = folderOpen && Boolean(onCreateFile);
@@ -1457,7 +1461,16 @@ export function MarkdownFileTreeDrawer({
           <h2 className="m-0 truncate text-[14px] font-[560] tracking-normal text-(--text-heading)">
             {label("app.files")}
           </h2>
-          <div className="flex items-center gap-0.5">
+          <div className="markdown-file-tree-header-actions flex items-center gap-0.5">
+            {showWindowsOpenFolderAction ? (
+              <IconButton
+                className="rounded-md"
+                label={label("app.openFolder")}
+                onClick={onOpenFolder}
+              >
+                <FolderOpen aria-hidden="true" size={15} />
+              </IconButton>
+            ) : null}
             <IconButton
               className="rounded-md"
               label={label("app.searchMarkdownFiles")}

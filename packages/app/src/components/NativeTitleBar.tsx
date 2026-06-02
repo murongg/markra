@@ -495,7 +495,6 @@ export function NativeTitleBar({
             className={`windows-titlebar-actions relative z-10 flex h-10 items-center justify-end gap-0.5 pr-3.5 text-(--text-secondary) opacity-40 ${windowsTitlebarActionsTransitionClassName} hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none`}
             style={windowsTitlebarActionsStyle}
           >
-            {renderFixedOpenAction("")}
             {renderDocumentActions("document-actions relative flex h-10 items-center justify-end gap-0.5")}
           </div>
         </header>
@@ -511,7 +510,6 @@ export function NativeTitleBar({
           className={`windows-titlebar-actions flex h-10 items-center justify-end gap-0.5 text-(--text-secondary) opacity-40 ${windowsTitlebarActionsTransitionClassName} hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none`}
           style={windowsTitlebarActionsStyle}
         >
-          {renderFixedOpenAction("")}
           {renderDocumentActions("document-actions relative flex h-10 items-center justify-end gap-0.5")}
         </div>
       </header>

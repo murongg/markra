@@ -276,6 +276,35 @@ describe("MarkdownFileTreeDrawer", () => {
     expect(openFolder).not.toHaveBeenCalled();
   });
 
+  it("places the Windows open folder action in the sidebar header before search", () => {
+    const openFolder = vi.fn();
+    const { container } = render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        open
+        outlineItems={[]}
+        platform="windows"
+        rootName="Obsidian Vault"
+        onOpenFile={() => {}}
+        onOpenFolder={openFolder}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+    const headerActions = container.querySelector(".markdown-file-tree-header-actions") as HTMLElement;
+
+    expect(
+      within(headerActions).getAllByRole("button").map((button) => button.getAttribute("aria-label"))
+    ).toEqual(["Open Folder", "Search Markdown files"]);
+    expect(screen.getByRole("button", { name: "Open Folder" })).toContainElement(
+      container.querySelector(".lucide-folder-open")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Folder" }));
+
+    expect(openFolder).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps create actions unavailable until a folder root is open", () => {
     const createFile = vi.fn();
     const { container } = render(
