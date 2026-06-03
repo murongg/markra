@@ -5744,6 +5744,45 @@ describe("MarkdownPaper editing", () => {
     expect(serializeMarkdown(view.state.doc)).toBe(`${source}\n`);
   });
 
+  it("inserts a new paragraph after a collapsed heading section when Enter is pressed at the heading end", async () => {
+    const source = "# Intro\n\nIntro body\n\n## Nested\n\nNested body\n\n# Outro\n\nOutro body";
+    const { container, view } = await renderEditor(source);
+    const heading = container.querySelector<HTMLElement>(".ProseMirror h1");
+
+    fireEvent.click(within(heading!).getByRole("button", { name: "Collapse section" }));
+    moveCursor(view, findTextPosition(view, "Intro", "Intro".length));
+
+    expect(pressEnter(view)).toBe(true);
+
+    const paragraphs = Array.from(container.querySelectorAll<HTMLElement>(".ProseMirror p"));
+    expect(paragraphs).toHaveLength(4);
+    expect(paragraphs[0]).toHaveClass("markra-heading-collapsed-content");
+    expect(paragraphs[1]).toHaveClass("markra-heading-collapsed-content");
+    expect(paragraphs[2]).not.toHaveClass("markra-heading-collapsed-content");
+    expect(paragraphs[3]).toHaveTextContent("Outro body");
+  });
+
+  it("keeps the paragraph inserted after a collapsed heading visible when the section is toggled again", async () => {
+    const source = "# Intro\n\nIntro body\n\n## Nested\n\nNested body\n\n# Outro\n\nOutro body";
+    const { container, view } = await renderEditor(source);
+    const heading = container.querySelector<HTMLElement>(".ProseMirror h1");
+
+    fireEvent.click(within(heading!).getByRole("button", { name: "Collapse section" }));
+    moveCursor(view, findTextPosition(view, "Intro", "Intro".length));
+
+    expect(pressEnter(view)).toBe(true);
+
+    fireEvent.click(within(heading!).getByRole("button", { name: "Expand section" }));
+    fireEvent.click(within(heading!).getByRole("button", { name: "Collapse section" }));
+
+    const paragraphs = Array.from(container.querySelectorAll<HTMLElement>(".ProseMirror p"));
+    expect(paragraphs).toHaveLength(4);
+    expect(paragraphs[0]).toHaveClass("markra-heading-collapsed-content");
+    expect(paragraphs[1]).toHaveClass("markra-heading-collapsed-content");
+    expect(paragraphs[2]).not.toHaveClass("markra-heading-collapsed-content");
+    expect(paragraphs[3]).toHaveTextContent("Outro body");
+  });
+
   it("preserves nested heading folds when a parent heading is expanded again", async () => {
     const { container } = await renderEditor("# Parent\n\n## Child\n\nChild body\n\n# Next\n\nNext body");
     const headings = Array.from(container.querySelectorAll<HTMLElement>(".ProseMirror h1, .ProseMirror h2"));

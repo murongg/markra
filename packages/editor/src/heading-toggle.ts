@@ -1,6 +1,6 @@
 import { headingSchema } from "@milkdown/kit/preset/commonmark";
 import type { Node as ProseNode, NodeType } from "@milkdown/kit/prose/model";
-import { Plugin, PluginKey, type EditorState, type Transaction } from "@milkdown/kit/prose/state";
+import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 
@@ -11,12 +11,25 @@ export type HeadingToggleLabels = {
 
 type CollapsedHeadingState = {
   collapsed: readonly number[];
+  // Paragraphs inserted from a collapsed heading should stay visible even though Markdown still places them in the section.
+  visibleTails: readonly CollapsedHeadingVisibleTail[];
 };
 
-type HeadingToggleMeta = {
+type CollapsedHeadingVisibleTail = {
   from: number;
-  type: "toggle";
+  headingFrom: number;
 };
+
+type HeadingToggleMeta =
+  | {
+      from: number;
+      type: "toggle";
+    }
+  | {
+      from: number;
+      headingFrom: number;
+      type: "show-tail";
+    };
 
 type TopLevelBlock = {
   from: number;
@@ -38,7 +51,8 @@ const defaultHeadingToggleLabels: HeadingToggleLabels = {
 };
 
 const emptyCollapsedHeadingState: CollapsedHeadingState = {
-  collapsed: []
+  collapsed: [],
+  visibleTails: []
 };
 
 const headingToggleKey = new PluginKey<CollapsedHeadingState>("markra-heading-toggle");
@@ -138,10 +152,116 @@ function mapCollapsedPositions(
   );
 }
 
+function normalizeVisibleTails(
+  state: EditorState,
+  heading: NodeType,
+  visibleTails: readonly CollapsedHeadingVisibleTail[]
+) {
+  const sectionByHeading = new Map(
+    collectHeadingSections(state.doc, heading).map((section) => [section.from, section])
+  );
+  const normalized = new Map<number, number>();
+
+  for (const visibleTail of visibleTails) {
+    const headingFrom = findHeadingStartAtPosition(state, heading, visibleTail.headingFrom);
+    if (headingFrom === null) continue;
+
+    const section = sectionByHeading.get(headingFrom);
+    if (!section) continue;
+    if (visibleTail.from <= section.contentFrom || visibleTail.from >= section.to) continue;
+
+    const previousFrom = normalized.get(headingFrom);
+    normalized.set(
+      headingFrom,
+      previousFrom === undefined ? visibleTail.from : Math.min(previousFrom, visibleTail.from)
+    );
+  }
+
+  return Array.from(normalized.entries())
+    .map(([headingFrom, from]) => ({ from, headingFrom }))
+    .sort((left, right) => left.headingFrom - right.headingFrom);
+}
+
+function mapVisibleTails(
+  transaction: Transaction,
+  state: EditorState,
+  heading: NodeType,
+  visibleTails: readonly CollapsedHeadingVisibleTail[]
+) {
+  return normalizeVisibleTails(
+    state,
+    heading,
+    visibleTails.map((visibleTail) => ({
+      from: transaction.mapping.map(visibleTail.from, -1),
+      headingFrom: transaction.mapping.map(visibleTail.headingFrom, 1)
+    }))
+  );
+}
+
 function toggleCollapsedPosition(positions: readonly number[], position: number) {
   return positions.includes(position)
     ? positions.filter((collapsedPosition) => collapsedPosition !== position)
     : [...positions, position].sort((left, right) => left - right);
+}
+
+function isPlainEnter(event: KeyboardEvent) {
+  return event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+}
+
+function visibleTailByHeading(visibleTails: readonly CollapsedHeadingVisibleTail[]) {
+  return new Map(visibleTails.map((visibleTail) => [visibleTail.headingFrom, visibleTail.from]));
+}
+
+function findCollapsedHeadingEnterTarget(
+  state: EditorState,
+  heading: NodeType,
+  collapsedPositions: readonly number[],
+  visibleTails: readonly CollapsedHeadingVisibleTail[]
+) {
+  const { selection } = state;
+  if (!selection.empty) return null;
+
+  const collapsed = new Set(collapsedPositions);
+  if (collapsed.size === 0) return null;
+
+  const visibleTailFrom = visibleTailByHeading(visibleTails);
+  for (const section of collectHeadingSections(state.doc, heading)) {
+    if (!collapsed.has(section.from)) continue;
+    if (section.contentFrom >= section.to) continue;
+
+    const headingEnd = section.from + section.node.nodeSize - 1;
+    if (selection.from === headingEnd) {
+      return {
+        headingFrom: section.from,
+        insertAt: visibleTailFrom.get(section.from) ?? section.to
+      };
+    }
+  }
+
+  return null;
+}
+
+function insertParagraphAfterCollapsedHeading(view: EditorView, heading: NodeType, event: KeyboardEvent) {
+  if (!isPlainEnter(event)) return false;
+
+  const pluginState = headingToggleKey.getState(view.state) ?? emptyCollapsedHeadingState;
+  const target = findCollapsedHeadingEnterTarget(view.state, heading, pluginState.collapsed, pluginState.visibleTails);
+  if (target === null) return false;
+
+  const paragraph = view.state.schema.nodes.paragraph;
+  if (!paragraph) return false;
+
+  event.preventDefault();
+
+  const transaction = view.state.tr
+    .insert(target.insertAt, paragraph.create())
+    .setMeta(headingToggleKey, {
+      from: target.insertAt,
+      headingFrom: target.headingFrom,
+      type: "show-tail"
+    } satisfies HeadingToggleMeta);
+  view.dispatch(transaction.setSelection(TextSelection.create(transaction.doc, target.insertAt + 1)).scrollIntoView());
+  return true;
 }
 
 function createHeadingToggleButton(
@@ -186,12 +306,14 @@ function createHeadingToggleButton(
 function buildHeadingToggleDecorations(
   doc: ProseNode,
   collapsedPositions: readonly number[],
+  visibleTails: readonly CollapsedHeadingVisibleTail[],
   heading: NodeType,
   labels: HeadingToggleLabels
 ) {
   const sections = collectHeadingSections(doc, heading);
   const sectionByHeading = new Map(sections.map((section) => [section.from, section]));
   const collapsed = new Set(collapsedPositions.filter((position) => sectionByHeading.has(position)));
+  const visibleTailFrom = visibleTailByHeading(visibleTails);
   const decorations: Decoration[] = [];
 
   for (const section of sections) {
@@ -227,9 +349,12 @@ function buildHeadingToggleDecorations(
   if (collapsed.size === 0) return DecorationSet.create(doc, decorations);
 
   for (const block of collectTopLevelBlocks(doc)) {
-    const hiddenByCollapsedHeading = sections.some(
-      (section) => collapsed.has(section.from) && block.from >= section.contentFrom && block.to <= section.to
-    );
+    const hiddenByCollapsedHeading = sections.some((section) => {
+      if (!collapsed.has(section.from) || block.from < section.contentFrom || block.to > section.to) return false;
+
+      const visibleFrom = visibleTailFrom.get(section.from);
+      return visibleFrom === undefined || block.from < visibleFrom;
+    });
     if (!hiddenByCollapsedHeading) continue;
 
     decorations.push(
@@ -257,23 +382,55 @@ export function markraHeadingTogglePlugin(labels?: Partial<HeadingToggleLabels>)
           const mappedCollapsed = transaction.docChanged
             ? mapCollapsedPositions(transaction, newState, heading, value.collapsed)
             : value.collapsed;
+          const mappedVisibleTails = transaction.docChanged
+            ? mapVisibleTails(transaction, newState, heading, value.visibleTails)
+            : value.visibleTails;
 
-          if (meta?.type !== "toggle") {
-            return mappedCollapsed === value.collapsed ? value : { collapsed: mappedCollapsed };
+          if (!meta) {
+            return mappedCollapsed === value.collapsed && mappedVisibleTails === value.visibleTails
+              ? value
+              : { collapsed: mappedCollapsed, visibleTails: mappedVisibleTails };
+          }
+
+          if (meta.type === "show-tail") {
+            const visibleTails = normalizeVisibleTails(newState, heading, [
+              ...mappedVisibleTails,
+              {
+                from: meta.from,
+                headingFrom: meta.headingFrom
+              }
+            ]);
+
+            return {
+              collapsed: mappedCollapsed,
+              visibleTails
+            };
           }
 
           const headingFrom = findHeadingStartAtPosition(newState, heading, meta.from);
-          if (headingFrom === null) return { collapsed: mappedCollapsed };
+          if (headingFrom === null) return { collapsed: mappedCollapsed, visibleTails: mappedVisibleTails };
+
+          const collapsed = toggleCollapsedPosition(mappedCollapsed, headingFrom);
 
           return {
-            collapsed: toggleCollapsedPosition(mappedCollapsed, headingFrom)
+            collapsed,
+            visibleTails: mappedVisibleTails
           };
         }
       },
       props: {
         decorations: (state) => {
           const pluginState = headingToggleKey.getState(state) ?? emptyCollapsedHeadingState;
-          return buildHeadingToggleDecorations(state.doc, pluginState.collapsed, heading, resolvedLabels);
+          return buildHeadingToggleDecorations(
+            state.doc,
+            pluginState.collapsed,
+            pluginState.visibleTails,
+            heading,
+            resolvedLabels
+          );
+        },
+        handleKeyDown: (view, event) => {
+          return insertParagraphAfterCollapsedHeading(view, heading, event);
         }
       }
     });
