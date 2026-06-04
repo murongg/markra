@@ -97,6 +97,38 @@ describe("NativeTitleBar", () => {
     expect(container.querySelector(".native-title-slot")).not.toHaveStyle({ transform: "translateX(110px)" });
   });
 
+  it("keeps the shifted titlebar sidebar gap draggable when tabs are visible", () => {
+    const { container } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        markdownFilesWidth={520}
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const sidebarGap = container.querySelector(".native-titlebar-sidebar-drag-fill");
+
+    expect(sidebarGap).toHaveAttribute("data-tauri-drag-region");
+    expect(sidebarGap).toHaveStyle({
+      left: "164px",
+      width: "356px"
+    });
+    expect(screen.getByRole("tab", { name: "Draft.md" }).closest("[data-tauri-drag-region]")).toBeNull();
+  });
+
   it("places browser window chrome over the editor area when the file tree is open", () => {
     const { container } = render(
       <NativeTitleBar
@@ -128,6 +160,7 @@ describe("NativeTitleBar", () => {
       gridTemplateColumns: "auto minmax(0, 1fr) auto",
       left: "289px"
     });
+    expect(container.querySelector(".native-titlebar-sidebar-drag-fill")).not.toBeInTheDocument();
     expect(container.querySelector(".titlebar-spacer")).not.toHaveAttribute("data-tauri-drag-region");
     expect(titleSlot?.getAttribute("style") ?? "").not.toContain("margin-left");
     expect(titleSlot?.getAttribute("style") ?? "").not.toContain("transform");

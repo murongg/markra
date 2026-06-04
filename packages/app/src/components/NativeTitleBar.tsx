@@ -475,6 +475,21 @@ export function NativeTitleBar({
       style={{ left: Math.max(0, markdownFilesWidth - 1) }}
     />
   ) : null;
+  const renderTitlebarSidebarDragFill = () => {
+    if (!nativeWindowChrome || !markdownFilesOpen || !titleContent) return null;
+
+    const width = markdownFilesWidth - titlebarSideSlotWidth;
+    if (width <= 0) return null;
+
+    return (
+      <span
+        aria-hidden="true"
+        className="native-titlebar-sidebar-drag-fill absolute top-0 bottom-0 z-0"
+        data-tauri-drag-region="true"
+        style={{ left: titlebarSideSlotWidth, width }}
+      />
+    );
+  };
 
   if (platform === "windows") {
     if (titleContent) {
@@ -549,6 +564,7 @@ export function NativeTitleBar({
       data-tauri-drag-region={nativeWindowChrome && !titleContent ? true : undefined}
     >
       {renderMarkdownFilesDivider()}
+      {renderTitlebarSidebarDragFill()}
       <div
         className={`titlebar-spacer relative z-20 flex h-10 items-center gap-1 ${titlebarLeftPaddingClassName}`}
         data-tauri-drag-region={nativeWindowChrome ? true : undefined}
