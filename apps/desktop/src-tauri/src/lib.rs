@@ -54,13 +54,18 @@ use windows::{
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(MarkdownFileWatcherState::default())
         .manage(MarkdownTreeWatcherState::default())
         .manage(OpenedMarkdownPathsState::default())
         .manage(NativeApplicationMenuState::default())
         .manage(NativeMenuTargetState::default())
-        .manage(EditorWindowRestoreState::default())
+        .manage(EditorWindowRestoreState::default());
+
+    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+
+    builder
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
@@ -200,6 +205,21 @@ mod tests {
                 .pointer("/role")
                 .and_then(serde_json::Value::as_str),
             Some("Editor")
+        );
+    }
+
+    #[test]
+    fn desktop_registers_window_state_restore_plugin() {
+        let manifest = include_str!("../Cargo.toml");
+        assert!(
+            manifest.contains("tauri-plugin-window-state"),
+            "desktop manifest should include the window state plugin"
+        );
+
+        let lib_source = include_str!("lib.rs");
+        assert!(
+            lib_source.contains("tauri_plugin_window_state::Builder::default().build()"),
+            "Tauri builder should register the window state restore plugin"
         );
     }
 

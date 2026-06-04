@@ -36,3 +36,6 @@ dispatch2 = "0.3.0"
 objc2 = "0.6.0"
 objc2-app-kit = { version = "0.3.0", default-features = false, features = ["std", "NSButton", "NSControl", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3.0", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-window-state = "2.4.1"
