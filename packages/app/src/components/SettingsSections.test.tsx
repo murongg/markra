@@ -309,6 +309,33 @@ describe("EditorSettings", () => {
     });
   });
 
+  it("switches the sidebar layout from the editor settings", () => {
+    const onUpdatePreferences = vi.fn();
+
+    render(
+      <EditorSettings
+        preferences={{
+          ...defaultEditorPreferences,
+          sidebarLayoutMode: "stacked"
+        }}
+        translate={translate}
+        onUpdatePreferences={onUpdatePreferences}
+      />
+    );
+
+    const layoutGroup = screen.getByRole("group", { name: "Sidebar layout" });
+
+    expect(within(layoutGroup).getByRole("button", { name: "Stacked" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(layoutGroup).getByRole("button", { name: "Tabs" })).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(within(layoutGroup).getByRole("button", { name: "Tabs" }));
+
+    expect(onUpdatePreferences).toHaveBeenCalledWith({
+      ...defaultEditorPreferences,
+      sidebarLayoutMode: "tabs"
+    });
+  });
+
   it("toggles extension syntax features from the extended syntax settings", () => {
     const onUpdatePreferences = vi.fn();
     const preferences: EditorPreferences = {

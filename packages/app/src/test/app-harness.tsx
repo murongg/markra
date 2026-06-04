@@ -912,6 +912,7 @@ export function installAppTestHarness() {
       markdownShortcuts: defaultMarkdownShortcuts,
       markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
+      sidebarLayoutMode: "stacked",
       showAiQuickInputOnSelection: true,
       showAiSelectionToolbarOnSelection: false,
       suggestAiPanelForComplexInlinePrompts: false,

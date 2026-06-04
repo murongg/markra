@@ -56,7 +56,7 @@ import type { NativeMarkdownFolderFile } from "../lib/tauri";
 import { normalizeMovedPath } from "../lib/path-move";
 import { showNativeMarkdownFileTreeContextMenu } from "../lib/tauri";
 import { resolveDesktopPlatform, type DesktopPlatform } from "../lib/platform";
-import type { RecentMarkdownFolder } from "../lib/settings/app-settings";
+import type { RecentMarkdownFolder, SidebarLayoutMode } from "../lib/settings/app-settings";
 import {
   markdownTemplateTitleFromFileName,
   mergeMarkdownTemplates,
@@ -79,6 +79,7 @@ type MarkdownFileTreeDrawerProps = {
   recentFolders?: readonly RecentMarkdownFolder[];
   rootPath?: string | null;
   rootName: string;
+  sidebarLayoutMode?: SidebarLayoutMode;
   width?: number;
   onCreateFile?: (fileName: string, parentPath?: string | null, contents?: string) => unknown | Promise<unknown>;
   onCreateFolder?: (folderName: string, parentPath?: string | null) => unknown | Promise<unknown>;
@@ -152,6 +153,7 @@ type OutlineRenderItem = {
   item: MarkdownOutlineItem;
   key: string;
 };
+type SidebarPanel = "files" | "outline";
 const outlineLevelFilters = ["all", 1, 2, 3] as const;
 type OutlineLevelFilter = typeof outlineLevelFilters[number];
 
@@ -547,6 +549,13 @@ const outlineResizeFallbackHeight = 320;
 const fileTreeContextRowSelectionClassName = "select-none [-webkit-user-select:none]";
 const fileTreeDropTargetClassName = "bg-(--bg-active) text-(--text-heading)";
 const fileTreeDropListTargetClassName = "rounded-sm bg-(--bg-active)";
+const sidebarPanelTabBaseClassName = "relative -mb-px h-10 cursor-pointer border-0 border-b border-transparent bg-transparent px-2 text-[13px] leading-none font-[560] transition-colors duration-150 ease-out focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)";
+const sidebarPanelTabActiveClassName = "border-(--text-secondary) text-(--text-heading)";
+const sidebarPanelTabInactiveClassName = "text-(--text-secondary) hover:text-(--text-heading)";
+
+function sidebarPanelTabClassName(selected: boolean) {
+  return `${sidebarPanelTabBaseClassName} ${selected ? sidebarPanelTabActiveClassName : sidebarPanelTabInactiveClassName}`;
+}
 
 export function MarkdownFileTreeDrawer({
   currentPath,
@@ -562,6 +571,7 @@ export function MarkdownFileTreeDrawer({
   recentFolders = [],
   rootPath = null,
   rootName,
+  sidebarLayoutMode = "stacked",
   width = 288,
   onCreateFile,
   onCreateFolder,
@@ -602,6 +612,7 @@ export function MarkdownFileTreeDrawer({
   const [fileTreeSortMenuOpen, setFileTreeSortMenuOpen] = useState(false);
   const [fileTreeSortKey, setFileTreeSortKey] = useState<FileTreeSortKey>(defaultFileTreeSort.key);
   const [fileTreeSortDirection, setFileTreeSortDirection] = useState<FileTreeSortDirection>(defaultFileTreeSort.direction);
+  const [activeSidebarPanel, setActiveSidebarPanel] = useState<SidebarPanel>("files");
   const [outlineLevelMenuOpen, setOutlineLevelMenuOpen] = useState(false);
   const [outlineLevelFilter, setOutlineLevelFilter] = useState<OutlineLevelFilter>("all");
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -678,9 +689,21 @@ export function MarkdownFileTreeDrawer({
   }, [currentPath, normalizeTreeCreateParentPath, rootPath]);
   const recentFolderChoices = recentFolders.slice(0, 5);
   const recentFolderAreaVisible = recentFolderChoices.length > 0 && Boolean(onOpenRecentFolder);
-  const filePanelVisible = folderOpen || (open && fileCreationAvailable);
-  const filePanelStyle = outlineOpen ? { flex: `0 1 ${100 - outlineHeightPercent}%` } : undefined;
-  const outlinePanelStyle = outlineOpen ? { flex: `0 1 ${outlineHeightPercent}%` } : undefined;
+  const tabbedSidebarLayout = sidebarLayoutMode === "tabs";
+  const filePanelAvailable = folderOpen || (open && fileCreationAvailable);
+  const filePanelVisible = filePanelAvailable && (!tabbedSidebarLayout || activeSidebarPanel === "files");
+  const filePanelClassName = tabbedSidebarLayout || !outlineOpen ? "flex-1" : "min-h-24";
+  const filePanelStyle = !tabbedSidebarLayout && outlineOpen ? { flex: `0 1 ${100 - outlineHeightPercent}%` } : undefined;
+  const outlinePanelVisible = !tabbedSidebarLayout || activeSidebarPanel === "outline";
+  const outlinePanelOpen = tabbedSidebarLayout || outlineOpen;
+  const outlinePanelStyle =
+    !tabbedSidebarLayout && filePanelAvailable && outlineOpen ? { flex: `0 1 ${outlineHeightPercent}%` } : undefined;
+  const outlinePanelFlexible = tabbedSidebarLayout || !filePanelAvailable;
+  const outlineResizerVisible = !tabbedSidebarLayout && outlineOpen && filePanelAvailable;
+  const fileSearchVisible = !tabbedSidebarLayout || activeSidebarPanel === "files";
+  const folderAccessVisible = !tabbedSidebarLayout || activeSidebarPanel === "files";
+  const outlineToolbarVisible = !tabbedSidebarLayout ||
+    (outlinePanelOpen && (outlineItems.length > 0 || outlineExpansionAvailable));
   useEffect(() => {
     return () => {
       resizeCleanupRef.current?.();
@@ -1149,6 +1172,11 @@ export function MarkdownFileTreeDrawer({
     }
   };
 
+  const toggleFileSearch = () => {
+    if (searchOpen) setSearchQuery("");
+    setSearchOpen((open) => !open);
+  };
+
   const rowBranchClassForDepth = (depth: number) => (
     depth === 0
       ? ""
@@ -1381,15 +1409,15 @@ export function MarkdownFileTreeDrawer({
 
   const renderOutline = () => (
     outlineItems.length > 0 ? (
-      <ol className="m-0 list-none p-0" aria-label={label("app.documentOutline")}>
+      <ol className="markdown-file-tree-outline-list m-0 list-none px-2 py-1" aria-label={label("app.documentOutline")}>
         {visibleOutlineItems.map(({ hasChildren, index, item, key }) => {
           const collapsed = collapsedOutlineKeys.has(key);
-          const outlineIndent = 4 + (item.level - 1) * 14;
+          const outlineIndent = (item.level - 1) * 12;
 
           return (
             <li key={key}>
               <div
-                className="flex h-8 w-full items-center gap-0.5 py-0 pr-2 text-[13px] leading-none"
+                className="grid h-7 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-1 py-0 pr-1 text-[13px] leading-none"
                 style={{ paddingLeft: `${outlineIndent}px` }}
               >
                 {hasChildren ? (
@@ -1412,7 +1440,7 @@ export function MarkdownFileTreeDrawer({
                   <span className="size-6 shrink-0" aria-hidden="true" />
                 )}
                 <button
-                  className="h-8 min-w-0 flex-1 cursor-pointer truncate border-0 bg-transparent px-1.5 text-left text-[13px] leading-none text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none"
+                  className="h-7 min-w-0 cursor-pointer truncate rounded-sm border-0 bg-transparent px-1 text-left text-[13px] leading-none text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none"
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onSelectOutlineItem(item, index)}
@@ -1575,6 +1603,60 @@ export function MarkdownFileTreeDrawer({
     ) : null
   );
 
+  const renderSidebarPanelTabs = () => (
+    tabbedSidebarLayout ? (
+      <div
+        className="markdown-file-tree-panel-tabs grid h-10 shrink-0 grid-cols-2 border-b border-(--border-default) px-3"
+        role="group"
+        aria-label={`${label("app.files")} / ${label("app.outline")}`}
+      >
+        <button
+          className={sidebarPanelTabClassName(activeSidebarPanel === "files")}
+          type="button"
+          aria-label={label("app.files")}
+          aria-pressed={activeSidebarPanel === "files"}
+          onClick={() => {
+            setActiveSidebarPanel("files");
+            setOutlineLevelMenuOpen(false);
+          }}
+        >
+          {label("app.files")}
+        </button>
+        <button
+          className={sidebarPanelTabClassName(activeSidebarPanel === "outline")}
+          type="button"
+          aria-label={label("app.outline")}
+          aria-pressed={activeSidebarPanel === "outline"}
+          onClick={() => {
+            setActiveSidebarPanel("outline");
+            setCreateMenuOpen(false);
+            setFileTreeSortMenuOpen(false);
+          }}
+        >
+          {label("app.outline")}
+        </button>
+      </div>
+    ) : null
+  );
+
+  const renderFileSearchInput = () => (
+    searchOpen && fileSearchVisible ? (
+      <>
+        <label className="sr-only" htmlFor="markra-file-search">
+          {label("app.searchMarkdownFiles")}
+        </label>
+        <input
+          id="markra-file-search"
+          className="h-8 border-0 border-b border-(--border-default) bg-transparent px-3 text-[12px] text-(--text-primary) outline-none placeholder:text-(--text-secondary) focus:border-(--border-strong)"
+          type="search"
+          value={searchQuery}
+          placeholder={label("app.searchPlaceholder")}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+      </>
+    ) : null
+  );
+
   return (
     <>
       {!open ? (
@@ -1606,6 +1688,7 @@ export function MarkdownFileTreeDrawer({
         inert={!open}
         style={resolvedWidth === null ? undefined : { maxWidth: resolvedWidth, minWidth: resolvedWidth, width: resolvedWidth }}
       >
+        {renderSidebarPanelTabs()}
         {open && onResize && resolvedWidth !== null ? (
           <div
             className="markdown-file-tree-resizer absolute top-10 right-0 bottom-0 z-30 w-2 cursor-col-resize touch-none outline-none"
@@ -1620,56 +1703,43 @@ export function MarkdownFileTreeDrawer({
             onPointerDown={handleResizePointerDown}
           />
         ) : null}
-        <div className="grid h-10 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center border-b border-(--border-default) px-3">
-          <h2 className="m-0 truncate text-[14px] font-[560] tracking-normal text-(--text-heading)">
-            {label("app.files")}
-          </h2>
-          <div className="markdown-file-tree-header-actions flex items-center gap-0.5">
-            {showWindowsOpenFolderAction ? (
-              <IconButton
-                className="rounded-md"
-                label={label("app.openFolder")}
-                onClick={onOpenFolder}
-              >
-                <FolderOpen aria-hidden="true" size={15} />
-              </IconButton>
-            ) : null}
-            <IconButton
-              className="rounded-md"
-              label={label("app.searchMarkdownFiles")}
-              pressed={searchOpen}
-              onClick={() => {
-                if (searchOpen) setSearchQuery("");
-                setSearchOpen((open) => !open);
-              }}
-            >
-              <Search aria-hidden="true" size={15} />
-            </IconButton>
+        {!tabbedSidebarLayout ? (
+          <div className="grid h-10 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center border-b border-(--border-default) px-3">
+            <h2 className="m-0 truncate text-[14px] font-[560] tracking-normal text-(--text-heading)">
+              {label("app.files")}
+            </h2>
+            <div className="markdown-file-tree-header-actions flex items-center gap-0.5">
+              {showWindowsOpenFolderAction ? (
+                <IconButton
+                  className="rounded-md"
+                  label={label("app.openFolder")}
+                  onClick={onOpenFolder}
+                >
+                  <FolderOpen aria-hidden="true" size={15} />
+                </IconButton>
+              ) : null}
+              {fileSearchVisible ? (
+                <IconButton
+                  className="rounded-md"
+                  label={label("app.searchMarkdownFiles")}
+                  pressed={searchOpen}
+                  onClick={toggleFileSearch}
+                >
+                  <Search aria-hidden="true" size={15} />
+                </IconButton>
+              ) : null}
+            </div>
           </div>
-        </div>
-
-        {searchOpen ? (
-          <>
-            <label className="sr-only" htmlFor="markra-file-search">
-              {label("app.searchMarkdownFiles")}
-            </label>
-            <input
-              id="markra-file-search"
-              className="h-8 border-0 border-b border-(--border-default) bg-transparent px-3 text-[12px] text-(--text-primary) outline-none placeholder:text-(--text-secondary) focus:border-(--border-strong)"
-              type="search"
-              value={searchQuery}
-              placeholder={label("app.searchPlaceholder")}
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
-          </>
         ) : null}
 
-        {renderFolderAccessArea()}
+        {!tabbedSidebarLayout ? renderFileSearchInput() : null}
+
+        {folderAccessVisible ? renderFolderAccessArea() : null}
 
         <div ref={fileTreeBodyRef} className="markdown-file-tree-body flex min-h-0 flex-1 flex-col">
           {filePanelVisible ? (
             <section
-              className={`markdown-file-tree-files flex min-h-0 flex-col ${outlineOpen ? "min-h-24" : "flex-1"}`}
+              className={`markdown-file-tree-files flex min-h-0 flex-col ${filePanelClassName}`}
               style={filePanelStyle}
             >
               <DndContext
@@ -1680,50 +1750,69 @@ export function MarkdownFileTreeDrawer({
                 onDragOver={handleFileTreeDragOver}
                 onDragStart={handleFileTreeDragStart}
               >
-              <div className="flex h-9 shrink-0 items-center gap-1 px-4 text-[13px] text-(--text-secondary)">
-                <FileTreeDropTarget
-                  disabled={!dragMoveAvailable}
-                  id={fileTreeRootDropId("header")}
-                  targetParentPath={null}
-                >
-                  {(rootDropTarget) => (
-                    <div
-                      ref={rootDropTarget.setNodeRef}
-                      className={`flex min-w-0 flex-1 items-center gap-1 rounded-sm ${dragOverTargetPath === dragTargetKey(null) ? fileTreeDropTargetClassName : ""} ${fileTreeContextRowSelectionClassName}`}
-                      onContextMenu={(event) => openContextMenu(event)}
-                    >
-                      <Folder aria-hidden="true" size={16} />
-                      <span className="min-w-0 truncate">{rootName}</span>
-                    </div>
-                  )}
-                </FileTreeDropTarget>
-                <div className="relative">
-                  <IconButton
-                    className="rounded-md"
-                    label={label("app.sortMarkdownFiles")}
-                    pressed={fileTreeSortMenuOpen}
-                    onClick={() => {
-                      setFileTreeSortMenuOpen((open) => {
-                        const nextOpen = !open;
-                        if (nextOpen) setCreateMenuOpen(false);
-                        return nextOpen;
-                      });
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        setFileTreeSortMenuOpen(false);
-                      }
-                    }}
+                <div className="flex h-9 shrink-0 items-center gap-1 px-4 text-[13px] text-(--text-secondary)">
+                  <FileTreeDropTarget
+                    disabled={!dragMoveAvailable}
+                    id={fileTreeRootDropId("header")}
+                    targetParentPath={null}
                   >
-                    <ArrowUpDown aria-hidden="true" size={14} />
-                  </IconButton>
-                  {fileTreeSortMenuOpen ? (
-                    <div
-                      className="absolute top-8 right-0 z-40 min-w-40 rounded-md border border-(--border-default) bg-(--bg-primary) py-1 shadow-[0_12px_30px_color-mix(in_srgb,var(--text-heading)_14%,transparent)]"
-                      role="menu"
-                      aria-label={label("app.sortMarkdownFiles")}
+                    {(rootDropTarget) => (
+                      <div
+                        ref={rootDropTarget.setNodeRef}
+                        className={`flex min-w-0 flex-1 items-center gap-1 rounded-sm ${dragOverTargetPath === dragTargetKey(null) ? fileTreeDropTargetClassName : ""} ${fileTreeContextRowSelectionClassName}`}
+                        onContextMenu={(event) => openContextMenu(event)}
+                      >
+                        <Folder aria-hidden="true" size={16} />
+                        <span className="min-w-0 truncate">{rootName}</span>
+                      </div>
+                    )}
+                  </FileTreeDropTarget>
+                  {tabbedSidebarLayout && showWindowsOpenFolderAction ? (
+                    <IconButton
+                      className="rounded-md"
+                      label={label("app.openFolder")}
+                      onClick={onOpenFolder}
                     >
+                      <FolderOpen aria-hidden="true" size={14} />
+                    </IconButton>
+                  ) : null}
+                  {tabbedSidebarLayout && fileSearchVisible ? (
+                    <IconButton
+                      className="rounded-md"
+                      label={label("app.searchMarkdownFiles")}
+                      pressed={searchOpen}
+                      onClick={toggleFileSearch}
+                    >
+                      <Search aria-hidden="true" size={14} />
+                    </IconButton>
+                  ) : null}
+                  <div className="relative">
+                    <IconButton
+                      className="rounded-md"
+                      label={label("app.sortMarkdownFiles")}
+                      pressed={fileTreeSortMenuOpen}
+                      onClick={() => {
+                        setFileTreeSortMenuOpen((open) => {
+                          const nextOpen = !open;
+                          if (nextOpen) setCreateMenuOpen(false);
+                          return nextOpen;
+                        });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setFileTreeSortMenuOpen(false);
+                        }
+                      }}
+                    >
+                      <ArrowUpDown aria-hidden="true" size={14} />
+                    </IconButton>
+                    {fileTreeSortMenuOpen ? (
+                      <div
+                        className="absolute top-8 right-0 z-40 min-w-40 rounded-md border border-(--border-default) bg-(--bg-primary) py-1 shadow-[0_12px_30px_color-mix(in_srgb,var(--text-heading)_14%,transparent)]"
+                        role="menu"
+                        aria-label={label("app.sortMarkdownFiles")}
+                      >
                       {renderSortMenuItem("name", label("app.sortMarkdownFilesByName"))}
                       {renderSortMenuItem("modifiedAt", label("app.sortMarkdownFilesByModifiedTime"))}
                       {renderSortMenuItem("createdAt", label("app.sortMarkdownFilesByCreatedTime"))}
@@ -1821,6 +1910,8 @@ export function MarkdownFileTreeDrawer({
                 ) : null}
               </div>
 
+              {tabbedSidebarLayout ? renderFileSearchInput() : null}
+
               <FileTreeDropTarget
                 disabled={!dragMoveAvailable}
                 id={fileTreeRootDropId("scroll")}
@@ -1852,7 +1943,7 @@ export function MarkdownFileTreeDrawer({
             </section>
           ) : null}
 
-          {outlineOpen && filePanelVisible ? (
+          {outlineResizerVisible ? (
             <div
               className="markdown-file-tree-outline-resizer group relative h-2 shrink-0 cursor-row-resize touch-none outline-none"
               role="separator"
@@ -1869,84 +1960,94 @@ export function MarkdownFileTreeDrawer({
             </div>
           ) : null}
 
-          <section
-            className={`markdown-file-tree-outline flex min-h-0 flex-col ${outlineOpen ? "min-h-20" : "h-9 shrink-0 border-t border-(--border-default)"} ${filePanelVisible ? "" : "flex-1"}`}
-            style={filePanelVisible ? outlinePanelStyle : undefined}
-          >
-            <div className="flex h-9 shrink-0 items-center gap-1 px-4 pr-2 text-[13px] text-(--text-secondary)">
-              <TableOfContents aria-hidden="true" size={16} />
-              <h3 className="m-0 min-w-0 flex-1 truncate text-[13px] leading-none font-[560] tracking-normal text-(--text-secondary)">
-                {label("app.outline")}
-              </h3>
-              {outlineOpen && outlineItems.length > 0 ? (
-                <div className="relative">
-                  <button
-                    className="inline-flex h-7 min-w-10 cursor-pointer items-center justify-center gap-1 rounded-md border border-transparent bg-transparent px-1.5 text-[12px] leading-none font-[620] text-(--text-secondary) transition-colors duration-150 ease-out hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)"
-                    type="button"
-                    aria-expanded={outlineLevelMenuOpen}
-                    aria-haspopup="menu"
-                    aria-label={`${label("app.outlineHeadingLevels")}: ${outlineLevelFilterLabel(outlineLevelFilter)}`}
-                    onClick={() => setOutlineLevelMenuOpen((open) => !open)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        setOutlineLevelMenuOpen(false);
-                      }
-                    }}
-                  >
-                    <span>{outlineLevelFilterCompactLabel(outlineLevelFilter)}</span>
-                    <ChevronDown aria-hidden="true" size={12} />
-                  </button>
-                  {outlineLevelMenuOpen ? (
-                    <div
-                      className="absolute top-8 right-0 z-40 min-w-32 rounded-md border border-(--border-default) bg-(--bg-primary) py-1 shadow-[0_12px_30px_color-mix(in_srgb,var(--text-heading)_14%,transparent)]"
-                      role="menu"
-                      aria-label={label("app.outlineHeadingLevels")}
-                    >
-                      {outlineLevelFilters.map(renderOutlineLevelMenuItem)}
+          {outlinePanelVisible ? (
+            <section
+              className={`markdown-file-tree-outline flex min-h-0 flex-col ${outlinePanelOpen ? "min-h-20" : "h-9 shrink-0 border-t border-(--border-default)"} ${outlinePanelFlexible ? "flex-1" : ""}`}
+              style={outlinePanelStyle}
+            >
+              {outlineToolbarVisible ? (
+                <div className={`markdown-file-tree-outline-toolbar flex shrink-0 items-center gap-1 text-[13px] text-(--text-secondary) ${tabbedSidebarLayout ? "h-8 justify-start border-b border-(--border-default) px-3" : "h-9 px-4 pr-2"}`}>
+                  {!tabbedSidebarLayout ? (
+                    <>
+                      <TableOfContents aria-hidden="true" size={16} />
+                      <h3 className="m-0 min-w-0 flex-1 truncate text-[13px] leading-none font-[560] tracking-normal text-(--text-secondary)">
+                        {label("app.outline")}
+                      </h3>
+                    </>
+                  ) : null}
+                  {outlinePanelOpen && outlineItems.length > 0 ? (
+                    <div className="relative">
+                      <button
+                        className="markdown-file-tree-outline-filter inline-flex h-6 min-w-9 cursor-pointer items-center justify-center gap-1 rounded-sm border border-transparent bg-transparent px-1.5 text-[12px] leading-none font-[560] text-(--text-secondary) transition-colors duration-150 ease-out hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)"
+                        type="button"
+                        aria-expanded={outlineLevelMenuOpen}
+                        aria-haspopup="menu"
+                        aria-label={`${label("app.outlineHeadingLevels")}: ${outlineLevelFilterLabel(outlineLevelFilter)}`}
+                        onClick={() => setOutlineLevelMenuOpen((open) => !open)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setOutlineLevelMenuOpen(false);
+                          }
+                        }}
+                      >
+                        <span>{outlineLevelFilterCompactLabel(outlineLevelFilter)}</span>
+                        <ChevronDown aria-hidden="true" size={12} />
+                      </button>
+                      {outlineLevelMenuOpen ? (
+                        <div
+                          className={`absolute z-40 min-w-32 rounded-md border border-(--border-default) bg-(--bg-primary) py-1 shadow-[0_12px_30px_color-mix(in_srgb,var(--text-heading)_14%,transparent)] ${tabbedSidebarLayout ? "top-7 left-0" : "top-8 right-0"}`}
+                          role="menu"
+                          aria-label={label("app.outlineHeadingLevels")}
+                        >
+                          {outlineLevelFilters.map(renderOutlineLevelMenuItem)}
+                        </div>
+                      ) : null}
                     </div>
+                  ) : null}
+                  {outlinePanelOpen && outlineExpansionAvailable ? (
+                    <IconButton
+                      className={tabbedSidebarLayout ? "ml-auto rounded-md" : "rounded-md"}
+                      label={allOutlineItemsCollapsed ? label("app.expandOutlineHeadings") : label("app.collapseOutlineHeadings")}
+                      pressed={allOutlineItemsCollapsed}
+                      onClick={toggleAllOutlineItems}
+                    >
+                      {allOutlineItemsCollapsed ? (
+                        <ListChevronsUpDown aria-hidden="true" size={14} />
+                      ) : (
+                        <ListChevronsDownUp aria-hidden="true" size={14} />
+                      )}
+                    </IconButton>
+                  ) : null}
+                  {!tabbedSidebarLayout ? (
+                    <IconButton
+                      className="rounded-md"
+                      label={outlineOpen ? label("app.hideOutline") : label("app.showOutline")}
+                      pressed={outlineOpen}
+                      onClick={() => {
+                        setOutlineOpen((open) => {
+                          const nextOpen = !open;
+                          if (!nextOpen) setOutlineLevelMenuOpen(false);
+                          return nextOpen;
+                        });
+                      }}
+                    >
+                      {outlineOpen ? (
+                        <ChevronDown aria-hidden="true" size={14} />
+                      ) : (
+                        <ChevronRight aria-hidden="true" size={14} />
+                      )}
+                    </IconButton>
                   ) : null}
                 </div>
               ) : null}
-              {outlineOpen && outlineExpansionAvailable ? (
-                <IconButton
-                  className="rounded-md"
-                  label={allOutlineItemsCollapsed ? label("app.expandOutlineHeadings") : label("app.collapseOutlineHeadings")}
-                  pressed={allOutlineItemsCollapsed}
-                  onClick={toggleAllOutlineItems}
-                >
-                  {allOutlineItemsCollapsed ? (
-                    <ListChevronsUpDown aria-hidden="true" size={14} />
-                  ) : (
-                    <ListChevronsDownUp aria-hidden="true" size={14} />
-                  )}
-                </IconButton>
-              ) : null}
-              <IconButton
-                className="rounded-md"
-                label={outlineOpen ? label("app.hideOutline") : label("app.showOutline")}
-                pressed={outlineOpen}
-                onClick={() => {
-                  setOutlineOpen((open) => {
-                    const nextOpen = !open;
-                    if (!nextOpen) setOutlineLevelMenuOpen(false);
-                    return nextOpen;
-                  });
-                }}
-              >
-                {outlineOpen ? (
-                  <ChevronDown aria-hidden="true" size={14} />
-                ) : (
-                  <ChevronRight aria-hidden="true" size={14} />
-                )}
-              </IconButton>
-            </div>
-            {outlineOpen ? (
+            {outlinePanelOpen ? (
               <div className="markdown-file-tree-outline-scroll min-h-0 flex-1 overflow-y-auto overscroll-none pb-4">
                 {renderOutline()}
               </div>
             ) : null}
           </section>
+          ) : null}
         </div>
         {open ? (
           <div className="markdown-file-tree-footer flex h-12 shrink-0 items-center justify-between border-t border-(--border-default) bg-(--bg-secondary) px-2.5">

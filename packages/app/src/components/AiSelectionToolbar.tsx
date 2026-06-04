@@ -269,7 +269,7 @@ export function AiSelectionToolbar({
     headingLevelMenuOpen && headingLevelMenuStyle && typeof document !== "undefined"
       ? createPortal(
           <div
-            className="pointer-events-auto fixed z-[60] grid grid-cols-3 gap-1 rounded-md border border-(--border-default) bg-(--bg-primary) p-1 shadow-(--ai-command-popover-shadow)"
+            className="pointer-events-auto fixed z-60 grid grid-cols-3 gap-1 rounded-md border border-(--border-default) bg-(--bg-primary) p-1 shadow-(--ai-command-popover-shadow)"
             ref={headingLevelMenuRef}
             style={headingLevelMenuStyle}
             role="menu"

@@ -46,6 +46,7 @@ const recentMarkdownFoldersKey = "recentMarkdownFolders";
 
 export type ResolvedAppTheme = "light" | "dark";
 export type AiSelectionDisplayMode = "command" | "toolbar";
+export type SidebarLayoutMode = "stacked" | "tabs";
 type LegacyEditorPreferences = {
   aiSelectionDisplayMode?: AiSelectionDisplayMode;
   autoOpenAiOnSelection?: boolean;
@@ -133,6 +134,7 @@ export type EditorPreferences = {
   markdownShortcuts: MarkdownShortcutBindings;
   markdownTemplates: MarkdownTemplateEntry[];
   restoreWorkspaceOnStartup: boolean;
+  sidebarLayoutMode: SidebarLayoutMode;
   showAiQuickInputOnSelection: boolean;
   showAiSelectionToolbarOnSelection: boolean;
   suggestAiPanelForComplexInlinePrompts: boolean;
@@ -276,6 +278,7 @@ export const defaultEditorPreferences: EditorPreferences = {
   markdownShortcuts: defaultMarkdownShortcuts,
   markdownTemplates: [],
   restoreWorkspaceOnStartup: true,
+  sidebarLayoutMode: "stacked",
   showAiQuickInputOnSelection: true,
   showAiSelectionToolbarOnSelection: false,
   suggestAiPanelForComplexInlinePrompts: false,
@@ -315,6 +318,7 @@ export const recentMarkdownFoldersMaxLength = 5;
 
 const editorBodyFontSizeOptions = [14, 15, 16, 17, 18, 20] as const;
 const editorLineHeightOptions = [1.5, 1.65, 1.8] as const;
+const sidebarLayoutModeOptions: readonly SidebarLayoutMode[] = ["stacked", "tabs"];
 const exportPageSizeOptions: PdfPageSize[] = ["default", "a4", "letter", "custom"];
 const exportMarginPresetOptions: PdfMarginPreset[] = ["default", "none", "narrow", "normal", "wide", "custom"];
 const exportPageSizeDimensions: Record<Exclude<PdfPageSize, "custom">, { heightMm: number; widthMm: number }> = {
@@ -802,6 +806,12 @@ function normalizeShowAiSelectionToolbarOnSelection(preferences: Partial<EditorP
   return defaultEditorPreferences.showAiSelectionToolbarOnSelection;
 }
 
+function normalizeSidebarLayoutMode(value: unknown): SidebarLayoutMode {
+  return sidebarLayoutModeOptions.includes(value as SidebarLayoutMode)
+    ? (value as SidebarLayoutMode)
+    : defaultEditorPreferences.sidebarLayoutMode;
+}
+
 export function normalizeEditorPreferences(value: unknown): EditorPreferences {
   if (typeof value !== "object" || value === null) {
     return {
@@ -842,6 +852,7 @@ export function normalizeEditorPreferences(value: unknown): EditorPreferences {
       typeof preferences.restoreWorkspaceOnStartup === "boolean"
         ? preferences.restoreWorkspaceOnStartup
         : defaultEditorPreferences.restoreWorkspaceOnStartup,
+    sidebarLayoutMode: normalizeSidebarLayoutMode(preferences.sidebarLayoutMode),
     showAiQuickInputOnSelection: normalizeShowAiQuickInputOnSelection(preferences),
     showAiSelectionToolbarOnSelection: normalizeShowAiSelectionToolbarOnSelection(preferences),
     suggestAiPanelForComplexInlinePrompts:

@@ -2947,6 +2947,7 @@ function WorkspaceApp() {
               recentFolders={recentMarkdownFolders}
               rootPath={fileTree.sourcePath}
               rootName={fileTreeRootName}
+              sidebarLayoutMode={editorPreferences.preferences.sidebarLayoutMode}
               width={fileTreeWidth}
               onCreateFile={handleCreateMarkdownTreeFile}
               onCreateFolder={handleCreateMarkdownTreeFolder}

@@ -218,6 +218,7 @@ describe("app settings", () => {
       markdownShortcuts: defaultMarkdownShortcuts,
       markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
+      sidebarLayoutMode: "stacked",
       showAiQuickInputOnSelection: true,
       showAiSelectionToolbarOnSelection: false,
       suggestAiPanelForComplexInlinePrompts: false,
@@ -452,6 +453,7 @@ describe("app settings", () => {
         }
       ],
       restoreWorkspaceOnStartup: false,
+      sidebarLayoutMode: "stacked",
       showAiQuickInputOnSelection: false,
       showAiSelectionToolbarOnSelection: true,
       showWordCount: false
@@ -507,6 +509,7 @@ describe("app settings", () => {
         }
       ],
       restoreWorkspaceOnStartup: false,
+      sidebarLayoutMode: "stacked",
       showAiQuickInputOnSelection: false,
       showAiSelectionToolbarOnSelection: true,
       suggestAiPanelForComplexInlinePrompts: false,
@@ -686,6 +689,13 @@ describe("app settings", () => {
     expect(normalizeEditorPreferences({ splitVisualPanePercent: 10 }).splitVisualPanePercent).toBe(25);
     expect(normalizeEditorPreferences({ splitVisualPanePercent: 90 }).splitVisualPanePercent).toBe(75);
     expect(normalizeEditorPreferences({ splitVisualPanePercent: "wide" }).splitVisualPanePercent).toBe(50);
+  });
+
+  it("normalizes the sidebar layout mode", () => {
+    expect(normalizeEditorPreferences({}).sidebarLayoutMode).toBe("stacked");
+    expect(normalizeEditorPreferences({ sidebarLayoutMode: "tabs" }).sidebarLayoutMode).toBe("tabs");
+    expect(normalizeEditorPreferences({ sidebarLayoutMode: "stacked" }).sidebarLayoutMode).toBe("stacked");
+    expect(normalizeEditorPreferences({ sidebarLayoutMode: "paged" }).sidebarLayoutMode).toBe("stacked");
   });
 
   it("migrates previous app shortcut defaults to the current defaults", () => {
@@ -876,6 +886,7 @@ describe("app settings", () => {
       markdownShortcuts: defaultMarkdownShortcuts,
       markdownTemplates: [],
       restoreWorkspaceOnStartup: true,
+      sidebarLayoutMode: "stacked",
       showAiQuickInputOnSelection: true,
       showAiSelectionToolbarOnSelection: false,
       suggestAiPanelForComplexInlinePrompts: false,
@@ -944,6 +955,7 @@ describe("app settings", () => {
         }
       ],
       restoreWorkspaceOnStartup: false,
+      sidebarLayoutMode: "tabs",
       showAiQuickInputOnSelection: false,
       showAiSelectionToolbarOnSelection: true,
       suggestAiPanelForComplexInlinePrompts: true,
@@ -1010,6 +1022,7 @@ describe("app settings", () => {
         }
       ],
       restoreWorkspaceOnStartup: false,
+      sidebarLayoutMode: "tabs",
       showAiQuickInputOnSelection: false,
       showAiSelectionToolbarOnSelection: true,
       suggestAiPanelForComplexInlinePrompts: true,

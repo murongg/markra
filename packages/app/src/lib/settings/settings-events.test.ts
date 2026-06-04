@@ -162,6 +162,7 @@ describe("settings events", () => {
       markdownShortcuts: defaultMarkdownShortcuts,
       markdownTemplates: [],
       restoreWorkspaceOnStartup: false,
+      sidebarLayoutMode: "stacked",
       showAiQuickInputOnSelection: false,
       showAiSelectionToolbarOnSelection: true,
       suggestAiPanelForComplexInlinePrompts: true,

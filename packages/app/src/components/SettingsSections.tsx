@@ -65,6 +65,7 @@ import {
   type ImageUploadProvider,
   type PdfMarginPreset,
   type PdfPageSize,
+  type SidebarLayoutMode,
   type TitlebarActionId,
   type TitlebarActionPreference,
   type WebSearchProviderId,
@@ -431,6 +432,19 @@ const exportMarginPresetOptions: PdfMarginPreset[] = ["default", "none", "narrow
 const exportPageSizeOptions: PdfPageSize[] = ["default", "a4", "letter", "custom"];
 const lineHeightOptions = [1.5, 1.65, 1.8];
 const webSearchProviderOptions: WebSearchProviderId[] = ["local-bing", "searxng"];
+const sidebarLayoutOptions: Array<{
+  labelKey: I18nKey;
+  value: SidebarLayoutMode;
+}> = [
+  {
+    labelKey: "settings.editor.sidebarLayoutMode.stacked",
+    value: "stacked"
+  },
+  {
+    labelKey: "settings.editor.sidebarLayoutMode.tabs",
+    value: "tabs"
+  }
+];
 const markdownShortcutLabelKeys: Record<MarkdownShortcutAction, I18nKey> = {
   bold: "menu.bold",
   bulletList: "menu.bulletList",
@@ -1187,6 +1201,36 @@ function StorageTypeControlRow({
         />
       }
     />
+  );
+}
+
+function SidebarLayoutModeControl({
+  onUpdatePreferences,
+  preferences,
+  translate
+}: {
+  onUpdatePreferences: (preferences: EditorPreferences) => unknown;
+  preferences: EditorPreferences;
+  translate: Translate;
+}) {
+  return (
+    <SegmentedControl className="grid-cols-2" label={translate("settings.editor.sidebarLayoutMode")}>
+      {sidebarLayoutOptions.map((option) => (
+        <SegmentedControlItem
+          key={option.value}
+          label={translate(option.labelKey)}
+          selected={preferences.sidebarLayoutMode === option.value}
+          onClick={() =>
+            onUpdatePreferences({
+              ...preferences,
+              sidebarLayoutMode: option.value
+            })
+          }
+        >
+          {translate(option.labelKey)}
+        </SegmentedControlItem>
+      ))}
+    </SegmentedControl>
   );
 }
 
@@ -2450,6 +2494,17 @@ export function EditorSettings({
                   showDocumentTabs: !preferences.showDocumentTabs
                 })
               }
+            />
+          }
+        />
+        <SettingsRow
+          title={translate("settings.editor.sidebarLayoutMode")}
+          description={translate("settings.editor.sidebarLayoutModeDescription")}
+          action={
+            <SidebarLayoutModeControl
+              preferences={preferences}
+              translate={translate}
+              onUpdatePreferences={onUpdatePreferences}
             />
           }
         />

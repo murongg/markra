@@ -81,6 +81,77 @@ describe("MarkdownFileTreeDrawer", () => {
     expect(container.querySelector(".markdown-file-tree-outline")).toContainElement(container.querySelector(".lucide-table-of-contents"));
   });
 
+  it("switches file and outline panels in the tabbed sidebar layout", () => {
+    const { container } = render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        open
+        outlineItems={[
+          { level: 1, title: "Intro" },
+          { level: 2, title: "Details" }
+        ]}
+        recentFolders={[{ name: "mock-workspace", path: "/mock-files/workspace" }]}
+        rootName="Example Vault"
+        sidebarLayoutMode="tabs"
+        onOpenFile={() => {}}
+        onOpenRecentFolder={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+    const layoutTabs = screen.getByRole("group", { name: "Files / Outline" });
+    const recentFolders = screen.getByRole("region", { name: "Recently used directories" });
+
+    expect(layoutTabs.compareDocumentPosition(recentFolders) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(layoutTabs).toHaveClass("markdown-file-tree-panel-tabs");
+    expect(layoutTabs).not.toHaveClass("rounded-md", "border", "bg-(--bg-secondary)");
+    expect(layoutTabs.querySelector(".lucide-file-text")).not.toBeInTheDocument();
+    expect(layoutTabs.querySelector(".lucide-table-of-contents")).not.toBeInTheDocument();
+    expect(within(layoutTabs).getByRole("button", { name: "Files" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(layoutTabs).getByRole("button", { name: "Outline" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getAllByText("Files")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Search Markdown files" })).toBeInTheDocument();
+    expect(screen.getByRole("tree", { name: "Markdown files" })).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Document outline" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("separator", { name: "Resize outline" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(layoutTabs).getByRole("button", { name: "Outline" }));
+
+    expect(within(layoutTabs).getByRole("button", { name: "Files" })).toHaveAttribute("aria-pressed", "false");
+    expect(within(layoutTabs).getByRole("button", { name: "Outline" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("tree", { name: "Markdown files" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Recently used directories" })).not.toBeInTheDocument();
+    const outlineToolbar = container.querySelector(".markdown-file-tree-outline-toolbar") as HTMLElement;
+    const outlineList = screen.getByRole("list", { name: "Document outline" });
+
+    expect(outlineToolbar).toHaveClass("h-8", "justify-start", "border-b");
+    expect(outlineToolbar).not.toHaveClass("h-9", "justify-end");
+    expect(within(outlineToolbar).getByRole("button", { name: "Outline heading levels: All headings" })).toHaveClass(
+      "markdown-file-tree-outline-filter",
+      "h-6",
+      "rounded-sm"
+    );
+    expect(outlineList).toHaveClass("markdown-file-tree-outline-list", "px-2", "py-1");
+    expect(outlineList).toHaveTextContent("Intro");
+    expect(outlineList).toHaveTextContent("Details");
+    expect(screen.getByRole("button", { name: "Intro" })).toHaveClass("h-7");
+    expect(screen.getAllByText("Outline")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Collapse outline headings" })).toHaveClass("ml-auto");
+    expect(container.querySelector(".markdown-file-tree-outline")).toHaveClass("flex-1");
+
+    fireEvent.click(within(outlineToolbar).getByRole("button", { name: "Outline heading levels: All headings" }));
+
+    const outlineLevelMenu = screen.getByRole("menu", { name: "Outline heading levels" });
+
+    expect(outlineLevelMenu).toHaveClass("left-0", "top-7");
+    expect(outlineLevelMenu).not.toHaveClass("right-0");
+
+    fireEvent.click(within(layoutTabs).getByRole("button", { name: "Files" }));
+
+    expect(screen.getByRole("tree", { name: "Markdown files" })).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Document outline" })).not.toBeInTheDocument();
+  });
+
   it("shows recent folders in a dedicated sidebar section", () => {
     const openRecentFolder = vi.fn();
     const removeRecentFolder = vi.fn();
