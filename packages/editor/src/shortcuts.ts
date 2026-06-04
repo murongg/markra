@@ -38,6 +38,7 @@ import {
   type MarkdownFormattingShortcutAction,
   type ParsedKeyboardShortcut
 } from "@markra/shared";
+import { finalizeActiveLiveMarkdown, markraLiveMarkdownSpecs } from "./input-rules.ts";
 
 export const markdownShortcutActions = keyboardShortcutActions;
 export const defaultMarkdownShortcuts = defaultKeyboardShortcuts;
@@ -253,6 +254,7 @@ export const markraMarkdownShortcuts = (configuredShortcuts: MarkdownShortcutMap
   const orderedList = orderedListSchema.type(ctx);
   const blockquote = blockquoteSchema.type(ctx);
   const codeBlock = codeBlockSchema.type(ctx);
+  const liveMarkdownSpecs = markraLiveMarkdownSpecs(ctx);
   const shortcuts = normalizeMarkdownShortcuts(configuredShortcuts);
   const shortcutCommands: Record<MarkdownFormattingShortcutAction, Command> = {
     bold: toggleMark(strong),
@@ -277,6 +279,13 @@ export const markraMarkdownShortcuts = (configuredShortcuts: MarkdownShortcutMap
 
         // Support both Milkdown-style shortcuts and common document-editor aliases.
         if (event.key === "Enter" && !hasModifier && selectionIsInsideNodeType(view.state.selection, blockquote)) {
+          const finalizedLiveMarkdown = finalizeActiveLiveMarkdown(view, liveMarkdownSpecs);
+          if (finalizedLiveMarkdown) {
+            event.preventDefault();
+            view.focus();
+            return true;
+          }
+
           const handled = exitBlockquoteAtEnd(view, blockquote, paragraph);
           if (handled) {
             event.preventDefault();

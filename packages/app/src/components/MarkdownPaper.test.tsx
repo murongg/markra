@@ -5159,6 +5159,53 @@ describe("MarkdownPaper editing", () => {
     await settleMarkdownListener();
   });
 
+  it("keeps Enter inside quote formatting before the quote end", async () => {
+    const { container, editor, view } = await renderEditor(["> First", ">", "> Second"].join("\n"));
+    moveCursor(view, findTextPosition(view, "First", "First".length));
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    expect(pressEnter(view)).toBe(true);
+    typeText(view, "Middle");
+
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(container.querySelector(".ProseMirror blockquote")).toHaveTextContent("FirstMiddleSecond");
+    expect(serializeMarkdown(view.state.doc)).toContain("> First\n>\n> Middle");
+    expect(serializeMarkdown(view.state.doc)).toContain("> Second");
+    await settleMarkdownListener();
+  });
+
+  it("exits quote formatting before following prose when pressing Enter at the quote end", async () => {
+    const { editor, view } = await renderEditor(["> Quote", "", "After"].join("\n"));
+    moveCursor(view, findTextPosition(view, "Quote", "Quote".length));
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    expect(pressEnter(view)).toBe(true);
+    typeText(view, "Next");
+
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+    expect(serializeMarkdown(view.state.doc)).toBe("> Quote\n\nNext\n\nAfter\n");
+    await settleMarkdownListener();
+  });
+
+  it("finalizes live markdown inside quote formatting before exiting on the next Enter", async () => {
+    const { container, editor, view } = await renderEditor("> ");
+    moveCursor(view, findFirstTextBlockCursor(view));
+    typeText(view, "**Quote**");
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    expectLiveMark(container, "strong", "Quote");
+    expect(pressEnter(view)).toBe(true);
+    expect(container.querySelector(".ProseMirror blockquote strong")).toHaveTextContent("Quote");
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    expect(pressEnter(view)).toBe(true);
+    typeText(view, "Next");
+
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+    expect(serializeMarkdown(view.state.doc)).toBe("> **Quote**\n\nNext\n");
+    await settleMarkdownListener();
+  });
+
   it("keeps the cursor inside quote formatting when pressing Shift+Enter", async () => {
     const { container, view } = await renderEditor("> Quote");
     moveCursor(view, findTextPosition(view, "Quote", "Quote".length));
