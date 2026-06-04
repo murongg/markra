@@ -1,3 +1,4 @@
+import type { Ctx } from "@milkdown/kit/ctx";
 import { emphasisSchema, inlineCodeSchema, strongSchema } from "@milkdown/kit/preset/commonmark";
 import { strikethroughSchema } from "@milkdown/kit/preset/gfm";
 import type { Mark, MarkType, Node as ProseNode } from "@milkdown/kit/prose/model";
@@ -5,20 +6,20 @@ import { type EditorState, Plugin, PluginKey, TextSelection } from "@milkdown/ki
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 
-type LiveMarkdownKind = "strong" | "emphasis" | "inlineCode" | "strikethrough" | "highlight";
+export type LiveMarkdownKind = "strong" | "emphasis" | "inlineCode" | "strikethrough" | "highlight";
 
 export type MarkraLiveMarkdownOptions = {
   highlight?: boolean;
 };
 
-type LiveMarkdownSpec = {
+export type LiveMarkdownSpec = {
   markers: string[];
   pattern: RegExp;
   marks: LiveMarkdownMark[];
   kinds?: LiveMarkdownKind[];
 };
 
-type LiveMarkdownMark = {
+export type LiveMarkdownMark = {
   kind: LiveMarkdownKind;
   markType: MarkType;
   getAttr?: (marker: string) => Record<string, unknown>;
@@ -444,7 +445,7 @@ function findActiveLiveMarkdownRange(state: EditorState, specs: LiveMarkdownSpec
   };
 }
 
-function finalizeActiveLiveMarkdown(view: EditorView, specs: LiveMarkdownSpec[]) {
+export function finalizeActiveLiveMarkdown(view: EditorView, specs: LiveMarkdownSpec[]) {
   const active = findActiveLiveMarkdownRange(view.state, specs);
   if (!active) return false;
 
@@ -539,8 +540,8 @@ function moveCursorOverLiveMarkdownDelimiter(
   return true;
 }
 
-export const markraLiveMarkdownPlugin = (options: MarkraLiveMarkdownOptions = {}) => $prose((ctx) => {
-  const specs: LiveMarkdownSpec[] = [
+export function markraLiveMarkdownSpecs(ctx: Ctx, options: MarkraLiveMarkdownOptions = {}): LiveMarkdownSpec[] {
+  return [
     {
       markers: ["`"],
       pattern: /`[^`\n]*?`/g,
@@ -664,6 +665,10 @@ export const markraLiveMarkdownPlugin = (options: MarkraLiveMarkdownOptions = {}
       ]
     }
   ];
+}
+
+export const markraLiveMarkdownPlugin = (options: MarkraLiveMarkdownOptions = {}) => $prose((ctx) => {
+  const specs = markraLiveMarkdownSpecs(ctx, options);
   const managedMarkTypes = getManagedMarkTypes(specs);
 
   return new Plugin({
