@@ -341,4 +341,62 @@ describe("useApplicationShortcuts", () => {
 
     expect(openDocumentReplace).toHaveBeenCalledTimes(1);
   });
+
+  it("opens replace when macOS reports Cmd+Option+F as the option-modified key", () => {
+    const openDocumentReplace = vi.fn();
+    renderHook(() =>
+      useApplicationShortcuts({
+        ...baseOptions,
+        openDocumentReplace
+      })
+    );
+
+    const handled = fireEvent.keyDown(window, {
+      altKey: true,
+      code: "KeyF",
+      key: "ƒ",
+      metaKey: true
+    });
+
+    expect(handled).toBe(false);
+    expect(openDocumentReplace).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens replace from the native Windows Ctrl+H document replace shortcut", () => {
+    const openDocumentReplace = vi.fn();
+    renderHook(() =>
+      useApplicationShortcuts({
+        ...baseOptions,
+        openDocumentReplace,
+        platform: "windows"
+      })
+    );
+
+    const handled = fireEvent.keyDown(window, {
+      key: "h",
+      ctrlKey: true
+    });
+
+    expect(handled).toBe(false);
+    expect(openDocumentReplace).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not intercept Ctrl+H on macOS", () => {
+    const openDocumentReplace = vi.fn();
+    renderHook(() =>
+      useApplicationShortcuts({
+        ...baseOptions,
+        openDocumentReplace,
+        platform: "macos"
+      })
+    );
+
+    const handled = fireEvent.keyDown(window, {
+      ctrlKey: true,
+      key: "h"
+    });
+
+    expect(handled).toBe(true);
+    expect(openDocumentReplace).not.toHaveBeenCalled();
+  });
 });

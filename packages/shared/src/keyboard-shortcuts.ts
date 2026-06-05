@@ -80,6 +80,7 @@ const reservedKeyboardShortcutChords = new Set([
   "Mod+,",
   "Mod+A",
   "Mod+C",
+  "Mod+H",
   "Mod+N",
   "Mod+O",
   "Mod+P",

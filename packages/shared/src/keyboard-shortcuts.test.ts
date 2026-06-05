@@ -20,4 +20,10 @@ describe("keyboard shortcuts", () => {
       toggleDocumentHistory: "Mod+Alt+H"
     }).toggleDocumentHistory).toBe("Mod+Alt+H");
   });
+
+  it("reserves Mod+H for the document replace shortcut", () => {
+    expect(normalizeKeyboardShortcuts({
+      toggleDocumentHistory: "Mod+H"
+    }).toggleDocumentHistory).toBe(defaultKeyboardShortcuts.toggleDocumentHistory);
+  });
 });

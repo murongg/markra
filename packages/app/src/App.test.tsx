@@ -4031,7 +4031,34 @@ describe("Markra workspace", () => {
     expect(searchInput).toHaveAttribute("autocapitalize", "none");
     expect(searchInput).toHaveAttribute("autocorrect", "off");
     expect(searchInput).toHaveAttribute("spellcheck", "false");
+    expect(screen.getByRole("button", { name: "Case sensitive" })).toHaveAttribute("title", "Case sensitive");
     expect(container.querySelector(".editor-content-slot")).toHaveAttribute("data-document-search-open", "true");
+  });
+
+  it("opens document replace from the native Windows Ctrl+H keyboard shortcut", async () => {
+    mockedResolveDesktopPlatform.mockReturnValue("windows");
+
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    expect(fireEvent.keyDown(window, { key: "h", ctrlKey: true })).toBe(false);
+
+    expect(screen.getByRole("search", { name: "Find in document" })).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Find in document" })).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "Replace" })).toBeInTheDocument();
+  });
+
+  it("opens document replace from the native macOS Cmd+Option+F keyboard shortcut", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    expect(fireEvent.keyDown(window, { altKey: true, code: "KeyF", key: "ƒ", metaKey: true })).toBe(false);
+
+    expect(screen.getByRole("search", { name: "Find in document" })).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Find in document" })).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "Replace" })).toBeInTheDocument();
   });
 
   it("uses native workspace file count before entering a search query", async () => {

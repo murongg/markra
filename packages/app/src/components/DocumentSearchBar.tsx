@@ -178,6 +178,7 @@ export function DocumentSearchBar({
           className="document-search-icon-button"
           aria-label={label.caseSensitive}
           aria-pressed={caseSensitive}
+          title={label.caseSensitive}
           type="button"
           onClick={() => onCaseSensitiveChange(!caseSensitive)}
         >

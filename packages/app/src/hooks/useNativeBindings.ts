@@ -20,6 +20,7 @@ import {
   type AppLanguage
 } from "@markra/shared";
 import { defaultAiQuickActionPrompt } from "../lib/ai-actions";
+import { resolveDesktopPlatform, type DesktopPlatform } from "../lib/platform";
 
 type NativeAiQuickActionIntent = Exclude<AiEditIntent, "custom">;
 
@@ -61,6 +62,7 @@ type ApplicationShortcutOptions = {
   openDocumentSearch?: () => unknown | Promise<unknown>;
   openWorkspaceSearch?: () => unknown | Promise<unknown>;
   openFolder: () => unknown | Promise<unknown>;
+  platform?: DesktopPlatform;
   saveDocument: () => unknown | Promise<unknown>;
   saveDocumentAs: () => unknown | Promise<unknown>;
   toggleAiAgent?: () => unknown | Promise<unknown>;
@@ -336,6 +338,7 @@ export function useApplicationShortcuts({
   openDocumentSearch,
   openWorkspaceSearch,
   openFolder,
+  platform = resolveDesktopPlatform(),
   saveDocument,
   saveDocumentAs,
   toggleAiAgent,
@@ -374,11 +377,15 @@ export function useApplicationShortcuts({
       }
 
       const key = event.key.toLowerCase();
-      if (key === "f" && event.shiftKey && !event.altKey && openWorkspaceSearch) {
+      const isPhysicalFKey = key === "f" || event.code === "KeyF";
+      const isCtrlDocumentReplaceShortcut =
+        platform !== "macos" && key === "h" && event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
+
+      if (isPhysicalFKey && event.shiftKey && !event.altKey && openWorkspaceSearch) {
         event.preventDefault();
         event.stopPropagation();
         openWorkspaceSearch();
-      } else if (key === "f" && !event.shiftKey) {
+      } else if (isPhysicalFKey && !event.shiftKey) {
         event.preventDefault();
         event.stopPropagation();
         if (event.altKey) {
@@ -386,6 +393,10 @@ export function useApplicationShortcuts({
         } else {
           openDocumentSearch?.();
         }
+      } else if (isCtrlDocumentReplaceShortcut && openDocumentReplace) {
+        event.preventDefault();
+        event.stopPropagation();
+        openDocumentReplace();
       } else if (event.altKey) {
         return;
       } else if (key === "s" && event.shiftKey) {
@@ -426,6 +437,7 @@ export function useApplicationShortcuts({
     openDocumentSearch,
     openWorkspaceSearch,
     openFolder,
+    platform,
     saveDocument,
     saveDocumentAs,
     toggleAiAgent,

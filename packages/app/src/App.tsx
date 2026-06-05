@@ -81,6 +81,7 @@ import { resolveMarkdownDocumentLinkFile } from "./lib/document-links";
 import type { EditorContentWidth } from "./lib/editor-width";
 import { saveEditorImage } from "./lib/image-upload";
 import { replaceMovedPath } from "./lib/path-move";
+import { resolveDesktopPlatform } from "./lib/platform";
 import { selectionAnchorFromDomSelection, type SelectionAnchor } from "./lib/selection-anchor";
 import {
   searchWorkspaceFiles,
@@ -330,6 +331,7 @@ export default function App() {
 }
 
 function WorkspaceApp() {
+  const desktopPlatform = resolveDesktopPlatform();
   const appFeatures = getAppRuntime().features;
   const aiFeatureEnabled = appFeatures.ai;
   const exportFeatureEnabled = appFeatures.export;
@@ -2807,6 +2809,7 @@ function WorkspaceApp() {
     openDocumentSearch: handleDocumentSearchOpen,
     openWorkspaceSearch: handleGlobalSearchOpen,
     openFolder: handleOpenMarkdownFolder,
+    platform: desktopPlatform,
     saveDocument: handleSaveDocument,
     saveDocumentAs,
     toggleAiAgent: aiFeatureEnabled ? handleAiAgentToggle : undefined,
