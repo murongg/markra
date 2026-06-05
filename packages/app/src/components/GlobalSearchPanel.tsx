@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Key, type KeyboardEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CaseSensitive, ChevronDown, ChevronRight, Loader2, Search, X } from "lucide-react";
-import { findSearchRanges, t, type AppLanguage, type I18nKey } from "@markra/shared";
-import type { WorkspaceSearchResult } from "../lib/workspace-search";
+import {
+  describeWorkspaceSearchQuery,
+  findSearchRanges,
+  isStructuredWorkspaceSearchQuery,
+  t,
+  workspaceSearchContentHighlightTerms,
+  type AppLanguage,
+  type I18nKey,
+  type WorkspaceSearchQueryDescription,
+  type WorkspaceSearchScope,
+  type WorkspaceSearchTerm
+} from "@markra/shared";
+import type { WorkspaceSearchResult, WorkspaceSearchSortOrder } from "../lib/workspace-search";
 
 type GlobalSearchPanelProps = {
   caseSensitive: boolean;
@@ -12,6 +23,7 @@ type GlobalSearchPanelProps = {
   recentQueries?: readonly string[];
   results: readonly WorkspaceSearchResult[];
   searchedFileCount: number;
+  sortOrder?: WorkspaceSearchSortOrder;
   truncated: boolean;
   unreadableFileCount: number;
   onCaseSensitiveChange: (caseSensitive: boolean) => unknown;
@@ -19,6 +31,7 @@ type GlobalSearchPanelProps = {
   onOpenResult: (result: WorkspaceSearchResult) => unknown;
   onQueryChange: (query: string) => unknown;
   onRecentQuerySelect?: (query: string) => unknown;
+  onSortOrderChange?: (sortOrder: WorkspaceSearchSortOrder) => unknown;
 };
 
 type GlobalSearchResultGroup = {
@@ -40,6 +53,14 @@ const resultGroupDirectoryHeight = 24;
 const resultGroupMatchHeight = 28;
 const resultGroupShowMoreHeight = 29;
 const fallbackRenderedResultGroupCount = 12;
+const workspaceSearchSortOrders: WorkspaceSearchSortOrder[] = [
+  "path-asc",
+  "path-desc",
+  "modified-desc",
+  "modified-asc",
+  "created-desc",
+  "created-asc"
+];
 
 function formatSearchMessage(message: string, values: Record<string, number | string>) {
   return Object.entries(values).reduce(
@@ -69,6 +90,50 @@ function groupSearchResultsByFile(results: readonly WorkspaceSearchResult[]) {
   });
 
   return Array.from(groups.values());
+}
+
+function sortSearchResultGroups(
+  resultGroups: GlobalSearchResultGroup[],
+  sortOrder: WorkspaceSearchSortOrder
+) {
+  const sortedGroups = [...resultGroups];
+
+  sortedGroups.sort((left, right) => compareSearchResultGroups(left, right, sortOrder));
+
+  return sortedGroups;
+}
+
+function compareSearchResultGroups(
+  left: GlobalSearchResultGroup,
+  right: GlobalSearchResultGroup,
+  sortOrder: WorkspaceSearchSortOrder
+) {
+  if (sortOrder === "modified-asc" || sortOrder === "modified-desc") {
+    return compareOptionalTime(left.file.modifiedAt, right.file.modifiedAt, sortOrder.endsWith("desc"))
+      || compareSearchResultGroupPath(left, right);
+  }
+
+  if (sortOrder === "created-asc" || sortOrder === "created-desc") {
+    return compareOptionalTime(left.file.createdAt, right.file.createdAt, sortOrder.endsWith("desc"))
+      || compareSearchResultGroupPath(left, right);
+  }
+
+  const pathComparison = compareSearchResultGroupPath(left, right);
+  return sortOrder === "path-desc" ? -pathComparison : pathComparison;
+}
+
+function compareOptionalTime(left: number | undefined, right: number | undefined, descending: boolean) {
+  const leftTime = left ?? Number.NEGATIVE_INFINITY;
+  const rightTime = right ?? Number.NEGATIVE_INFINITY;
+  const comparison = leftTime - rightTime;
+
+  return descending ? -comparison : comparison;
+}
+
+function compareSearchResultGroupPath(left: GlobalSearchResultGroup, right: GlobalSearchResultGroup) {
+  return left.file.relativePath.localeCompare(right.file.relativePath, undefined, {
+    sensitivity: "base"
+  });
 }
 
 function directoryLabelFromRelativePath(relativePath: string) {
@@ -122,11 +187,34 @@ function firstVirtualResultGroups(
   return virtualGroups;
 }
 
-function renderHighlightedSnippet(snippet: string, query: string, caseSensitive: boolean) {
-  const normalizedQuery = query.trim();
-  if (!normalizedQuery) return snippet;
+function renderHighlightedSnippet(
+  snippet: string,
+  highlightTerms: readonly WorkspaceSearchTerm[],
+  fallbackQuery: string,
+  caseSensitive: boolean
+) {
+  const normalizedQuery = fallbackQuery.trim();
+  const terms = highlightTerms.length > 0
+    ? highlightTerms
+    : normalizedQuery
+      ? [{
+          caseSensitive,
+          query: normalizedQuery,
+          scope: "content" as const
+        }]
+      : [];
+  if (terms.length === 0) return snippet;
 
-  const ranges = findSearchRanges(snippet, normalizedQuery, { caseSensitive });
+  const ranges = terms
+    .flatMap((term) => findSearchRanges(snippet, term.query, { caseSensitive: term.caseSensitive }))
+    .sort((left, right) => left.from - right.from || right.to - left.to)
+    .reduce<Array<{ from: number; to: number }>>((visibleRanges, range) => {
+      const previousRange = visibleRanges.at(-1);
+      if (previousRange && range.from < previousRange.to) return visibleRanges;
+
+      visibleRanges.push(range);
+      return visibleRanges;
+    }, []);
   if (ranges.length === 0) return snippet;
 
   const nodes: ReactNode[] = [];
@@ -151,6 +239,43 @@ function renderHighlightedSnippet(snippet: string, query: string, caseSensitive:
   return nodes;
 }
 
+function workspaceSearchScopeMessageKey(scope: WorkspaceSearchScope): I18nKey {
+  if (scope === "file") return "app.workspaceSearch.scopeFile";
+  if (scope === "path") return "app.workspaceSearch.scopePath";
+
+  return "app.workspaceSearch.scopeContent";
+}
+
+function workspaceSearchSortOrderLabelKey(sortOrder: WorkspaceSearchSortOrder): I18nKey {
+  if (sortOrder === "created-asc") return "app.workspaceSearch.sortCreatedAsc";
+  if (sortOrder === "created-desc") return "app.workspaceSearch.sortCreatedDesc";
+  if (sortOrder === "modified-asc") return "app.workspaceSearch.sortModifiedAsc";
+  if (sortOrder === "modified-desc") return "app.workspaceSearch.sortModifiedDesc";
+  if (sortOrder === "path-desc") return "app.workspaceSearch.sortPathDesc";
+
+  return "app.workspaceSearch.sortPathAsc";
+}
+
+function workspaceSearchDescriptionText(
+  description: WorkspaceSearchQueryDescription,
+  label: (key: I18nKey) => string,
+  searchLabel: (key: I18nKey, values: Record<string, number | string>) => string
+) {
+  if (description.kind === "or") return label("app.workspaceSearch.explainOr");
+
+  const scope = label(workspaceSearchScopeMessageKey(description.scope));
+
+  return searchLabel(
+    description.kind === "include"
+      ? "app.workspaceSearch.explainInclude"
+      : "app.workspaceSearch.explainExclude",
+    {
+      query: description.query,
+      scope
+    }
+  );
+}
+
 export function GlobalSearchPanel({
   caseSensitive,
   language = "en",
@@ -159,13 +284,15 @@ export function GlobalSearchPanel({
   recentQueries = [],
   results,
   searchedFileCount,
+  sortOrder = "path-asc",
   truncated,
   unreadableFileCount,
   onCaseSensitiveChange,
   onClose,
   onOpenResult,
   onQueryChange,
-  onRecentQuerySelect
+  onRecentQuerySelect,
+  onSortOrderChange
 }: GlobalSearchPanelProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [resultListElement, setResultListElement] = useState<HTMLDivElement | null>(null);
@@ -174,7 +301,20 @@ export function GlobalSearchPanel({
     formatSearchMessage(label(key), values);
   const [collapsedFilePaths, setCollapsedFilePaths] = useState<Set<string>>(() => new Set());
   const [expandedPreviewFilePaths, setExpandedPreviewFilePaths] = useState<Set<string>>(() => new Set());
-  const resultGroups = useMemo(() => groupSearchResultsByFile(results), [results]);
+  const resultGroups = useMemo(
+    () => sortSearchResultGroups(groupSearchResultsByFile(results), sortOrder),
+    [results, sortOrder]
+  );
+  const queryDescription = useMemo(
+    () => isStructuredWorkspaceSearchQuery(query)
+      ? describeWorkspaceSearchQuery(query, { caseSensitive })
+      : [],
+    [caseSensitive, query]
+  );
+  const highlightTerms = useMemo(
+    () => workspaceSearchContentHighlightTerms(query, { caseSensitive }),
+    [caseSensitive, query]
+  );
   const getResultGroupKey = useCallback((index: number) => resultGroups[index]?.file.path ?? index, [resultGroups]);
   const estimateVirtualResultGroupSize = useCallback(
     (index: number) => estimateResultGroupHeight(
@@ -292,6 +432,18 @@ export function GlobalSearchPanel({
         >
           <CaseSensitive aria-hidden="true" size={14} />
         </button>
+        <select
+          className="h-8 max-w-[8.5rem] shrink-0 rounded-sm border border-(--border-default) bg-(--bg-primary) px-1.5 text-[11px] font-[560] text-(--text-primary) outline-none transition-[border-color,box-shadow] duration-150 focus:border-(--accent) focus:shadow-[0_0_0_2px_var(--accent-soft)]"
+          aria-label={label("app.workspaceSearch.sortResults")}
+          value={sortOrder}
+          onChange={(event) => onSortOrderChange?.(event.currentTarget.value as WorkspaceSearchSortOrder)}
+        >
+          {workspaceSearchSortOrders.map((order) => (
+            <option key={order} value={order}>
+              {label(workspaceSearchSortOrderLabelKey(order))}
+            </option>
+          ))}
+        </select>
         <button
           className="document-search-icon-button"
           aria-label={label("app.workspaceSearch.close")}
@@ -316,6 +468,18 @@ export function GlobalSearchPanel({
             <span>{searchLabel("app.workspaceSearch.unreadableFileCount", { count: unreadableFileCount })}</span>
           ) : null}
         </div>
+        {queryDescription.length > 0 ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-(--border-default) px-3 py-1.5 text-[11px] text-(--text-secondary)">
+            {queryDescription.map((description, index) => (
+              <span
+                className="rounded-sm bg-(--bg-active) px-1.5 py-0.5 font-[560]"
+                key={`${description.kind}:${"scope" in description ? `${description.scope}:${description.query}` : "or"}:${index}`}
+              >
+                {workspaceSearchDescriptionText(description, label, searchLabel)}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {results.length > 0 ? (
           <div
             className="m-0 min-h-0 list-none overflow-y-auto px-2 py-1"
@@ -395,7 +559,7 @@ export function GlobalSearchPanel({
                                   onClick={() => onOpenResult(result)}
                                 >
                                   <span className="block min-w-0 truncate font-mono text-[12px] leading-5 text-(--text-primary)">
-                                    {renderHighlightedSnippet(result.snippet, query, caseSensitive)}
+                                    {renderHighlightedSnippet(result.snippet, highlightTerms, query, caseSensitive)}
                                   </span>
                                 </button>
                               </li>

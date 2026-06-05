@@ -43,6 +43,28 @@ const otherFileResult = {
   snippet: "alpha in root"
 } satisfies WorkspaceSearchResult;
 
+const olderResult = {
+  ...result,
+  file: {
+    modifiedAt: 100,
+    name: "older.md",
+    path: "/mock-vault/older.md",
+    relativePath: "older.md"
+  },
+  id: "/mock-vault/older.md:0"
+} satisfies WorkspaceSearchResult;
+
+const newerResult = {
+  ...result,
+  file: {
+    modifiedAt: 200,
+    name: "newer.md",
+    path: "/mock-vault/newer.md",
+    relativePath: "newer.md"
+  },
+  id: "/mock-vault/newer.md:0"
+} satisfies WorkspaceSearchResult;
+
 describe("GlobalSearchPanel", () => {
   it("groups workspace search results by file and opens a selected match", () => {
     const openResult = vi.fn();
@@ -111,6 +133,30 @@ describe("GlobalSearchPanel", () => {
     expect(highlight).toHaveClass("global-search-match");
   });
 
+  it("does not duplicate snippet text for overlapping content term highlights", () => {
+    render(
+      <GlobalSearchPanel
+        caseSensitive={false}
+        language="en"
+        loading={false}
+        query={'"First alpha note" alpha note'}
+        results={[result]}
+        searchedFileCount={1}
+        truncated={false}
+        unreadableFileCount={0}
+        onCaseSensitiveChange={() => {}}
+        onClose={() => {}}
+        onOpenResult={() => {}}
+        onQueryChange={() => {}}
+      />
+    );
+
+    const snippet = within(screen.getByRole("button", { name: "Open docs/guide.md line 3" }))
+      .getByText((_, element) => element?.tagName.toLowerCase() === "span" && element.textContent === "First alpha note");
+
+    expect(snippet.querySelectorAll("mark")).toHaveLength(1);
+  });
+
   it("toggles case-sensitive search", () => {
     const setCaseSensitive = vi.fn();
     render(
@@ -133,6 +179,55 @@ describe("GlobalSearchPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Case sensitive" }));
 
     expect(setCaseSensitive).toHaveBeenCalledWith(true);
+  });
+
+  it("shows an explanation for structured workspace search queries", () => {
+    render(
+      <GlobalSearchPanel
+        caseSensitive={false}
+        language="en"
+        loading={false}
+        query="path:docs alpha -draft"
+        results={[result]}
+        searchedFileCount={1}
+        truncated={false}
+        unreadableFileCount={0}
+        onCaseSensitiveChange={() => {}}
+        onClose={() => {}}
+        onOpenResult={() => {}}
+        onQueryChange={() => {}}
+      />
+    );
+
+    expect(screen.getByText("Path includes docs")).toBeInTheDocument();
+    expect(screen.getByText("Content includes alpha")).toBeInTheDocument();
+    expect(screen.getByText("Content excludes draft")).toBeInTheDocument();
+  });
+
+  it("sorts search result groups by modified time", () => {
+    render(
+      <GlobalSearchPanel
+        caseSensitive={false}
+        language="en"
+        loading={false}
+        query="alpha"
+        results={[olderResult, newerResult]}
+        searchedFileCount={2}
+        sortOrder="modified-desc"
+        truncated={false}
+        unreadableFileCount={0}
+        onCaseSensitiveChange={() => {}}
+        onClose={() => {}}
+        onOpenResult={() => {}}
+        onQueryChange={() => {}}
+        onSortOrderChange={() => {}}
+      />
+    );
+
+    const groups = screen.getAllByRole("group", { name: /search results$/u });
+
+    expect(groups[0]).toHaveAccessibleName("newer.md search results");
+    expect(groups[1]).toHaveAccessibleName("older.md search results");
   });
 
   it("shows recent workspace searches before entering a query", () => {

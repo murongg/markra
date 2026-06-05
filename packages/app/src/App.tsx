@@ -85,7 +85,8 @@ import { selectionAnchorFromDomSelection, type SelectionAnchor } from "./lib/sel
 import {
   searchWorkspaceFiles,
   type WorkspaceSearchResponse,
-  type WorkspaceSearchResult
+  type WorkspaceSearchResult,
+  type WorkspaceSearchSortOrder
 } from "./lib/workspace-search";
 import type {
   SelectionHeadingLevel,
@@ -159,6 +160,7 @@ const sideDocumentMainPanePercentMax = 70;
 const defaultSideDocumentMainPanePercent = 50;
 export const globalSearchDebounceMs = 180;
 const globalSearchRecentQueryLimit = 8;
+const defaultWorkspaceSearchSortOrder: WorkspaceSearchSortOrder = "path-asc";
 const emptyWorkspaceSearchResponse: WorkspaceSearchResponse = {
   results: [],
   searchedFileCount: 0,
@@ -379,6 +381,7 @@ function WorkspaceApp() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [globalSearchCaseSensitive, setGlobalSearchCaseSensitive] = useState(false);
+  const [globalSearchSortOrder, setGlobalSearchSortOrder] = useState<WorkspaceSearchSortOrder>(defaultWorkspaceSearchSortOrder);
   const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
   const [globalSearchResponse, setGlobalSearchResponse] = useState<WorkspaceSearchResponse>(emptyWorkspaceSearchResponse);
   const [globalSearchRecentQueries, setGlobalSearchRecentQueries] = useState<string[]>([]);
@@ -1865,6 +1868,9 @@ function WorkspaceApp() {
   const handleGlobalSearchCaseSensitiveChange = useCallback((caseSensitive: boolean) => {
     setGlobalSearchCaseSensitive(caseSensitive);
   }, []);
+  const handleGlobalSearchSortOrderChange = useCallback((sortOrder: WorkspaceSearchSortOrder) => {
+    setGlobalSearchSortOrder(sortOrder);
+  }, []);
   const handleGlobalSearchRecentQuerySelect = useCallback((query: string) => {
     setGlobalSearchQuery(query);
   }, []);
@@ -3192,6 +3198,7 @@ function WorkspaceApp() {
                   recentQueries={globalSearchRecentQueries}
                   results={globalSearchResponse.results}
                   searchedFileCount={globalSearchResponse.searchedFileCount}
+                  sortOrder={globalSearchSortOrder}
                   truncated={globalSearchResponse.truncated}
                   unreadableFileCount={globalSearchResponse.unreadableFileCount}
                   onCaseSensitiveChange={handleGlobalSearchCaseSensitiveChange}
@@ -3199,6 +3206,7 @@ function WorkspaceApp() {
                   onOpenResult={handleGlobalSearchResultOpen}
                   onQueryChange={handleGlobalSearchQueryChange}
                   onRecentQuerySelect={handleGlobalSearchRecentQuerySelect}
+                  onSortOrderChange={handleGlobalSearchSortOrderChange}
                 />
               ) : null}
               {documentSearchOpen && documentSearchAvailable ? (
