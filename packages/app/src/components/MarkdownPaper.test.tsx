@@ -6747,6 +6747,40 @@ describe("MarkdownPaper editing", () => {
     await settleMarkdownListener();
   });
 
+  it("closes the slash command menu after clicking outside it", async () => {
+    const { container, view } = await renderEditor();
+
+    typeText(view, "/");
+
+    expect(await screen.findByRole("listbox", { name: "Slash commands" })).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Slash commands" })).not.toBeInTheDocument());
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe("/");
+    await settleMarkdownListener();
+  });
+
+  it("closes the document link completion menu after clicking outside it", async () => {
+    const { container, view } = await renderEditor("", {
+      documentPath: "/vault/current.md",
+      workspaceFiles: [
+        { name: "guide.md", path: "/vault/guide.md", relativePath: "guide.md" },
+        { name: "notes.md", path: "/vault/notes.md", relativePath: "notes.md" }
+      ]
+    });
+
+    typeText(view, "[[guide");
+
+    expect(await screen.findByRole("listbox", { name: "Document links" })).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Document links" })).not.toBeInTheDocument());
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe("[[guide");
+    await settleMarkdownListener();
+  });
+
   it("filters slash commands and inserts a code block from the keyboard", async () => {
     const { container, view } = await renderEditor();
 

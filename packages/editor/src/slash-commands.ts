@@ -455,6 +455,7 @@ function elementFromEventTarget(target: EventTarget | null) {
 
 class SlashCommandMenuView {
   private readonly menu: HTMLDivElement;
+  private readonly ownerDocument: Document;
   private view: EditorView;
 
   constructor(
@@ -463,7 +464,8 @@ class SlashCommandMenuView {
     private readonly labels: SlashCommandLabels
   ) {
     this.view = view;
-    this.menu = view.dom.ownerDocument.createElement("div");
+    this.ownerDocument = view.dom.ownerDocument;
+    this.menu = this.ownerDocument.createElement("div");
     this.menu.className = "markra-slash-menu";
     this.menu.setAttribute("aria-label", labels.menu);
     this.menu.setAttribute("role", "listbox");
@@ -471,6 +473,7 @@ class SlashCommandMenuView {
     this.menu.addEventListener("mousedown", this.handleMouseDown);
     this.menu.addEventListener("click", this.handleClick);
     this.menu.addEventListener("mouseover", this.handleMouseOver);
+    this.ownerDocument.addEventListener("pointerdown", this.handleDocumentPointerDown, true);
   }
 
   update(view: EditorView) {
@@ -492,6 +495,7 @@ class SlashCommandMenuView {
     this.menu.removeEventListener("mousedown", this.handleMouseDown);
     this.menu.removeEventListener("click", this.handleClick);
     this.menu.removeEventListener("mouseover", this.handleMouseOver);
+    this.ownerDocument.removeEventListener("pointerdown", this.handleDocumentPointerDown, true);
     this.detach();
   }
 
@@ -566,6 +570,16 @@ class SlashCommandMenuView {
     if (event.button !== 0) return;
 
     this.runCommandFromMouseEvent(event);
+  };
+
+  private readonly handleDocumentPointerDown = (event: PointerEvent) => {
+    const state = slashCommandsKey.getState(this.view.state);
+    if (!state?.active) return;
+
+    const target = elementFromEventTarget(event.target);
+    if (target && this.menu.contains(target)) return;
+
+    closeSlashCommandMenu(this.view);
   };
 
   private runCommandFromMouseEvent(event: MouseEvent) {

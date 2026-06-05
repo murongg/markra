@@ -240,13 +240,25 @@ export function markraDocumentLinkCompletionPlugin(options: DocumentLinkCompleti
           insertDocumentLink(view, active, file, options);
         };
 
+        const handleDocumentPointerDown = (event: PointerEvent) => {
+          const active = completionKey.getState(view.state)?.active ?? null;
+          if (!active) return;
+
+          const target = event.target instanceof Node ? event.target : null;
+          if (target && menu.contains(target)) return;
+
+          view.dispatch(view.state.tr.setMeta(completionKey, { type: "close" } satisfies CompletionMeta));
+        };
+
         menu.addEventListener("mousedown", handleMouseDown);
+        ownerDocument.addEventListener("pointerdown", handleDocumentPointerDown, true);
         ownerDocument.body.append(menu);
         update(view);
 
         return {
           destroy() {
             menu.removeEventListener("mousedown", handleMouseDown);
+            ownerDocument.removeEventListener("pointerdown", handleDocumentPointerDown, true);
             menu.remove();
           },
           update
