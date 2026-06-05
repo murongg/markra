@@ -4161,6 +4161,49 @@ describe("Markra workspace", () => {
     }));
   });
 
+  it("shows recent workspace searches after closing and reopening search", async () => {
+    const guidePath = "/mock-files/vault/guide.md";
+    mockedOpenNativeMarkdownFolder.mockResolvedValue({
+      name: "vault",
+      path: mockFolderPath
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { name: "guide.md", path: guidePath, relativePath: "guide.md" }
+    ]);
+    mockedSearchNativeMarkdownFilesForPath.mockResolvedValue({
+      results: [],
+      searchedFileCount: 1,
+      truncated: false,
+      unreadableFileCount: 0
+    });
+
+    renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true, shiftKey: true });
+    expect(await screen.findByRole("button", { name: "guide.md" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "f", metaKey: true, shiftKey: true });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search workspace" }), {
+      target: { value: "alpha" }
+    });
+    await waitFor(() =>
+      expect(mockedSearchNativeMarkdownFilesForPath).toHaveBeenCalledWith(expect.objectContaining({
+        path: mockFolderPath,
+        query: "alpha"
+      }))
+    );
+
+    fireEvent.keyDown(screen.getByRole("searchbox", { name: "Search workspace" }), { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Search workspace" })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "f", metaKey: true, shiftKey: true });
+    const recentSearches = screen.getByRole("list", { name: "Recent searches" });
+
+    fireEvent.click(within(recentSearches).getByRole("button", { name: "Search for alpha" }));
+
+    expect(screen.getByRole("searchbox", { name: "Search workspace" })).toHaveValue("alpha");
+  });
+
   it("does not open document search after opening a workspace search result", async () => {
     const guidePath = "/mock-files/vault/docs/guide.md";
     mockedOpenNativeMarkdownFolder.mockResolvedValue({

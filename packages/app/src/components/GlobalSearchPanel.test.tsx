@@ -135,6 +135,35 @@ describe("GlobalSearchPanel", () => {
     expect(setCaseSensitive).toHaveBeenCalledWith(true);
   });
 
+  it("shows recent workspace searches before entering a query", () => {
+    const selectRecentQuery = vi.fn();
+    render(
+      <GlobalSearchPanel
+        caseSensitive={false}
+        language="en"
+        loading={false}
+        query=""
+        recentQueries={["alpha", "beta"]}
+        results={[]}
+        searchedFileCount={2}
+        truncated={false}
+        unreadableFileCount={0}
+        onCaseSensitiveChange={() => {}}
+        onClose={() => {}}
+        onOpenResult={() => {}}
+        onQueryChange={() => {}}
+        onRecentQuerySelect={selectRecentQuery}
+      />
+    );
+
+    const recentSearches = screen.getByRole("list", { name: "Recent searches" });
+
+    fireEvent.click(within(recentSearches).getByRole("button", { name: "Search for beta" }));
+
+    expect(selectRecentQuery).toHaveBeenCalledWith("beta");
+    expect(screen.queryByText("Type to search")).not.toBeInTheDocument();
+  });
+
   it("shows when workspace search results are truncated", () => {
     render(
       <GlobalSearchPanel

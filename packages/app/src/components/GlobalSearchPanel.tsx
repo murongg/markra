@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Key, type KeyboardEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CaseSensitive, ChevronDown, ChevronRight, Loader2, Search, X } from "lucide-react";
-import { findSearchRanges, type AppLanguage } from "@markra/shared";
+import { findSearchRanges, t, type AppLanguage, type I18nKey } from "@markra/shared";
 import type { WorkspaceSearchResult } from "../lib/workspace-search";
 
 type GlobalSearchPanelProps = {
@@ -9,6 +9,7 @@ type GlobalSearchPanelProps = {
   language?: AppLanguage;
   loading: boolean;
   query: string;
+  recentQueries?: readonly string[];
   results: readonly WorkspaceSearchResult[];
   searchedFileCount: number;
   truncated: boolean;
@@ -17,84 +18,7 @@ type GlobalSearchPanelProps = {
   onClose: () => unknown;
   onOpenResult: (result: WorkspaceSearchResult) => unknown;
   onQueryChange: (query: string) => unknown;
-};
-
-const labels: Record<string, {
-  caseSensitive: string;
-  close: string;
-  empty: string;
-  files: (count: number) => string;
-  collapseFile: (path: string) => string;
-  expandFile: (path: string) => string;
-  fileSearchResults: (path: string) => string;
-  loading: string;
-  noResults: string;
-  openResult: (path: string, line: number) => string;
-  placeholder: string;
-  results: string;
-  resultCount: (count: number) => string;
-  truncatedResultCount: (count: number) => string;
-  searchWorkspace: string;
-  showMoreMatches: (count: number) => string;
-  unreadable: (count: number) => string;
-}> = {
-  en: {
-    caseSensitive: "Case sensitive",
-    close: "Close search",
-    empty: "Type to search",
-    files: (count) => `${count} file${count === 1 ? "" : "s"}`,
-    collapseFile: (path) => `Collapse ${path} search results`,
-    expandFile: (path) => `Expand ${path} search results`,
-    fileSearchResults: (path) => `${path} search results`,
-    loading: "Searching...",
-    noResults: "No results",
-    openResult: (path, line) => `Open ${path} line ${line}`,
-    placeholder: "Search files",
-    results: "Search results",
-    resultCount: (count) => `${count} result${count === 1 ? "" : "s"}`,
-    truncatedResultCount: (count) => `First ${count} results`,
-    searchWorkspace: "Search workspace",
-    showMoreMatches: (count) => `show ${count} more match${count === 1 ? "" : "es"}`,
-    unreadable: (count) => `${count} unreadable`
-  },
-  "zh-CN": {
-    caseSensitive: "区分大小写",
-    close: "关闭搜索",
-    empty: "输入关键词搜索",
-    files: (count) => `${count} 个文件`,
-    collapseFile: (path) => `折叠 ${path} 的搜索结果`,
-    expandFile: (path) => `展开 ${path} 的搜索结果`,
-    fileSearchResults: (path) => `${path} 搜索结果`,
-    loading: "搜索中...",
-    noResults: "没有结果",
-    openResult: (path, line) => `打开 ${path} 第 ${line} 行`,
-    placeholder: "搜索文件内容",
-    results: "搜索结果",
-    resultCount: (count) => `${count} 个结果`,
-    truncatedResultCount: (count) => `前 ${count} 个结果`,
-    searchWorkspace: "全局搜索",
-    showMoreMatches: (count) => `显示另外 ${count} 个匹配`,
-    unreadable: (count) => `${count} 个文件不可读`
-  },
-  "zh-TW": {
-    caseSensitive: "區分大小寫",
-    close: "關閉搜尋",
-    empty: "輸入關鍵字搜尋",
-    files: (count) => `${count} 個檔案`,
-    collapseFile: (path) => `摺疊 ${path} 的搜尋結果`,
-    expandFile: (path) => `展開 ${path} 的搜尋結果`,
-    fileSearchResults: (path) => `${path} 搜尋結果`,
-    loading: "搜尋中...",
-    noResults: "沒有結果",
-    openResult: (path, line) => `開啟 ${path} 第 ${line} 行`,
-    placeholder: "搜尋檔案內容",
-    results: "搜尋結果",
-    resultCount: (count) => `${count} 個結果`,
-    truncatedResultCount: (count) => `前 ${count} 個結果`,
-    searchWorkspace: "全域搜尋",
-    showMoreMatches: (count) => `顯示另外 ${count} 個相符項目`,
-    unreadable: (count) => `${count} 個檔案無法讀取`
-  }
+  onRecentQuerySelect?: (query: string) => unknown;
 };
 
 type GlobalSearchResultGroup = {
@@ -117,8 +41,15 @@ const resultGroupMatchHeight = 28;
 const resultGroupShowMoreHeight = 29;
 const fallbackRenderedResultGroupCount = 12;
 
-function globalSearchLabels(language: AppLanguage) {
-  return labels[language] ?? labels.en;
+function formatSearchMessage(message: string, values: Record<string, number | string>) {
+  return Object.entries(values).reduce(
+    (currentMessage, [key, value]) => currentMessage.replaceAll(`{${key}}`, String(value)),
+    message
+  );
+}
+
+function countMessageKey(count: number, singularKey: I18nKey, pluralKey: I18nKey) {
+  return count === 1 ? singularKey : pluralKey;
 }
 
 function groupSearchResultsByFile(results: readonly WorkspaceSearchResult[]) {
@@ -225,6 +156,7 @@ export function GlobalSearchPanel({
   language = "en",
   loading,
   query,
+  recentQueries = [],
   results,
   searchedFileCount,
   truncated,
@@ -232,11 +164,14 @@ export function GlobalSearchPanel({
   onCaseSensitiveChange,
   onClose,
   onOpenResult,
-  onQueryChange
+  onQueryChange,
+  onRecentQuerySelect
 }: GlobalSearchPanelProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [resultListElement, setResultListElement] = useState<HTMLDivElement | null>(null);
-  const label = globalSearchLabels(language);
+  const label = (key: I18nKey) => t(language, key);
+  const searchLabel = (key: I18nKey, values: Record<string, number | string>) =>
+    formatSearchMessage(label(key), values);
   const [collapsedFilePaths, setCollapsedFilePaths] = useState<Set<string>>(() => new Set());
   const [expandedPreviewFilePaths, setExpandedPreviewFilePaths] = useState<Set<string>>(() => new Set());
   const resultGroups = useMemo(() => groupSearchResultsByFile(results), [results]);
@@ -268,12 +203,24 @@ export function GlobalSearchPanel({
   const measureVirtualResultGroup = typeof ResizeObserver === "undefined"
     ? undefined
     : resultGroupVirtualizer.measureElement;
+  const showRecentQueries = query.trim().length === 0
+    && !loading
+    && results.length === 0
+    && recentQueries.length > 0;
   const showNoResults = query.trim().length > 0 && !loading && results.length === 0;
   const statusText = loading
-    ? label.loading
+    ? label("app.workspaceSearch.loading")
     : truncated
-      ? label.truncatedResultCount(results.length)
-      : label.resultCount(results.length);
+      ? searchLabel(countMessageKey(
+          results.length,
+          "app.workspaceSearch.truncatedResultCount",
+          "app.workspaceSearch.truncatedResultCountPlural"
+        ), { count: results.length })
+      : searchLabel(countMessageKey(
+          results.length,
+          "app.workspaceSearch.resultCount",
+          "app.workspaceSearch.resultCountPlural"
+        ), { count: results.length });
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -317,17 +264,17 @@ export function GlobalSearchPanel({
     <div
       className="global-search-panel absolute left-1/2 top-14 z-50 flex w-[min(calc(100%-2rem),640px)] -translate-x-1/2 flex-col overflow-hidden rounded-md border border-(--border-strong) bg-(--bg-secondary)/98 text-[12px] text-(--text-primary) shadow-[0_18px_58px_rgba(0,0,0,0.18)] backdrop-blur-sm"
       role="dialog"
-      aria-label={label.searchWorkspace}
+      aria-label={label("app.workspaceSearch.searchWorkspace")}
     >
       <div className="flex min-w-0 items-center gap-1.5 border-b border-(--border-default) p-2">
         <Search aria-hidden="true" className="shrink-0 text-(--text-secondary)" size={15} />
         <input
           className="h-8 min-w-0 flex-1 rounded-sm border border-(--border-default) bg-(--bg-primary) px-2 text-[12px] text-(--text-heading) outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-(--text-secondary) focus:border-(--accent) focus:shadow-[0_0_0_2px_var(--accent-soft)]"
-          aria-label={label.searchWorkspace}
+          aria-label={label("app.workspaceSearch.searchWorkspace")}
           autoCapitalize="none"
           autoComplete="off"
           autoCorrect="off"
-          placeholder={label.placeholder}
+          placeholder={label("app.workspaceSearch.placeholder")}
           ref={inputRef}
           role="searchbox"
           spellCheck={false}
@@ -338,7 +285,7 @@ export function GlobalSearchPanel({
         />
         <button
           className="document-search-icon-button"
-          aria-label={label.caseSensitive}
+          aria-label={label("app.workspaceSearch.caseSensitive")}
           aria-pressed={caseSensitive}
           type="button"
           onClick={() => onCaseSensitiveChange(!caseSensitive)}
@@ -347,7 +294,7 @@ export function GlobalSearchPanel({
         </button>
         <button
           className="document-search-icon-button"
-          aria-label={label.close}
+          aria-label={label("app.workspaceSearch.close")}
           type="button"
           onClick={onClose}
         >
@@ -358,15 +305,23 @@ export function GlobalSearchPanel({
         <div className="flex h-8 shrink-0 items-center gap-2 border-b border-(--border-default) px-3 text-[11px] font-[560] text-(--text-secondary)">
           {loading ? <Loader2 aria-hidden="true" className="animate-spin" size={13} /> : null}
           <span>{statusText}</span>
-          <span>{label.files(searchedFileCount)}</span>
-          {unreadableFileCount > 0 ? <span>{label.unreadable(unreadableFileCount)}</span> : null}
+          <span>
+            {searchLabel(countMessageKey(
+              searchedFileCount,
+              "app.workspaceSearch.fileCount",
+              "app.workspaceSearch.fileCountPlural"
+            ), { count: searchedFileCount })}
+          </span>
+          {unreadableFileCount > 0 ? (
+            <span>{searchLabel("app.workspaceSearch.unreadableFileCount", { count: unreadableFileCount })}</span>
+          ) : null}
         </div>
         {results.length > 0 ? (
           <div
             className="m-0 min-h-0 list-none overflow-y-auto px-2 py-1"
             ref={setResultListElement}
             role="list"
-            aria-label={label.results}
+            aria-label={label("app.workspaceSearch.results")}
           >
             <div
               className="relative w-full"
@@ -393,14 +348,19 @@ export function GlobalSearchPanel({
                     role="listitem"
                     style={{ transform: `translateY(${virtualGroup.start}px)` }}
                   >
-                    <section role="group" aria-label={label.fileSearchResults(group.file.relativePath)}>
+                    <section
+                      role="group"
+                      aria-label={searchLabel("app.workspaceSearch.fileSearchResults", {
+                        path: group.file.relativePath
+                      })}
+                    >
                       <button
                         className="grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-sm border-0 bg-transparent px-1.5 py-2 text-left outline-none transition-[background-color,color] duration-150 hover:bg-(--bg-hover) focus-visible:bg-(--bg-active) focus-visible:ring-2 focus-visible:ring-(--accent)"
                         aria-expanded={!collapsed}
                         aria-label={
                           collapsed
-                            ? label.expandFile(group.file.relativePath)
-                            : label.collapseFile(group.file.relativePath)
+                            ? searchLabel("app.workspaceSearch.expandFile", { path: group.file.relativePath })
+                            : searchLabel("app.workspaceSearch.collapseFile", { path: group.file.relativePath })
                         }
                         type="button"
                         onClick={() => toggleFileGroup(group.file.path)}
@@ -427,7 +387,10 @@ export function GlobalSearchPanel({
                               <li key={result.id}>
                                 <button
                                   className="block w-full cursor-pointer rounded-sm border-0 bg-transparent px-0 py-1 text-left outline-none transition-[background-color,color] duration-150 hover:bg-(--bg-hover) focus-visible:bg-(--bg-active) focus-visible:ring-2 focus-visible:ring-(--accent)"
-                                  aria-label={label.openResult(result.file.relativePath, result.lineNumber)}
+                                  aria-label={searchLabel("app.workspaceSearch.openResult", {
+                                    line: result.lineNumber,
+                                    path: result.file.relativePath
+                                  })}
                                   type="button"
                                   onClick={() => onOpenResult(result)}
                                 >
@@ -444,7 +407,11 @@ export function GlobalSearchPanel({
                               type="button"
                               onClick={() => expandFilePreview(group.file.path)}
                             >
-                              {label.showMoreMatches(hiddenResultCount)}
+                              {searchLabel(countMessageKey(
+                                hiddenResultCount,
+                                "app.workspaceSearch.showMoreMatches",
+                                "app.workspaceSearch.showMoreMatchesPlural"
+                              ), { count: hiddenResultCount })}
                             </button>
                           ) : null}
                         </div>
@@ -455,9 +422,33 @@ export function GlobalSearchPanel({
               })}
             </div>
           </div>
+        ) : showRecentQueries ? (
+          <div className="min-h-24 px-2 py-1">
+            <div className="px-1.5 py-1 text-[11px] font-[560] text-(--text-secondary)">
+              {label("app.workspaceSearch.recentSearches")}
+            </div>
+            <ul
+              className="m-0 list-none p-0"
+              role="list"
+              aria-label={label("app.workspaceSearch.recentSearches")}
+            >
+              {recentQueries.map((recentQuery) => (
+                <li key={recentQuery}>
+                  <button
+                    className="block w-full cursor-pointer rounded-sm border-0 bg-transparent px-1.5 py-1.5 text-left font-mono text-[12px] text-(--text-primary) outline-none transition-[background-color,color] duration-150 hover:bg-(--bg-hover) focus-visible:bg-(--bg-active) focus-visible:ring-2 focus-visible:ring-(--accent)"
+                    aria-label={searchLabel("app.workspaceSearch.recentSearch", { query: recentQuery })}
+                    type="button"
+                    onClick={() => onRecentQuerySelect?.(recentQuery)}
+                  >
+                    <span className="block truncate">{recentQuery}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : (
           <div className="flex min-h-24 items-center justify-center px-4 py-8 text-[12px] font-[560] text-(--text-secondary)">
-            {showNoResults ? label.noResults : label.empty}
+            {showNoResults ? label("app.workspaceSearch.noResults") : label("app.workspaceSearch.empty")}
           </div>
         )}
       </div>

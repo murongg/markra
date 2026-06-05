@@ -158,6 +158,7 @@ const sideDocumentMainPanePercentMin = 35;
 const sideDocumentMainPanePercentMax = 70;
 const defaultSideDocumentMainPanePercent = 50;
 export const globalSearchDebounceMs = 180;
+const globalSearchRecentQueryLimit = 8;
 const emptyWorkspaceSearchResponse: WorkspaceSearchResponse = {
   results: [],
   searchedFileCount: 0,
@@ -306,6 +307,22 @@ function restoreElementScrollTop(element: HTMLElement, scrollTop: number) {
   }
 }
 
+function nextGlobalSearchRecentQueries(current: string[], query: string) {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return current;
+
+  const normalizedQueryKey = normalizedQuery.toLowerCase();
+  const nextQueries = [
+    normalizedQuery,
+    ...current.filter((currentQuery) => currentQuery.toLowerCase() !== normalizedQueryKey)
+  ].slice(0, globalSearchRecentQueryLimit);
+
+  return current.length === nextQueries.length
+    && current.every((currentQuery, index) => currentQuery === nextQueries[index])
+    ? current
+    : nextQueries;
+}
+
 export default function App() {
   const isSettingsRoute = useSettingsWindowRoute();
 
@@ -364,6 +381,7 @@ function WorkspaceApp() {
   const [globalSearchCaseSensitive, setGlobalSearchCaseSensitive] = useState(false);
   const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
   const [globalSearchResponse, setGlobalSearchResponse] = useState<WorkspaceSearchResponse>(emptyWorkspaceSearchResponse);
+  const [globalSearchRecentQueries, setGlobalSearchRecentQueries] = useState<string[]>([]);
   const [documentHistoryOpen, setDocumentHistoryOpen] = useState(false);
   const [documentHistoryRefreshKey, setDocumentHistoryRefreshKey] = useState(0);
   const [splitVisualPanePercent, setSplitVisualPanePercent] = useState(defaultSplitVisualPanePercent);
@@ -1847,6 +1865,9 @@ function WorkspaceApp() {
   const handleGlobalSearchCaseSensitiveChange = useCallback((caseSensitive: boolean) => {
     setGlobalSearchCaseSensitive(caseSensitive);
   }, []);
+  const handleGlobalSearchRecentQuerySelect = useCallback((query: string) => {
+    setGlobalSearchQuery(query);
+  }, []);
   const handleGlobalSearchResultOpen = useCallback(async (result: WorkspaceSearchResult) => {
     setGlobalSearchOpen(false);
     await handleOpenTreeFile(result.file);
@@ -1911,6 +1932,7 @@ function WorkspaceApp() {
 
     let active = true;
     setGlobalSearchLoading(true);
+    setGlobalSearchRecentQueries((current) => nextGlobalSearchRecentQueries(current, query));
 
     const runGlobalSearch = async () => {
       const nativeResponse = fileTreeSourcePath
@@ -3167,6 +3189,7 @@ function WorkspaceApp() {
                   language={appLanguage.language}
                   loading={globalSearchLoading}
                   query={globalSearchQuery}
+                  recentQueries={globalSearchRecentQueries}
                   results={globalSearchResponse.results}
                   searchedFileCount={globalSearchResponse.searchedFileCount}
                   truncated={globalSearchResponse.truncated}
@@ -3175,6 +3198,7 @@ function WorkspaceApp() {
                   onClose={handleGlobalSearchClose}
                   onOpenResult={handleGlobalSearchResultOpen}
                   onQueryChange={handleGlobalSearchQueryChange}
+                  onRecentQuerySelect={handleGlobalSearchRecentQuerySelect}
                 />
               ) : null}
               {documentSearchOpen && documentSearchAvailable ? (
