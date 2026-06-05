@@ -115,6 +115,46 @@ const checkIconChildren: SvgChildSpec[] = [
     }
   }
 ];
+const expandIconChildren: SvgChildSpec[] = [
+  {
+    tag: "path",
+    attributes: {
+      d: "M15 3h6v6"
+    }
+  },
+  {
+    tag: "path",
+    attributes: {
+      d: "m21 3-7 7"
+    }
+  },
+  {
+    tag: "path",
+    attributes: {
+      d: "M9 21H3v-6"
+    }
+  },
+  {
+    tag: "path",
+    attributes: {
+      d: "m3 21 7-7"
+    }
+  }
+];
+const closeIconChildren: SvgChildSpec[] = [
+  {
+    tag: "path",
+    attributes: {
+      d: "M18 6 6 18"
+    }
+  },
+  {
+    tag: "path",
+    attributes: {
+      d: "m6 6 12 12"
+    }
+  }
+];
 
 function normalizeCodeLanguage(language: unknown) {
   if (typeof language !== "string") return "";
@@ -429,7 +469,10 @@ class MarkraCodeBlockNodeView implements NodeView {
   private readonly code: HTMLElement;
   private readonly mermaidPreview: HTMLElement;
   private readonly mermaidPreviewButton: HTMLButtonElement;
+  private readonly mermaidZoomButton: HTMLButtonElement;
   private readonly mermaidThemeObserver: MutationObserver | null = null;
+  private mermaidZoomDialog: HTMLElement | null = null;
+  private mermaidZoomFocusTarget: HTMLElement | null = null;
   private mermaidSourceEditing = false;
   private mermaidRenderSignature = "";
   private mermaidRenderToken = 0;
@@ -449,6 +492,7 @@ class MarkraCodeBlockNodeView implements NodeView {
     this.code = view.dom.ownerDocument.createElement("code");
     this.mermaidPreview = view.dom.ownerDocument.createElement("div");
     this.mermaidPreviewButton = view.dom.ownerDocument.createElement("button");
+    this.mermaidZoomButton = view.dom.ownerDocument.createElement("button");
     this.contentDOM = this.code;
 
     this.dom.className = "markra-code-block";
@@ -488,6 +532,13 @@ class MarkraCodeBlockNodeView implements NodeView {
     this.mermaidPreviewButton.setAttribute("aria-label", "Preview Mermaid diagram");
     this.mermaidPreviewButton.title = "Preview Mermaid diagram";
     this.mermaidPreviewButton.textContent = "Preview";
+    this.mermaidZoomButton.className = "markra-mermaid-zoom-button";
+    this.mermaidZoomButton.type = "button";
+    this.mermaidZoomButton.contentEditable = "false";
+    this.mermaidZoomButton.hidden = true;
+    this.mermaidZoomButton.setAttribute("aria-label", "Enlarge Mermaid diagram");
+    this.mermaidZoomButton.title = "Enlarge Mermaid diagram";
+    this.mermaidZoomButton.append(createIcon(view.dom.ownerDocument, "markra-mermaid-zoom-icon", expandIconChildren));
 
     this.populateLanguageOptions();
     this.copyButton.addEventListener("click", this.handleCopyClick);
@@ -496,6 +547,7 @@ class MarkraCodeBlockNodeView implements NodeView {
     this.mermaidPreview.addEventListener("click", this.handleMermaidPreviewClick);
     this.mermaidPreview.addEventListener("keydown", this.handleMermaidPreviewKeyDown);
     this.mermaidPreviewButton.addEventListener("click", this.handleMermaidPreviewButtonClick);
+    this.mermaidZoomButton.addEventListener("click", this.handleMermaidZoomButtonClick);
     view.dom.ownerDocument.addEventListener("pointerdown", this.handleDocumentPointerDown, true);
     view.dom.ownerDocument.addEventListener("selectionchange", this.handleDocumentSelectionChange);
     this.mermaidThemeObserver = this.createMermaidThemeObserver();
@@ -506,6 +558,7 @@ class MarkraCodeBlockNodeView implements NodeView {
       this.pre,
       this.mermaidPreview,
       this.mermaidPreviewButton,
+      this.mermaidZoomButton,
       this.copyButton,
       this.languageControl
     );
@@ -531,6 +584,7 @@ class MarkraCodeBlockNodeView implements NodeView {
       targetIsInside(event.target, this.lineNumbers) ||
       targetIsInside(event.target, this.mermaidPreview) ||
       targetIsInside(event.target, this.mermaidPreviewButton) ||
+      targetIsInside(event.target, this.mermaidZoomButton) ||
       targetIsInside(event.target, this.languageControl);
   }
 
@@ -540,21 +594,25 @@ class MarkraCodeBlockNodeView implements NodeView {
       mutation.target === this.lineNumbers ||
       mutation.target === this.mermaidPreview ||
       mutation.target === this.mermaidPreviewButton ||
+      mutation.target === this.mermaidZoomButton ||
       targetIsInside(mutation.target, this.copyButton) ||
       targetIsInside(mutation.target, this.lineNumbers) ||
       targetIsInside(mutation.target, this.mermaidPreview) ||
       targetIsInside(mutation.target, this.mermaidPreviewButton) ||
+      targetIsInside(mutation.target, this.mermaidZoomButton) ||
       targetIsInside(mutation.target, this.languageControl);
   }
 
   destroy() {
     this.mermaidRenderToken += 1;
+    this.closeMermaidZoom({ restoreFocus: false });
     this.copyButton.removeEventListener("click", this.handleCopyClick);
     this.languageSelect.removeEventListener("change", this.handleLanguageChange);
     this.code.removeEventListener("keydown", this.handleCodeKeyDown);
     this.mermaidPreview.removeEventListener("click", this.handleMermaidPreviewClick);
     this.mermaidPreview.removeEventListener("keydown", this.handleMermaidPreviewKeyDown);
     this.mermaidPreviewButton.removeEventListener("click", this.handleMermaidPreviewButtonClick);
+    this.mermaidZoomButton.removeEventListener("click", this.handleMermaidZoomButtonClick);
     this.dom.ownerDocument.removeEventListener("pointerdown", this.handleDocumentPointerDown, true);
     this.dom.ownerDocument.removeEventListener("selectionchange", this.handleDocumentSelectionChange);
     this.mermaidThemeObserver?.disconnect();
@@ -573,6 +631,7 @@ class MarkraCodeBlockNodeView implements NodeView {
       delete this.dom.dataset.mermaidMode;
       this.mermaidPreview.hidden = true;
       this.mermaidPreviewButton.hidden = true;
+      this.mermaidZoomButton.hidden = true;
       this.copyButton.hidden = false;
       this.languageControl.hidden = false;
       return;
@@ -583,6 +642,7 @@ class MarkraCodeBlockNodeView implements NodeView {
     this.dom.dataset.mermaidMode = showSource ? "source" : "preview";
     this.mermaidPreview.hidden = showSource || !hasSource;
     this.mermaidPreviewButton.hidden = !showSource || !hasSource;
+    this.mermaidZoomButton.hidden = showSource || !hasSource || !this.mermaidPreview.querySelector("svg");
     this.copyButton.hidden = hideCodeChrome;
     this.languageControl.hidden = hideCodeChrome;
   }
@@ -594,6 +654,8 @@ class MarkraCodeBlockNodeView implements NodeView {
     this.mermaidPreview.removeAttribute("data-error");
     this.mermaidPreview.setAttribute("aria-busy", "false");
     this.mermaidPreview.replaceChildren();
+    this.mermaidZoomButton.hidden = true;
+    this.closeMermaidZoom({ restoreFocus: false });
     this.syncMermaidDisplayMode();
   }
 
@@ -648,6 +710,7 @@ class MarkraCodeBlockNodeView implements NodeView {
       this.mermaidPreview.innerHTML = svg;
       this.mermaidPreview.classList.toggle("markra-mermaid-render-empty", !svg);
       this.mermaidPreview.setAttribute("aria-busy", "false");
+      if (this.mermaidZoomDialog) this.updateMermaidZoomDiagram();
       this.syncMermaidDisplayMode();
     } catch (error) {
       if (token !== this.mermaidRenderToken) return;
@@ -660,8 +723,87 @@ class MarkraCodeBlockNodeView implements NodeView {
       this.mermaidPreview.dataset.error = error instanceof Error ? error.message : "Unknown Mermaid render error";
       this.mermaidPreview.setAttribute("aria-busy", "false");
       this.mermaidPreview.replaceChildren(message);
+      this.closeMermaidZoom({ restoreFocus: false });
       this.syncMermaidDisplayMode();
     }
+  }
+
+  private cloneMermaidPreviewSvg() {
+    const svg = this.mermaidPreview.querySelector("svg");
+    if (!svg) return null;
+
+    const clone = svg.cloneNode(true) as SVGSVGElement;
+    clone.classList.add("markra-mermaid-zoom-svg");
+    clone.removeAttribute("style");
+    clone.removeAttribute("width");
+    clone.removeAttribute("height");
+    return clone;
+  }
+
+  private updateMermaidZoomDiagram() {
+    const content = this.mermaidZoomDialog?.querySelector<HTMLElement>(".markra-mermaid-zoom-content");
+    if (!content) return;
+
+    const svg = this.cloneMermaidPreviewSvg();
+    if (!svg) {
+      this.closeMermaidZoom({ restoreFocus: false });
+      return;
+    }
+
+    content.replaceChildren(svg);
+  }
+
+  private openMermaidZoom() {
+    const svg = this.cloneMermaidPreviewSvg();
+    if (!svg) return;
+
+    this.closeMermaidZoom({ restoreFocus: false });
+
+    const ownerDocument = this.dom.ownerDocument;
+    const dialog = ownerDocument.createElement("div");
+    const panel = ownerDocument.createElement("div");
+    const closeButton = ownerDocument.createElement("button");
+    const content = ownerDocument.createElement("div");
+
+    dialog.className = "markra-mermaid-zoom-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", "Enlarged Mermaid diagram");
+    panel.className = "markra-mermaid-zoom-panel";
+    closeButton.className = "markra-mermaid-zoom-close-button";
+    closeButton.type = "button";
+    closeButton.setAttribute("aria-label", "Close enlarged Mermaid diagram");
+    closeButton.title = "Close enlarged Mermaid diagram";
+    closeButton.append(createIcon(ownerDocument, "markra-mermaid-zoom-close-icon", closeIconChildren));
+    content.className = "markra-mermaid-zoom-content";
+
+    content.append(svg);
+    panel.append(closeButton, content);
+    dialog.append(panel);
+    dialog.addEventListener("mousedown", this.handleMermaidZoomDialogMouseDown);
+    closeButton.addEventListener("click", this.handleMermaidZoomCloseClick);
+    ownerDocument.addEventListener("keydown", this.handleMermaidZoomKeyDown, true);
+    (this.view.dom.closest(".markdown-paper") ?? ownerDocument.body).append(dialog);
+
+    this.mermaidZoomDialog = dialog;
+    this.mermaidZoomFocusTarget = this.mermaidZoomButton;
+    closeButton.focus();
+  }
+
+  private closeMermaidZoom({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
+    const dialog = this.mermaidZoomDialog;
+    if (!dialog) return;
+
+    const closeButton = dialog.querySelector<HTMLButtonElement>(".markra-mermaid-zoom-close-button");
+    dialog.removeEventListener("mousedown", this.handleMermaidZoomDialogMouseDown);
+    closeButton?.removeEventListener("click", this.handleMermaidZoomCloseClick);
+    this.dom.ownerDocument.removeEventListener("keydown", this.handleMermaidZoomKeyDown, true);
+    dialog.remove();
+    this.mermaidZoomDialog = null;
+
+    const focusTarget = this.mermaidZoomFocusTarget;
+    this.mermaidZoomFocusTarget = null;
+    if (restoreFocus && focusTarget?.isConnected) focusTarget.focus();
   }
 
   private activateMermaidSourceEditing() {
@@ -721,6 +863,31 @@ class MarkraCodeBlockNodeView implements NodeView {
   private readonly handleMermaidPreviewButtonClick = (event: MouseEvent) => {
     event.preventDefault();
     this.deactivateMermaidSourceEditing();
+  };
+
+  private readonly handleMermaidZoomButtonClick = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openMermaidZoom();
+  };
+
+  private readonly handleMermaidZoomDialogMouseDown = (event: MouseEvent) => {
+    if (event.target !== this.mermaidZoomDialog) return;
+
+    event.preventDefault();
+    this.closeMermaidZoom();
+  };
+
+  private readonly handleMermaidZoomCloseClick = (event: MouseEvent) => {
+    event.preventDefault();
+    this.closeMermaidZoom();
+  };
+
+  private readonly handleMermaidZoomKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+
+    event.preventDefault();
+    this.closeMermaidZoom();
   };
 
   private readonly handleCodeKeyDown = (event: KeyboardEvent) => {

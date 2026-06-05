@@ -1432,6 +1432,7 @@ describe("MarkdownPaper editing", () => {
     const copyButton = container.querySelector<HTMLElement>(".ProseMirror .markra-code-copy-button");
     const languageControl = container.querySelector<HTMLElement>(".ProseMirror .markra-code-language-control");
     const preview = container.querySelector<HTMLElement>(".ProseMirror .markra-mermaid-render");
+    const zoomButton = screen.getByRole("button", { name: "Enlarge Mermaid diagram" });
     const sourcePre = container.querySelector<HTMLElement>(".ProseMirror .markra-code-block pre");
 
     expect(codeBlock).toHaveAttribute("data-language", "mermaid");
@@ -1439,6 +1440,7 @@ describe("MarkdownPaper editing", () => {
     expect(copyButton).toHaveAttribute("hidden");
     expect(languageControl).toHaveAttribute("hidden");
     expect(preview).not.toHaveAttribute("hidden");
+    expect(zoomButton).not.toHaveAttribute("hidden");
 
     fireEvent.click(preview!);
 
@@ -1448,6 +1450,7 @@ describe("MarkdownPaper editing", () => {
     expect(sourcePre).not.toHaveAttribute("hidden");
     expect(lineNumbers).not.toHaveAttribute("hidden");
     expect(preview).toHaveAttribute("hidden");
+    expect(zoomButton).toHaveAttribute("hidden");
     expect(container.querySelector(".ProseMirror .markra-code-content")).toHaveTextContent("flowchart TD");
 
     view.dispatch(
@@ -1460,10 +1463,39 @@ describe("MarkdownPaper editing", () => {
       expect(copyButton).toHaveAttribute("hidden");
       expect(languageControl).toHaveAttribute("hidden");
       expect(preview).not.toHaveAttribute("hidden");
+      expect(zoomButton).not.toHaveAttribute("hidden");
     });
 
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
     expect(serializeMarkdown(view.state.doc)).toContain(source);
+  });
+
+  it("opens an enlarged Mermaid diagram from the zoom control without editing the source", async () => {
+    const source = ["```mermaid", "flowchart TD", "  A --> B", "```"].join("\n");
+    const { container } = await renderEditor(source);
+
+    await waitFor(() => {
+      expect(container.querySelector(".ProseMirror .markra-mermaid-render svg")).toBeInTheDocument();
+    });
+    const codeBlock = container.querySelector<HTMLElement>(".ProseMirror .markra-code-block");
+    const zoomButton = screen.getByRole("button", { name: "Enlarge Mermaid diagram" });
+
+    fireEvent.click(zoomButton);
+
+    expect(codeBlock).toHaveAttribute("data-mermaid-mode", "preview");
+
+    const dialog = screen.getByRole("dialog", { name: "Enlarged Mermaid diagram" });
+    const enlargedDiagram = dialog.querySelector(".markra-mermaid-zoom-content svg");
+
+    expect(within(dialog).queryByRole("img", { name: "Enlarged Mermaid diagram" })).not.toBeInTheDocument();
+    expect(enlargedDiagram).toBeInTheDocument();
+    expect(enlargedDiagram).toHaveAttribute("id", expect.stringContaining("markra-editor-mermaid"));
+    expect(enlargedDiagram).toHaveClass("markra-mermaid-zoom-svg");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog", { name: "Enlarged Mermaid diagram" })).not.toBeInTheDocument();
+    expect(zoomButton).toHaveFocus();
   });
 
   it("returns a single Mermaid block to preview mode from the source control", async () => {

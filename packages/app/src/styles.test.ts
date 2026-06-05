@@ -306,6 +306,18 @@ describe("editor stylesheet", () => {
     const mermaidFoldStart = styles.indexOf(".markdown-paper .markra-code-block[data-mermaid-mode=\"preview\"]");
     const mermaidFoldEnd = styles.indexOf(".markdown-paper .markra-mermaid-render {");
     const mermaidFoldStyles = styles.slice(mermaidFoldStart, mermaidFoldEnd);
+    const mermaidZoomRevealStart = styles.indexOf(
+      ".markdown-paper .markra-code-block[data-mermaid-mode=\"preview\"]:hover .markra-mermaid-zoom-button"
+    );
+    const mermaidZoomRevealEnd = styles.indexOf(".markdown-paper .markra-mermaid-zoom-button:hover");
+    const mermaidZoomRevealStyles = styles.slice(mermaidZoomRevealStart, mermaidZoomRevealEnd);
+    const mermaidZoomHoverStart = styles.indexOf(".markdown-paper .markra-mermaid-zoom-button:hover");
+    const mermaidZoomHoverEnd = styles.indexOf("\n  }\n", mermaidZoomHoverStart) + "\n  }\n".length;
+    const mermaidZoomHoverStyles = styles.slice(mermaidZoomHoverStart, mermaidZoomHoverEnd);
+    const mermaidZoomCloseHoverStart = styles.indexOf(".markra-mermaid-zoom-close-button:hover");
+    const mermaidZoomCloseHoverEnd =
+      styles.indexOf("\n  }\n", mermaidZoomCloseHoverStart) + "\n  }\n".length;
+    const mermaidZoomCloseHoverStyles = styles.slice(mermaidZoomCloseHoverStart, mermaidZoomCloseHoverEnd);
 
     expect(mermaidFoldStyles).toContain(".markra-code-line-numbers");
     expect(mermaidFoldStyles).toContain("pre");
@@ -314,6 +326,15 @@ describe("editor stylesheet", () => {
     expect(mermaidFoldStyles).toContain("border-color: transparent");
     expect(mermaidFoldStyles).toContain(".markra-code-language-control");
     expect(styles).toContain(".markdown-paper .markra-mermaid-preview-button");
+    expect(styles).toContain(".markdown-paper .markra-mermaid-zoom-button");
+    expect(mermaidZoomRevealStyles).not.toContain(":focus-within");
+    expect(mermaidZoomRevealStyles).toContain("opacity: 1");
+    expect(mermaidZoomRevealStyles).toContain("pointer-events: auto");
+    expect(mermaidZoomHoverStyles).not.toContain(":focus-visible");
+    expect(mermaidZoomHoverStyles).not.toContain("box-shadow");
+    expect(mermaidZoomCloseHoverStyles).not.toContain(":focus-visible");
+    expect(mermaidZoomCloseHoverStyles).not.toContain("box-shadow");
+    expect(styles).toContain(".markra-mermaid-zoom-dialog");
     expect(styles).toContain(
       ".markdown-paper .markra-code-block[data-mermaid-mode=\"preview\"] .markra-mermaid-render"
     );
