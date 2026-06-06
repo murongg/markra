@@ -569,7 +569,14 @@ fn create_application_menu_for_language<R: tauri::Runtime>(
     let app_menu = create_markra_app_submenu(app, labels)?;
 
     let file_menu = SubmenuBuilder::with_id(app, "markra:file", labels.file)
-        .items(&[&new, &open, &open_recent_files, &open_folder, &quick_open, &close])
+        .items(&[
+            &new,
+            &open,
+            &open_recent_files,
+            &open_folder,
+            &quick_open,
+            &close,
+        ])
         .separator()
         .items(&[&save, &save_as])
         .separator()
