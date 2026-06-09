@@ -3900,6 +3900,101 @@ describe("Markra workspace", () => {
     expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-engine", "milkdown");
   });
 
+  it("keeps callout body line breaks when switching from source to visual mode", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+    fireEvent.change(sourceEditor, {
+      target: {
+        value: "> [!WARNING]\n>\n> First line\n> Second line"
+      }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+
+    await waitFor(() => {
+      expect(document.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    });
+    const bodyParagraph = document.querySelector<HTMLElement>(
+      ".ProseMirror blockquote.markra-callout p:nth-of-type(2)"
+    );
+
+    const hardbreak = bodyParagraph?.querySelector<HTMLElement>('span.markra-hardbreak[data-type="hardbreak"]');
+    expect(hardbreak?.querySelector("br")).toBeInTheDocument();
+    expect(hardbreak).toHaveTextContent("");
+    expect(bodyParagraph).toHaveTextContent("First lineSecond line");
+  });
+
+  it("keeps explicit empty callout body lines when switching source and visual modes", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+
+    const source = "> [!WARNING]\n>\n>";
+    fireEvent.change(await screen.findByRole("textbox", { name: "Markdown source" }), {
+      target: {
+        value: source
+      }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(3);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Markdown source" })).toHaveValue(source);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(3);
+    });
+  });
+
+  it("keeps trailing empty callout body lines after content when switching source and visual modes", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+
+    const source = "> [!WARNING]\n>\n> Synthetic details\n>\n>";
+    fireEvent.change(await screen.findByRole("textbox", { name: "Markdown source" }), {
+      target: {
+        value: source
+      }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(4);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Markdown source" })).toHaveValue(source);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(4);
+    });
+  });
+
   it("shows a large-file notice instead of rendering oversized markdown in visual mode", async () => {
     const largeContent = `# Oversized file\n\n${"Synthetic paragraph. ".repeat(110_000)}`;
     mockedGetStoredWorkspaceState.mockResolvedValue({

@@ -1860,6 +1860,8 @@
   .markdown-paper blockquote.markra-callout p {
     @apply mb-3;
     color: var(--editor-text-primary);
+    cursor: text;
+    min-height: 1lh;
   }
 
   .markdown-paper blockquote.markra-callout p:first-of-type {
@@ -2467,14 +2469,9 @@
     display: inline;
     overflow: visible;
     background: transparent;
-    color: transparent;
-    font-size: 0;
-    line-height: 0;
-  }
-
-  .markdown-paper .markra-math-source-active[data-type="hardbreak"]::after {
-    content: "\A";
-    white-space: pre;
+    color: inherit;
+    font-size: inherit;
+    line-height: inherit;
   }
 
   .markdown-paper .markra-math-token-delimiter {

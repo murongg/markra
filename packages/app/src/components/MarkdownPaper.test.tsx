@@ -4193,6 +4193,32 @@ describe("MarkdownPaper editing", () => {
     expect(onTextSelectionChange).not.toHaveBeenCalled();
   });
 
+  it("does not notify transient selections while IME input is composing", async () => {
+    const onTextSelectionChange = vi.fn();
+    const { view } = await renderEditor("Synthetic IME text.", { onTextSelectionChange });
+    const from = findTextPosition(view, "IME");
+    const to = from + "IME".length;
+    const composingDescriptor = Object.getOwnPropertyDescriptor(view, "composing");
+
+    Object.defineProperty(view, "composing", {
+      configurable: true,
+      value: true
+    });
+
+    try {
+      onTextSelectionChange.mockClear();
+      selectText(view, from, to);
+
+      expect(onTextSelectionChange).not.toHaveBeenCalled();
+    } finally {
+      if (composingDescriptor) {
+        Object.defineProperty(view, "composing", composingDescriptor);
+      } else {
+        delete (view as unknown as { composing?: boolean }).composing;
+      }
+    }
+  });
+
   it("selects the current code block content with Ctrl+A inside the code editor", async () => {
     const source = ["Before", "", "```ts", "const answer = 42;", "return answer;", "```", "", "After"].join("\n");
     const { container, view } = await renderEditor(source);
@@ -6203,6 +6229,115 @@ describe("MarkdownPaper editing", () => {
     expect(markerLine).toHaveTextContent("[!NOTE]");
   });
 
+  it("marks marker-only callout source lines before body content exists", async () => {
+    const { container } = await renderEditor("> [!WARNING]");
+
+    const markerLine = container.querySelector<HTMLElement>(
+      ".ProseMirror blockquote.markra-callout .markra-callout-marker-line"
+    );
+    const sourceMarker = container.querySelector<HTMLElement>(
+      ".ProseMirror blockquote.markra-callout .markra-callout-source-marker"
+    );
+
+    expect(markerLine).toBeInTheDocument();
+    expect(markerLine).toHaveTextContent("[!WARNING]");
+    expect(sourceMarker).toBeInTheDocument();
+    expect(sourceMarker).toHaveTextContent("[!WARNING]");
+  });
+
+  it("preserves an explicit empty callout body line", async () => {
+    const source = "> [!WARNING]\n>";
+    const { container, editor, view } = await renderEditor(source);
+
+    const callout = container.querySelector(".ProseMirror blockquote.markra-callout");
+    const bodyParagraph = container.querySelector(".ProseMirror blockquote.markra-callout p:nth-of-type(2)");
+    expect(callout).toBeInTheDocument();
+    expect(bodyParagraph).toBeInTheDocument();
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toBe(`${source}\n`);
+
+    moveCursor(view, findLastTextBlockCursor(view));
+    typeText(view, "Synthetic details");
+
+    expect(callout).toHaveTextContent("Synthetic details");
+    expect(serializeMarkdown(view.state.doc)).toBe("> [!WARNING]\n>\n> Synthetic details\n");
+    await settleMarkdownListener();
+  });
+
+  it("moves a cursor from the hidden callout marker line into the empty body", async () => {
+    const source = "> [!NOTE]\n>";
+    const { container, editor, view } = await renderEditor(source);
+
+    moveCursor(view, findTextPosition(view, "[!NOTE]", "[!NOTE]".length));
+
+    expect(view.state.selection.$from.parent.textContent).toBe("");
+
+    typeText(view, "Synthetic details");
+
+    const callout = container.querySelector(".ProseMirror blockquote.markra-callout");
+    expect(callout).toHaveTextContent("Synthetic details");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toBe("> [!NOTE]\n>\n> Synthetic details\n");
+    await settleMarkdownListener();
+  });
+
+  it("starts an empty loaded callout with the cursor in the editable body", async () => {
+    const source = "> [!NOTE]\n>";
+    const { container, editor, view } = await renderEditor(source);
+
+    expect(view.state.selection.$from.parent.textContent).toBe("");
+
+    typeText(view, "Synthetic details");
+
+    const callout = container.querySelector(".ProseMirror blockquote.markra-callout");
+    expect(callout).toHaveTextContent("Synthetic details");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toBe("> [!NOTE]\n>\n> Synthetic details\n");
+    await settleMarkdownListener();
+  });
+
+  it("preserves two explicit empty callout body lines", async () => {
+    const source = "> [!WARNING]\n>\n>";
+    const { container, editor, view } = await renderEditor(source);
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(container.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(3);
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toBe(`${source}\n`);
+  });
+
+  it("preserves trailing empty callout body lines after content", async () => {
+    const source = "> [!WARNING]\n>\n> Synthetic details\n>\n>";
+    const { container, editor, view } = await renderEditor(source);
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(container.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(4);
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toBe(`${source}\n`);
+  });
+
+  it("keeps an empty callout body line when pressing Enter to exit", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>");
+
+    moveCursor(view, findLastTextBlockCursor(view));
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(container.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(2);
+
+    typeText(view, "After callout");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toBe("> [!NOTE]\n>\n\nAfter callout\n");
+    await settleMarkdownListener();
+  });
+
   it("keeps same-paragraph callout content visible", async () => {
     const { container } = await renderEditor("> [!WARNING]\n> Check before publishing.");
 
@@ -6958,16 +7093,219 @@ describe("MarkdownPaper editing", () => {
     await settleMarkdownListener();
   });
 
-  it("removes an empty callout when pressing Backspace from its body", async () => {
-    const { container, view } = await renderEditor("> [!NOTE]\n> ");
-    moveCursor(view, findLastTextBlockCursor(view));
+  it("exits a typed callout when pressing Enter from the empty body", async () => {
+    const { container, editor, view } = await renderEditor();
+
+    typeText(view, "> [!WARNING]");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout .markra-callout-marker-line")).toBeInTheDocument();
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout .markra-callout-source-marker")).toBeInTheDocument();
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(view.state.selection.$from.parent.textContent).toBe("");
+
+    focusEditor(view);
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+
+    typeText(view, "After callout");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).not.toHaveTextContent("After callout");
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!WARNING]\n>\n\nAfter callout");
+    await settleMarkdownListener();
+  });
+
+  it("exits a marker-only callout when pressing Enter before body content exists", async () => {
+    const { container, editor, view } = await renderEditor("> [!WARNING]");
+
+    moveCursor(view, findTextPosition(view, "[!WARNING]", "[!WARNING]".length));
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+
+    typeText(view, "After callout");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).not.toHaveTextContent("After callout");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!WARNING]\n\nAfter callout");
+    await settleMarkdownListener();
+  });
+
+  it("exits callout body content when pressing Enter", async () => {
+    const { container, editor, view } = await renderEditor("> [!WARNING]\n>\n> First line");
+
+    moveCursor(view, findTextPosition(view, "First line", "First line".length));
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+
+    typeText(view, "After callout");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("First line");
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).not.toHaveTextContent("After callout");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!WARNING]\n>\n> First line\n\nAfter callout");
+    await settleMarkdownListener();
+  });
+
+  it("keeps a typed quote below a callout outside the callout block", async () => {
+    const { container, editor, view } = await renderEditor("> [!WARNING]\n>\n> First line");
+
+    moveCursor(view, findTextPosition(view, "First line", "First line".length));
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+
+    typeText(view, "> ");
+
+    const callout = container.querySelector(".ProseMirror blockquote.markra-callout");
+    const blockquotes = container.querySelectorAll(".ProseMirror blockquote");
+    expect(callout).toHaveTextContent("First line");
+    expect(callout).not.toHaveTextContent(">");
+    expect(blockquotes).toHaveLength(2);
+    expect(blockquotes[1]).not.toHaveClass("markra-callout");
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    typeText(view, "Plain quote");
+
+    expect(callout).not.toHaveTextContent("Plain quote");
+    expect(blockquotes[1]).toHaveTextContent("Plain quote");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!WARNING]\n>\n> First line\n\n> Plain quote");
+    await settleMarkdownListener();
+  });
+
+  it("keeps Shift+Enter line breaks inside callout body content without hard-break escapes", async () => {
+    const { container, editor, view } = await renderEditor("> [!WARNING]\n>\n> First line");
+
+    moveCursor(view, findTextPosition(view, "First line", "First line".length));
+
+    expect(pressShortcut(view, "Enter", { shiftKey: true })).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    typeText(view, "Second line");
+
+    const bodyParagraph = container.querySelector<HTMLElement>(".ProseMirror blockquote.markra-callout p:nth-of-type(2)");
+    const hardbreak = bodyParagraph?.querySelector<HTMLElement>('span.markra-hardbreak[data-type="hardbreak"]');
+    expect(hardbreak?.querySelector("br")).toBeInTheDocument();
+    expect(hardbreak).toHaveTextContent("");
+    const bodyHardbreak = view.state.doc.resolve(findTextPosition(view, "Second line")).parent.child(1);
+    expect(bodyHardbreak.type.name).toBe("hardbreak");
+    expect(bodyHardbreak.attrs.isInline).toBe(true);
+    expect(bodyHardbreak.attrs.renderLineBreak).toBe(true);
+    expect(bodyParagraph).toHaveTextContent("First lineSecond line");
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    const markdown = serializeMarkdown(view.state.doc);
+    expect(markdown).toContain("> [!WARNING]\n>\n> First line\n> Second line");
+    expect(markdown).not.toContain("> First line\n>\n> Second line");
+    expect(markdown).not.toContain("\\");
+    await settleMarkdownListener();
+  });
+
+  it("restores serialized callout body line breaks when loading Markdown source", async () => {
+    const { container, editor, view } = await renderEditor("> [!WARNING]\n>\n> First line\n> Second line");
+
+    const bodyParagraph = container.querySelector<HTMLElement>(".ProseMirror blockquote.markra-callout p:nth-of-type(2)");
+    const hardbreak = bodyParagraph?.querySelector<HTMLElement>('span.markra-hardbreak[data-type="hardbreak"]');
+    expect(hardbreak?.querySelector("br")).toBeInTheDocument();
+    expect(hardbreak).toHaveTextContent("");
+    const bodyHardbreak = view.state.doc.resolve(findTextPosition(view, "Second line")).parent.child(1);
+    expect(bodyHardbreak.type.name).toBe("hardbreak");
+    expect(bodyHardbreak.attrs.isInline).toBe(true);
+    expect(bodyHardbreak.attrs.renderLineBreak).toBe(true);
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!WARNING]\n>\n> First line\n> Second line");
+    await settleMarkdownListener();
+  });
+
+  it("finalizes a raw callout marker line into an editable callout on Enter", async () => {
+    const { container, editor, view } = await renderEditor();
+
+    insertTextDirectly(view, "> [!WARNING]");
+
+    focusEditor(view);
+    expect(fireEvent.keyDown(view.dom, { key: "Enter" })).toBe(false);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    typeText(view, "Synthetic details");
+
+    const callout = container.querySelector(".ProseMirror blockquote.markra-callout");
+    expect(callout).toBeInTheDocument();
+    expect(callout).toHaveTextContent("Synthetic details");
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!WARNING]\n>\n> Synthetic details");
+    await settleMarkdownListener();
+  });
+
+  it("keeps an empty callout editable after deleting its final body text", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>\n> Synthetic detail");
+    const bodyFrom = findTextPosition(view, "Synthetic detail");
+
+    selectText(view, bodyFrom, bodyFrom + "Synthetic detail".length);
+    view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    typeText(view, "Synthetic detail");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("Synthetic detail");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!NOTE]\n>\n> Synthetic detail");
+    await settleMarkdownListener();
+  });
+
+  it("deletes an empty callout when pressing Backspace from its body", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>\n> Synthetic detail");
+    const bodyFrom = findTextPosition(view, "Synthetic detail");
+
+    selectText(view, bodyFrom, bodyFrom + "Synthetic detail".length);
+    view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
 
     expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
     expect(pressBackspace(view)).toBe(true);
 
-    expect(container.querySelector(".ProseMirror blockquote")).not.toBeInTheDocument();
-    expect(container.querySelector(".ProseMirror p")).toHaveTextContent("");
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).not.toBeInTheDocument();
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+
+    typeText(view, "After delete");
+
+    expect(container.querySelector(".ProseMirror")).toHaveTextContent("After delete");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    const markdown = serializeMarkdown(view.state.doc);
+    expect(markdown).toContain("After delete");
+    expect(markdown).not.toContain("[!NOTE]");
     await settleMarkdownListener();
+  });
+
+  it("removes one empty callout body line before deleting an otherwise empty callout", async () => {
+    const { container, view } = await renderEditor("> [!NOTE]\n>\n>");
+
+    expect(container.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(3);
+
+    moveCursor(view, findLastTextBlockCursor(view));
+    expect(pressBackspace(view)).toBe(true);
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(container.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(2);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
   });
 
   it("keeps the cursor inside a callout when deleting an empty middle line", async () => {

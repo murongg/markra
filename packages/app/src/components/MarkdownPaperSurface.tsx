@@ -12,6 +12,7 @@ import {
   markraAiSelectionHoldPlugin,
   markraBlockDragPlugin,
   markraCalloutPlugin,
+  markraCalloutRemarkPlugin,
   markraCalloutSerializerPlugin,
   markraClipboardImagePluginWithOptions,
   markraCodeBlockPlugin,
@@ -285,6 +286,7 @@ function MilkdownEditorSurface({
         .use(markraCalloutSerializerPlugin);
 
       if (githubAlertsEnabled) {
+        editor.use(markraCalloutRemarkPlugin);
         editor.use(markraCalloutPlugin);
       }
 
