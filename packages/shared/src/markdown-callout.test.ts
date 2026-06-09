@@ -25,6 +25,20 @@ describe("markdown callouts", () => {
     ].join("\n"));
   });
 
+  it("normalizes formatted Typora callout markers to GitHub alert syntax", () => {
+    const source = [
+      "> **\\[!NOTE]**",
+      ">",
+      "> Synthetic detail"
+    ].join("\n");
+
+    expect(restoreEscapedMarkdownCalloutMarkers(source)).toBe([
+      "> [!NOTE]",
+      ">",
+      "> Synthetic detail"
+    ].join("\n"));
+  });
+
   it("collapses an empty callout body placeholder to one quoted blank line", () => {
     const htmlPlaceholder = [
       "> [!WARNING]",
@@ -101,6 +115,30 @@ describe("markdown callouts", () => {
       ">",
       ">",
       ""
+    ].join("\n"));
+  });
+
+  it("keeps adjacent callout list starts tight without removing structural blank quote lines", () => {
+    const markdown = [
+      "> [!NOTE]",
+      ">",
+      "> - First",
+      ">",
+      "> - Second",
+      ">",
+      ">   1. Nested detail",
+      ">",
+      "> Paragraph after list"
+    ].join("\n");
+
+    expect(restoreEscapedMarkdownCalloutMarkers(markdown)).toBe([
+      "> [!NOTE]",
+      ">",
+      "> - First",
+      "> - Second",
+      ">   1. Nested detail",
+      ">",
+      "> Paragraph after list"
     ].join("\n"));
   });
 });

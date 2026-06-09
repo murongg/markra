@@ -551,6 +551,7 @@ export type I18nKey =
   | "editor.table.alignRight"
   | "editor.table.deleteColumn"
   | "editor.table.deleteRow"
+  | "editor.table.deleteTable"
   | "editor.table.adjustTable"
   | "editor.table.resizeTableTo"
   | "editor.table.columns"

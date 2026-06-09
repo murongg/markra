@@ -271,11 +271,12 @@ function pressEnter(view: EditorView) {
   return view.someProp("handleKeyDown", (handler) => handler(view, event));
 }
 
-function pressBackspace(view: EditorView) {
+function pressBackspace(view: EditorView, options: Pick<KeyboardEventInit, "repeat"> = {}) {
   const event = new KeyboardEvent("keydown", {
     key: "Backspace",
     bubbles: true,
-    cancelable: true
+    cancelable: true,
+    ...options
   });
   return view.someProp("handleKeyDown", (handler) => handler(view, event));
 }
@@ -1266,12 +1267,12 @@ describe("MarkdownPaper editing", () => {
     expect(checkboxes).toHaveLength(2);
     expect(checkboxes[0]).toBeChecked();
     expect(checkboxes[1]).not.toBeChecked();
-    expect(serializeMarkdown(view.state.doc)).toBe("* [x] Finish mock draft\n* [ ] Review mock copy\n");
+    expect(serializeMarkdown(view.state.doc)).toBe("- [x] Finish mock draft\n- [ ] Review mock copy\n");
 
     fireEvent.click(checkboxes[1]);
 
     expect(checkboxes[1]).toBeChecked();
-    expect(serializeMarkdown(view.state.doc)).toBe("* [x] Finish mock draft\n* [x] Review mock copy\n");
+    expect(serializeMarkdown(view.state.doc)).toBe("- [x] Finish mock draft\n- [x] Review mock copy\n");
   });
 
   it("turns typed GFM task list syntax into a checkbox", async () => {
@@ -1285,7 +1286,7 @@ describe("MarkdownPaper editing", () => {
     expect(checkbox).toBeInTheDocument();
     expect(checkbox).not.toBeChecked();
     expect(container.querySelector(".ProseMirror li")).toHaveTextContent("a");
-    expect(serializeMarkdown(view.state.doc)).toContain("* [ ] a");
+    expect(serializeMarkdown(view.state.doc)).toContain("- [ ] a");
   });
 
   it.each([
@@ -3017,7 +3018,7 @@ describe("MarkdownPaper editing", () => {
     });
 
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
-    expect(serializeMarkdown(view.state.doc)).toBe("* Second\n\n* First\n\n* Third\n");
+    expect(serializeMarkdown(view.state.doc)).toBe("- Second\n\n- First\n\n- Third\n");
     restoreLayout();
   });
 
@@ -3110,7 +3111,7 @@ describe("MarkdownPaper editing", () => {
     });
 
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
-    expect(serializeMarkdown(view.state.doc)).toBe("Intro\n\n* First\n\nOutro\n\n* Second\n");
+    expect(serializeMarkdown(view.state.doc)).toBe("Intro\n\n- First\n\nOutro\n\n- Second\n");
     restoreLayout();
   });
 
@@ -3151,7 +3152,7 @@ describe("MarkdownPaper editing", () => {
     });
 
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
-    expect(serializeMarkdown(view.state.doc)).toBe("* First\n\n* Intro\n\n* Second\n");
+    expect(serializeMarkdown(view.state.doc)).toBe("- First\n\n- Intro\n\n- Second\n");
     restoreLayout();
   });
 
@@ -3192,7 +3193,7 @@ describe("MarkdownPaper editing", () => {
     });
 
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
-    expect(serializeMarkdown(view.state.doc)).toBe("* First\n\n  * Intro\n\n* Second\n");
+    expect(serializeMarkdown(view.state.doc)).toBe("- First\n\n  - Intro\n\n- Second\n");
     restoreLayout();
   });
 
@@ -3227,7 +3228,7 @@ describe("MarkdownPaper editing", () => {
     });
 
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
-    expect(serializeMarkdown(view.state.doc)).toBe("* First\n\n  * Third\n\n* Second\n");
+    expect(serializeMarkdown(view.state.doc)).toBe("- First\n\n  - Third\n\n- Second\n");
     restoreLayout();
   });
 
@@ -3320,8 +3321,8 @@ describe("MarkdownPaper editing", () => {
     await settleMarkdownListener();
     const latestMarkdown = String(onMarkdownChange.mock.calls.at(-1)?.[0] ?? "");
     expect(latestMarkdown).not.toContain("<br");
-    expect(latestMarkdown).toContain("* First");
-    expect(latestMarkdown).toContain("* Second");
+    expect(latestMarkdown).toContain("- First");
+    expect(latestMarkdown).toContain("- Second");
     restoreLayout();
   });
 
@@ -3447,7 +3448,7 @@ describe("MarkdownPaper editing", () => {
     typeText(view, "Inserted");
 
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
-    expect(serializeMarkdown(view.state.doc)).toBe("* First\n\nInserted\n\n* Second\n");
+    expect(serializeMarkdown(view.state.doc)).toBe("- First\n\nInserted\n\n- Second\n");
     restoreLayout();
   });
 
@@ -3553,6 +3554,50 @@ describe("MarkdownPaper editing", () => {
       ])
     );
     expect(container.querySelector(".ProseMirror .selectedCell")).not.toBeInTheDocument();
+  });
+
+  it("deletes a whole table from the visual controls", async () => {
+    const initialTable = ["| Field | Value |", "| --- | --- |", "| Name | Markra |"].join("\n");
+    const { container, editor, view } = await renderEditor(initialTable);
+
+    expect(container.querySelector(".ProseMirror table")).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Delete table" }));
+
+    await waitFor(() => expect(container.querySelector(".ProseMirror table")).not.toBeInTheDocument());
+    typeText(view, "After table");
+
+    expect(container.querySelector(".ProseMirror")).toHaveTextContent("After table");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toBe("After table\n");
+    await settleMarkdownListener();
+  });
+
+  it("keeps a table when right-clicking the delete table control", async () => {
+    const initialTable = ["| Field | Value |", "| --- | --- |", "| Name | Markra |"].join("\n");
+    const { container, editor, view } = await renderEditor(initialTable);
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    const markdownBeforeRightClick = serializeMarkdown(view.state.doc);
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Delete table" }), { button: 2 });
+
+    expect(container.querySelector(".ProseMirror table")).toBeInTheDocument();
+    expect(serializeMarkdown(view.state.doc)).toBe(markdownBeforeRightClick);
+    await settleMarkdownListener();
+  });
+
+  it("keeps a table when ctrl-clicking the delete table control", async () => {
+    const initialTable = ["| Field | Value |", "| --- | --- |", "| Name | Markra |"].join("\n");
+    const { container, editor, view } = await renderEditor(initialTable);
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    const markdownBeforeContextClick = serializeMarkdown(view.state.doc);
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Delete table" }), { button: 0, ctrlKey: true });
+
+    expect(container.querySelector(".ProseMirror table")).toBeInTheDocument();
+    expect(serializeMarkdown(view.state.doc)).toBe(markdownBeforeContextClick);
+    await settleMarkdownListener();
   });
 
   it("places the row delete control at the hovered row right edge", async () => {
@@ -5173,7 +5218,7 @@ describe("MarkdownPaper editing", () => {
     expect(topLevelItems).toHaveLength(1);
     expect(nestedItems).toHaveLength(1);
     expect(nestedItems[0]).toHaveTextContent("Second");
-    expect(serializeMarkdown(view.state.doc)).toContain("  * Second");
+    expect(serializeMarkdown(view.state.doc)).toContain("  - Second");
     await settleMarkdownListener();
   });
 
@@ -6205,6 +6250,203 @@ describe("MarkdownPaper editing", () => {
     expect(serializeMarkdown(view.state.doc)).toContain(source);
   });
 
+  it("renders Typora-exported escaped alert markers as callouts with nested lists", async () => {
+    const source = [
+      "> **\\[!NOTE]**",
+      ">",
+      "> - Synthetic parent",
+      ">",
+      ">   - Nested detail"
+    ].join("\n");
+    const { container, editor, view } = await renderEditor(source);
+
+    const callout = container.querySelector<HTMLElement>(".ProseMirror blockquote.markra-callout");
+
+    expect(callout).toBeInTheDocument();
+    expect(callout).toHaveAttribute("data-callout-type", "note");
+    expect(callout?.querySelector(".markra-callout-title")).toHaveTextContent("Note");
+    expect(callout?.querySelectorAll("ul li")).toHaveLength(2);
+    expect(callout?.querySelector("ul ul li")).toHaveTextContent("Nested detail");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    const markdown = serializeMarkdown(view.state.doc);
+    expect(markdown).toContain("> [!NOTE]");
+    expect(markdown).not.toContain("\\[!NOTE]");
+    expect(markdown).not.toContain("**[!NOTE]**");
+  });
+
+  it("continues callout list items when pressing Enter", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>\n> - First");
+
+    moveCursor(view, findTextPosition(view, "First", "First".length));
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(selectionHasAncestor(view, "list_item")).toBe(true);
+
+    typeText(view, "Second");
+
+    const callout = container.querySelector<HTMLElement>(".ProseMirror blockquote.markra-callout");
+    expect(callout?.querySelectorAll("ul li")).toHaveLength(2);
+    expect(callout).toHaveTextContent("First");
+    expect(callout).toHaveTextContent("Second");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> - First\n> - Second");
+  });
+
+  it("exits callout lists on Enter from an empty list item", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>\n> - First");
+
+    moveCursor(view, findTextPosition(view, "First", "First".length));
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(selectionHasAncestor(view, "list_item")).toBe(true);
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(selectionHasAncestor(view, "list_item")).toBe(false);
+
+    typeText(view, "After list");
+
+    const callout = container.querySelector<HTMLElement>(".ProseMirror blockquote.markra-callout");
+    expect(callout?.querySelectorAll("ul li")).toHaveLength(1);
+    expect(callout).toHaveTextContent("First");
+    expect(callout).toHaveTextContent("After list");
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> - First\n>\n> After list");
+  });
+
+  it("exits callouts on Enter from a blank body line after a list", async () => {
+    const { container, editor, view } = await renderEditor("> [!WARNING]\n>\n> - First");
+
+    moveCursor(view, findTextPosition(view, "First", "First".length));
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(selectionHasAncestor(view, "list_item")).toBe(true);
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(selectionHasAncestor(view, "list_item")).toBe(false);
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+
+    typeText(view, "After callout");
+
+    const callout = container.querySelector<HTMLElement>(".ProseMirror blockquote.markra-callout");
+    expect(callout?.querySelectorAll("ul li")).toHaveLength(1);
+    expect(callout).toHaveTextContent("First");
+    expect(callout).not.toHaveTextContent("After callout");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> - First\n\nAfter callout");
+  });
+
+  it("keeps callout list source tight after exiting the list with Enter", async () => {
+    const onMarkdownChange = vi.fn();
+    const { editor, view } = await renderEditor("> [!NOTE]\n>", { onMarkdownChange });
+
+    typeText(view, "- 1");
+    expect(pressEnter(view)).toBe(true);
+    typeText(view, "21");
+    expect(pressEnter(view)).toBe(true);
+    typeText(view, "21");
+    expect(pressEnter(view)).toBe(true);
+    expect(pressEnter(view)).toBe(true);
+    typeText(view, "Synthetic details");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    const markdown = serializeMarkdown(view.state.doc);
+    expect(markdown).toContain("> - 1\n> - 21\n> - 21\n>\n> Synthetic details");
+    expect(markdown).not.toContain("> - 1\n>\n> - 21");
+    expect(markdown).not.toContain("> - 21\n>\n> - 21");
+
+    await settleMarkdownListener();
+    const savedMarkdown = onMarkdownChange.mock.lastCall?.[0] ?? "";
+    expect(savedMarkdown).toContain("> - 1\n> - 21\n> - 21\n>\n> Synthetic details");
+    expect(savedMarkdown).not.toContain("> - 1\n>\n> - 21");
+    expect(savedMarkdown).not.toContain("> - 21\n>\n> - 21");
+  });
+
+  it("keeps loaded callout list source tight when the marker has a blank body line", async () => {
+    const source = [
+      "> [!NOTE]",
+      ">",
+      "> - First",
+      ">",
+      "> - Second",
+      ">",
+      "> - Third"
+    ].join("\n");
+    const { editor, view } = await renderEditor(source);
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    const markdown = serializeMarkdown(view.state.doc);
+
+    expect(markdown).toContain("> - First\n> - Second\n> - Third");
+    expect(markdown).not.toContain("> - First\n>\n> - Second");
+    expect(markdown).not.toContain("> - Second\n>\n> - Third");
+  });
+
+  it("nests and lifts callout list items with Tab like ordinary lists", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>\n> - First\n> - Second");
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    moveCursor(view, findTextPosition(view, "Second"));
+
+    expect(pressShortcut(view, "Tab")).toBe(true);
+
+    let topLevelItems = Array.from(
+      container.querySelectorAll<HTMLElement>(".ProseMirror blockquote.markra-callout > ul > li")
+    );
+    let nestedItems = Array.from(container.querySelectorAll<HTMLElement>(
+      ".ProseMirror blockquote.markra-callout > ul > li > ul > li"
+    ));
+    expect(topLevelItems).toHaveLength(1);
+    expect(nestedItems).toHaveLength(1);
+    expect(nestedItems[0]).toHaveTextContent("Second");
+    expect(serializeMarkdown(view.state.doc)).toContain("> - First\n>   - Second");
+
+    expect(pressShortcut(view, "Tab", { shiftKey: true })).toBe(true);
+
+    topLevelItems = Array.from(
+      container.querySelectorAll<HTMLElement>(".ProseMirror blockquote.markra-callout > ul > li")
+    );
+    nestedItems = Array.from(container.querySelectorAll<HTMLElement>(
+      ".ProseMirror blockquote.markra-callout > ul > li > ul > li"
+    ));
+    expect(topLevelItems).toHaveLength(2);
+    expect(nestedItems).toHaveLength(0);
+    expect(topLevelItems[1]).toHaveTextContent("Second");
+    expect(serializeMarkdown(view.state.doc)).toContain("> - First\n> - Second");
+  });
+
+  it("continues typed list items inside callouts on Enter", async () => {
+    const { container, editor, view } = await renderEditor("> [!WARNING]\n>");
+
+    typeText(view, "- Synthetic item");
+
+    const listItem = container.querySelector(".ProseMirror blockquote.markra-callout ul li");
+    expect(listItem).toHaveTextContent("Synthetic item");
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    typeText(view, "Second item");
+
+    const callout = container.querySelector<HTMLElement>(".ProseMirror blockquote.markra-callout");
+    expect(callout?.querySelectorAll("ul li")).toHaveLength(2);
+    expect(callout?.querySelectorAll("ul li")[1]).toHaveTextContent("Second item");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> - Synthetic item\n> - Second item");
+  });
+
   it("leaves GitHub-style alert blockquotes plain when the extension is disabled", async () => {
     const { container } = await renderEditor("> [!NOTE]\n> Keep this in mind.", {
       extendedSyntax: {
@@ -6890,6 +7132,10 @@ describe("MarkdownPaper editing", () => {
 
     expect(bullet.container.querySelector(".ProseMirror ul li")).toHaveTextContent("item");
     expect(bullet.container.querySelector(".ProseMirror")?.textContent).toBe("item");
+    {
+      const serializeMarkdown = bullet.editor.action((ctx) => ctx.get(serializerCtx));
+      expect(serializeMarkdown(bullet.view.state.doc)).toBe("- item\n");
+    }
 
     const ordered = await renderEditor();
     typeText(ordered.view, "1. item");
@@ -7056,6 +7302,34 @@ describe("MarkdownPaper editing", () => {
     await settleMarkdownListener();
   });
 
+  it("runs slash commands from a callout body line", async () => {
+    const { container, view } = await renderEditor("> [!WARNING]\n>\n> ");
+
+    moveCursor(view, findLastTextBlockCursor(view));
+    typeText(view, "/ta");
+
+    const tableOption = await screen.findByRole("option", { name: "Table" });
+    fireEvent.mouseDown(tableOption);
+
+    await waitFor(() => expect(container.querySelector(".ProseMirror blockquote.markra-callout table")).toBeInTheDocument());
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).not.toHaveTextContent("/ta");
+    await settleMarkdownListener();
+  });
+
+  it("runs selected slash commands from a callout body line with Enter", async () => {
+    const { container, view } = await renderEditor("> [!WARNING]\n>\n> ");
+
+    moveCursor(view, findLastTextBlockCursor(view));
+    typeText(view, "/co");
+
+    expect(await screen.findByRole("option", { name: "Code Block" })).toHaveAttribute("aria-selected", "true");
+    expect(pressEnter(view)).toBe(true);
+
+    await waitFor(() => expect(container.querySelector(".ProseMirror blockquote.markra-callout .markra-code-block")).toBeInTheDocument());
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).not.toHaveTextContent("/co");
+    await settleMarkdownListener();
+  });
+
   it("inserts a note callout from the slash command menu", async () => {
     const { container, editor, view } = await renderEditor();
 
@@ -7138,18 +7412,42 @@ describe("MarkdownPaper editing", () => {
     await settleMarkdownListener();
   });
 
-  it("exits callout body content when pressing Enter", async () => {
+  it("continues callout body content when pressing Enter", async () => {
     const { container, editor, view } = await renderEditor("> [!WARNING]\n>\n> First line");
 
     moveCursor(view, findTextPosition(view, "First line", "First line".length));
 
     expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    typeText(view, "Second line");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("First line");
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("Second line");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!WARNING]\n>\n> First line\n>\n> Second line");
+    await settleMarkdownListener();
+  });
+
+  it("removes the trailing empty callout line when Enter exits after body content", async () => {
+    const { container, editor, view } = await renderEditor("> [!WARNING]\n>\n> First line");
+
+    moveCursor(view, findTextPosition(view, "First line", "First line".length));
+
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(container.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(3);
+
+    expect(pressEnter(view)).toBe(true);
     expect(selectionHasAncestor(view, "blockquote")).toBe(false);
+    expect(container.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(2);
 
     typeText(view, "After callout");
 
-    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("First line");
-    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).not.toHaveTextContent("After callout");
+    const callout = container.querySelector(".ProseMirror blockquote.markra-callout");
+    expect(callout).toHaveTextContent("First line");
+    expect(callout).not.toHaveTextContent("After callout");
 
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
     expect(serializeMarkdown(view.state.doc)).toContain("> [!WARNING]\n>\n> First line\n\nAfter callout");
@@ -7161,6 +7459,8 @@ describe("MarkdownPaper editing", () => {
 
     moveCursor(view, findTextPosition(view, "First line", "First line".length));
 
+    expect(pressEnter(view)).toBe(true);
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
     expect(pressEnter(view)).toBe(true);
     expect(selectionHasAncestor(view, "blockquote")).toBe(false);
 
@@ -7292,6 +7592,116 @@ describe("MarkdownPaper editing", () => {
     const markdown = serializeMarkdown(view.state.doc);
     expect(markdown).toContain("After delete");
     expect(markdown).not.toContain("[!NOTE]");
+    await settleMarkdownListener();
+  });
+
+  it("keeps an emptied callout editable when Backspace is repeating", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>\n> Synthetic detail");
+    const bodyFrom = findTextPosition(view, "Synthetic detail");
+
+    selectText(view, bodyFrom, bodyFrom + "Synthetic detail".length);
+    view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(pressBackspace(view, { repeat: true })).toBe(true);
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    typeText(view, "After repeat");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("After repeat");
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!NOTE]\n>\n> After repeat");
+    await settleMarkdownListener();
+  });
+
+  it("keeps an emptied callout editable while Backspace is held", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>\n> A");
+    const bodyFrom = findTextPosition(view, "A");
+
+    moveCursor(view, bodyFrom + 1);
+
+    expect(pressBackspace(view)).not.toBe(true);
+    const deleteTransaction = view.state.tr.delete(bodyFrom, bodyFrom + 1);
+    view.dispatch(
+      deleteTransaction
+        .setSelection(TextSelection.create(deleteTransaction.doc, bodyFrom))
+        .scrollIntoView()
+    );
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(pressBackspace(view)).toBe(true);
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    typeText(view, "After hold");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("After hold");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!NOTE]\n>\n> After hold");
+    await settleMarkdownListener();
+  });
+
+  it("keeps the cursor in a callout after deleting the last body line", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>\n> First line\n>\n> Second line\n\nAfter callout");
+    const bodyFrom = findTextPosition(view, "Second line");
+
+    selectText(view, bodyFrom, bodyFrom + "Second line".length);
+    view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    expect(pressBackspace(view)).toBe(true);
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("First line");
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).not.toHaveTextContent("Second line");
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+
+    typeText(view, " continued");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("First line continued");
+    expect(container.querySelector(".ProseMirror")).toHaveTextContent("After callout");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!NOTE]\n>\n> First line continued\n\nAfter callout");
+    await settleMarkdownListener();
+  });
+
+  it("keeps the cursor in a callout list after deleting an emptied list item", async () => {
+    const { container, editor, view } = await renderEditor("> [!NOTE]\n>\n> - One\n> - Two");
+    const itemFrom = findTextPosition(view, "Two");
+
+    selectText(view, itemFrom, itemFrom + "Two".length);
+    view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
+
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(selectionHasAncestor(view, "list_item")).toBe(true);
+
+    focusEditor(view);
+    expect(fireEvent.keyDown(view.dom, { key: "Backspace", bubbles: true, cancelable: true })).toBe(false);
+
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(selectionHasAncestor(view, "list_item")).toBe(false);
+
+    focusEditor(view);
+    expect(fireEvent.keyDown(view.dom, { key: "Backspace", bubbles: true, cancelable: true })).toBe(false);
+
+    expect(selectionHasAncestor(view, "blockquote")).toBe(true);
+    expect(selectionHasAncestor(view, "list_item")).toBe(true);
+
+    typeText(view, " continued");
+
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).toHaveTextContent("One continued");
+    expect(container.querySelector(".ProseMirror blockquote.markra-callout")).not.toHaveTextContent("Two");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain("> [!NOTE]\n>\n> - One continued");
     await settleMarkdownListener();
   });
 

@@ -343,6 +343,7 @@ const messages: LocaleMessages = {
   "editor.table.alignRight": "Выровнять таблицу по правому краю",
   "editor.table.deleteColumn": "Удалить столбец",
   "editor.table.deleteRow": "Удалить строку",
+  "editor.table.deleteTable": "Удалить таблицу",
   "editor.table.adjustTable": "Настроить таблицу",
   "editor.table.resizeTableTo": "Изменить таблицу до {columns} столбцов x {rows} строк",
   "editor.table.columns": "Столбцы таблицы",

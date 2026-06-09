@@ -343,6 +343,7 @@ const messages: LocaleMessages = {
   "editor.table.alignRight": "Aligner le tableau à droite",
   "editor.table.deleteColumn": "Supprimer la colonne",
   "editor.table.deleteRow": "Supprimer la ligne",
+  "editor.table.deleteTable": "Supprimer le tableau",
   "editor.table.adjustTable": "Ajuster le tableau",
   "editor.table.resizeTableTo": "Redimensionner le tableau en {columns} colonnes x {rows} lignes",
   "editor.table.columns": "Colonnes du tableau",

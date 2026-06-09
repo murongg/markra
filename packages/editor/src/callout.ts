@@ -1,8 +1,10 @@
 import { SerializerReady, serializerCtx } from "@milkdown/kit/core";
 import type { Ctx, MilkdownPlugin } from "@milkdown/kit/ctx";
-import { blockquoteSchema, paragraphSchema } from "@milkdown/kit/preset/commonmark";
+import { blockquoteSchema, listItemSchema, paragraphSchema } from "@milkdown/kit/preset/commonmark";
+import { splitBlock } from "@milkdown/kit/prose/commands";
 import type { Node as ProseNode, ResolvedPos } from "@milkdown/kit/prose/model";
-import { Plugin, TextSelection, type EditorState } from "@milkdown/kit/prose/state";
+import { liftListItem, splitListItem } from "@milkdown/kit/prose/schema-list";
+import { Plugin, TextSelection, type Command, type EditorState } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import { $prose, $remark } from "@milkdown/kit/utils";
 import {
@@ -124,6 +126,39 @@ function hasModifier(event: KeyboardEvent) {
   return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
 }
 
+function runCommand(view: EditorView, command: Command) {
+  const handled = command(view.state, view.dispatch, view);
+
+  if (handled) {
+    view.focus();
+  }
+
+  return handled;
+}
+
+function selectionIsInEmptyTextBlock(state: EditorState) {
+  const { selection } = state;
+  return (
+    selection instanceof TextSelection &&
+    selection.empty &&
+    selection.$from.parent.isTextblock &&
+    selection.$from.parent.content.size === 0
+  );
+}
+
+function selectionIsAtSlashCommandEnd(state: EditorState) {
+  const { selection } = state;
+  if (!(selection instanceof TextSelection) || !selection.empty) return false;
+
+  const { $from } = selection;
+  if (!$from.parent.isTextblock || $from.parent.type.spec.code) return false;
+
+  const beforeCursor = $from.parent.textContent.slice(0, $from.parentOffset);
+  const afterCursor = $from.parent.textContent.slice($from.parentOffset);
+
+  return afterCursor.length === 0 && /^\/[^\s/]*$/u.test(beforeCursor);
+}
+
 function insertCalloutSourceLineBreak(view: EditorView) {
   const callout = findCalloutAtSelection(view);
   if (!callout) return false;
@@ -190,6 +225,19 @@ function findCalloutAtSelection(view: EditorView): CalloutBlock | null {
   return findCalloutInState(view.state);
 }
 
+function positionHasAncestorNodeName($pos: ResolvedPos, nodeName: string) {
+  for (let depth = $pos.depth; depth > 0; depth -= 1) {
+    if ($pos.node(depth).type.name === nodeName) return true;
+  }
+
+  return false;
+}
+
+function selectionIsInsideNodeName(state: EditorState, nodeName: string) {
+  const { selection } = state;
+  return [selection.$from, selection.$to].every(($pos) => positionHasAncestorNodeName($pos, nodeName));
+}
+
 function emptySelectionBlockRange(view: EditorView) {
   const { selection } = view.state;
   if (!(selection instanceof TextSelection) || !selection.empty) return null;
@@ -204,18 +252,23 @@ function emptySelectionBlockRange(view: EditorView) {
 function adjacentCalloutTextPosition(callout: CalloutBlock, emptyBlockFrom: number, direction: "backward" | "forward") {
   let fallbackPosition: number | null = null;
 
-  callout.blockquote.forEach((child, offset, index) => {
-    if (!child.isTextblock || index === 0 || child.content.size === 0) return;
+  callout.blockquote.descendants((child, offset) => {
+    if (!child.isTextblock) return true;
 
     const childFrom = callout.blockquoteFrom + 1 + offset;
+    if (childFrom >= callout.markerBlockFrom && childFrom < callout.markerBlockTo) return false;
+    if (child.content.size === 0) return false;
+
     if (direction === "backward" && childFrom < emptyBlockFrom) {
       fallbackPosition = childFrom + 1 + child.content.size;
-      return;
+      return false;
     }
 
     if (direction === "forward" && fallbackPosition === null && childFrom > emptyBlockFrom) {
       fallbackPosition = childFrom + 1;
     }
+
+    return false;
   });
 
   return fallbackPosition;
@@ -247,8 +300,15 @@ function exitCalloutBlock(
   paragraph: ReturnType<typeof paragraphSchema.type>
 ) {
   const transaction = view.state.tr;
+  const hasVisibleBodyContent = calloutVisibleText(callout).length > 0;
+  const selectedEmptyBodyRange = hasVisibleBodyContent ? emptySelectionBlockRange(view) : null;
 
-  if (calloutVisibleText(callout).length === 0 && callout.blockquote.childCount > 1) {
+  if (selectedEmptyBodyRange) {
+    transaction.delete(
+      transaction.mapping.map(selectedEmptyBodyRange.from),
+      transaction.mapping.map(selectedEmptyBodyRange.to)
+    );
+  } else if (!hasVisibleBodyContent && callout.blockquote.childCount > 1) {
     const [, ...extraBodyRanges] = calloutBodyTextBlockRanges(callout);
 
     for (const range of extraBodyRanges.reverse()) {
@@ -390,6 +450,42 @@ function deleteEmptyCalloutBlock(
   );
   view.focus();
   return true;
+}
+
+function keepDeleteHoldInsideEmptyCallout(
+  view: EditorView,
+  callout: CalloutBlock,
+  event: KeyboardEvent,
+  deleteHoldStartedInsideNonEmptyCallout: boolean
+) {
+  if (!event.repeat && !deleteHoldStartedInsideNonEmptyCallout) return false;
+  if (calloutVisibleText(callout).length > 0) return false;
+  if (!emptySelectionBlockRange(view)) return false;
+
+  view.focus();
+  return true;
+}
+
+function continueCalloutListItemOnEnter(
+  view: EditorView,
+  listItem: ReturnType<typeof listItemSchema.type>
+) {
+  if (selectionIsInEmptyTextBlock(view.state)) return runCommand(view, liftListItem(listItem));
+
+  return runCommand(view, splitListItem(listItem));
+}
+
+function handleCalloutEnter(
+  view: EditorView,
+  callout: CalloutBlock,
+  paragraph: ReturnType<typeof paragraphSchema.type>,
+  listItem: ReturnType<typeof listItemSchema.type>
+) {
+  if (selectionIsInMarkerLine(view.state, callout)) return exitCalloutBlock(view, callout, paragraph);
+  if (selectionIsInsideNodeName(view.state, "list_item")) return continueCalloutListItemOnEnter(view, listItem);
+  if (selectionIsInEmptyTextBlock(view.state)) return exitCalloutBlock(view, callout, paragraph);
+
+  return runCommand(view, splitBlock);
 }
 
 function markerOnlyCalloutsInDoc(doc: ProseNode) {
@@ -631,6 +727,8 @@ function buildCalloutDecorations(doc: ProseNode) {
 export const markraCalloutPlugin = $prose((ctx) => {
   const paragraph = paragraphSchema.type(ctx);
   const blockquote = blockquoteSchema.type(ctx);
+  const listItem = listItemSchema.type(ctx);
+  let deleteHoldStartedInsideNonEmptyCallout = false;
 
   return new Plugin({
     view: (view) => {
@@ -661,6 +759,15 @@ export const markraCalloutPlugin = $prose((ctx) => {
     },
     props: {
       decorations: (state) => buildCalloutDecorations(state.doc),
+      handleDOMEvents: {
+        keyup: (_view, event) => {
+          if (isDeleteKey(event)) {
+            deleteHoldStartedInsideNonEmptyCallout = false;
+          }
+
+          return false;
+        }
+      },
       handleKeyDown: (view, event) => {
         if (isEnterKey(event)) {
           if (event.altKey || event.ctrlKey || event.metaKey) return false;
@@ -672,9 +779,12 @@ export const markraCalloutPlugin = $prose((ctx) => {
             return true;
           }
 
+          if (selectionIsAtSlashCommandEnd(view.state)) return false;
+
           const callout = findCalloutAtSelection(view);
+
           const handled = callout
-            ? exitCalloutBlock(view, callout, paragraph)
+            ? handleCalloutEnter(view, callout, paragraph, listItem)
             : replaceRawCalloutMarkerLine(view, paragraph, blockquote);
           if (!handled) return false;
 
@@ -687,8 +797,15 @@ export const markraCalloutPlugin = $prose((ctx) => {
 
         const callout = findCalloutAtSelection(view);
         if (!callout) return false;
+        if (selectionIsInsideNodeName(view.state, "list_item")) return false;
+        if (calloutVisibleText(callout).length > 0) {
+          deleteHoldStartedInsideNonEmptyCallout = true;
+        }
 
-        const handled = removeEmptyCalloutLine(view, callout, event.key) || deleteEmptyCalloutBlock(view, callout, paragraph);
+        const handled =
+          removeEmptyCalloutLine(view, callout, event.key) ||
+          keepDeleteHoldInsideEmptyCallout(view, callout, event, deleteHoldStartedInsideNonEmptyCallout) ||
+          deleteEmptyCalloutBlock(view, callout, paragraph);
         if (!handled) return false;
 
         event.preventDefault();

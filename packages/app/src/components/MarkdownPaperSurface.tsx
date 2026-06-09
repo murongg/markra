@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { defaultValueCtx, Editor, editorViewCtx, editorViewOptionsCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
+import {
+  defaultValueCtx,
+  Editor,
+  editorViewCtx,
+  editorViewOptionsCtx,
+  remarkStringifyOptionsCtx,
+  rootCtx,
+  serializerCtx
+} from "@milkdown/kit/core";
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { Plugin } from "@milkdown/kit/prose/state";
@@ -169,6 +177,7 @@ function MilkdownEditorSurface({
     alignRight: t(language, "editor.table.alignRight"),
     deleteColumn: t(language, "editor.table.deleteColumn"),
     deleteRow: t(language, "editor.table.deleteRow"),
+    deleteTable: t(language, "editor.table.deleteTable"),
     adjustTable: t(language, "editor.table.adjustTable"),
     resizeTableTo: t(language, "editor.table.resizeTableTo"),
     tableColumns: t(language, "editor.table.columns"),
@@ -241,6 +250,10 @@ function MilkdownEditorSurface({
         .config((ctx) => {
           ctx.set(rootCtx, root);
           ctx.set(defaultValueCtx, initialContentRef.current);
+          ctx.update(remarkStringifyOptionsCtx, (options) => ({
+            ...options,
+            bullet: "-" as const
+          }));
           ctx.update(editorViewOptionsCtx, (options) => ({
             ...options,
             attributes: {

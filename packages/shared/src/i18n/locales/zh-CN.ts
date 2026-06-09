@@ -540,6 +540,7 @@ const messages: LocaleMessages = {
   "editor.table.alignRight": "表格右对齐",
   "editor.table.deleteColumn": "删除列",
   "editor.table.deleteRow": "删除行",
+  "editor.table.deleteTable": "删除表格",
   "editor.table.adjustTable": "调整表格",
   "editor.table.resizeTableTo": "调整为 {columns} 列 x {rows} 行",
   "editor.table.columns": "表格列数",

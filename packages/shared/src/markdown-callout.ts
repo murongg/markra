@@ -160,12 +160,81 @@ function collapseEmptyCalloutBodyPlaceholders(markdown: string) {
   return collapsedLines.join("\n");
 }
 
+function blockquoteListItemStart(line: string | undefined) {
+  if (line === undefined) return null;
+
+  const match = /^((?:>\s?)+)( *)([-+*]|\d+[.)])\s+/u.exec(lineContentWithoutEnding(line));
+  if (!match) return null;
+
+  return {
+    indent: match[2] ?? "",
+    kind: /^\d/u.test(match[3] ?? "") ? "ordered" : "bullet",
+    quotePrefix: match[1] ?? ""
+  };
+}
+
+function calloutListItemStartsShouldStayTight(
+  previousListItem: NonNullable<ReturnType<typeof blockquoteListItemStart>>,
+  nextListItem: NonNullable<ReturnType<typeof blockquoteListItemStart>>
+) {
+  if (previousListItem.quotePrefix !== nextListItem.quotePrefix) return false;
+  if (previousListItem.indent === nextListItem.indent) return previousListItem.kind === nextListItem.kind;
+
+  return (
+    previousListItem.indent.startsWith(nextListItem.indent) ||
+    nextListItem.indent.startsWith(previousListItem.indent)
+  );
+}
+
+function tightenCalloutSimpleListSpacing(markdown: string) {
+  const lines = markdown.split("\n");
+  const tightenedLines: string[] = [];
+  let inCallout = false;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex] ?? "";
+    const quotedContent = blockquoteLineContent(line);
+
+    if (quotedContent === null) {
+      inCallout = false;
+      tightenedLines.push(line);
+      continue;
+    }
+
+    if (parseMarkdownCalloutMarker(quotedContent)) {
+      inCallout = true;
+    }
+
+    const previousListItem = blockquoteListItemStart(tightenedLines[tightenedLines.length - 1]);
+    const nextListItem = blockquoteListItemStart(lines[lineIndex + 1]);
+    const isSimpleListSpacer =
+      inCallout &&
+      lineIsEmptyBlockquote(line) &&
+      previousListItem !== null &&
+      nextListItem !== null &&
+      calloutListItemStartsShouldStayTight(previousListItem, nextListItem);
+
+    if (!isSimpleListSpacer) {
+      tightenedLines.push(line);
+    }
+  }
+
+  return tightenedLines.join("\n");
+}
+
+function restoreFormattedMarkdownCalloutMarkers(markdown: string) {
+  return markdown.replace(
+    /(^|\n)((?:>\s*)+)([*_]{1,3})\\?(\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\])\3(?=\s*(?:\n|$))/giu,
+    "$1$2$4"
+  );
+}
+
 export function restoreEscapedMarkdownCalloutMarkers(markdown: string) {
-  const restoredMarkers = markdown.replace(
+  const restoredMarkers = restoreFormattedMarkdownCalloutMarkers(markdown).replace(
     /(^|\n)((?:>\s*)+)\\(\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\])/giu,
     "$1$2$3"
   );
   return collapseEmptyCalloutBodyPlaceholders(
-    restoreCalloutHardBreakEscapes(restoredMarkers)
+    tightenCalloutSimpleListSpacing(restoreCalloutHardBreakEscapes(restoredMarkers))
   ).replace(/(^|\n)((?:>\s*)+)<br \/>(?=\n|$)/gu, "$1$2");
 }

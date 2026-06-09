@@ -540,6 +540,7 @@ const messages: BaseLocaleMessages = {
   "editor.table.alignRight": "Align table right",
   "editor.table.deleteColumn": "Delete column",
   "editor.table.deleteRow": "Delete row",
+  "editor.table.deleteTable": "Delete table",
   "editor.table.adjustTable": "Adjust table",
   "editor.table.resizeTableTo": "Resize table to {columns} columns by {rows} rows",
   "editor.table.columns": "Table columns",

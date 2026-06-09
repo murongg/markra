@@ -2126,6 +2126,25 @@
     color: var(--text-heading);
   }
 
+  .markdown-paper .markra-table-delete-table {
+    @apply static size-6 rounded-md border-transparent text-[0] shadow-none;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-secondary);
+  }
+
+  .markdown-paper .markra-table-delete-table:hover,
+  .markdown-paper .markra-table-delete-table:focus-visible {
+    background: color-mix(in srgb, oklch(63.7% 0.237 25.331) 10%, transparent);
+    border-color: color-mix(in srgb, oklch(63.7% 0.237 25.331) 70%, transparent);
+    box-shadow: none;
+    color: oklch(57.7% 0.245 27.325);
+  }
+
+  .markdown-paper .markra-table-delete-table-icon {
+    @apply size-3.5;
+  }
+
   .markdown-paper .markra-table-align-icon {
     @apply flex w-3.5 flex-col gap-0.75;
   }

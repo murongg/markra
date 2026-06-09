@@ -343,6 +343,7 @@ const messages: LocaleMessages = {
   "editor.table.alignRight": "표 오른쪽 정렬",
   "editor.table.deleteColumn": "열 삭제",
   "editor.table.deleteRow": "행 삭제",
+  "editor.table.deleteTable": "표 삭제",
   "editor.table.adjustTable": "표 조정",
   "editor.table.resizeTableTo": "표를 {columns}열 x {rows}행으로 변경",
   "editor.table.columns": "표 열 수",
