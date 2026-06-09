@@ -236,8 +236,9 @@ describe("editor stylesheet", () => {
     expect(activeSourceStyles).toContain("box-decoration-break: clone");
     expect(activeBreakStart).toBeGreaterThanOrEqual(0);
     expect(activeBreakEnd).toBeGreaterThan(activeBreakStart);
-    expect(activeBreakStyles).toContain("font-size: 0");
-    expect(activeBreakStyles).toContain('content: "\\A"');
+    expect(activeBreakStyles).toContain("font-size: inherit");
+    expect(activeBreakStyles).toContain("line-height: inherit");
+    expect(activeBreakStyles).not.toContain('content: "\\A"');
     expect(activeBreakStyles).not.toContain("display: block");
     expect(styles).toContain(".markdown-paper .markra-math-render-active-preview");
     expect(styles).toContain("margin-top");

@@ -86,6 +86,7 @@ import { buildMarkdownHtmlDocument, exportDocumentFileName, localFileUrlFromPath
 import { resolveMarkdownDocumentLinkFile } from "./lib/document-links";
 import type { EditorContentWidth } from "./lib/editor-width";
 import { saveEditorImage } from "./lib/image-upload";
+import { aiCommandSelection, automaticAiSelection } from "./lib/ai-selection";
 import { shouldBlockLargeMarkdownVisual } from "./lib/large-markdown";
 import { markAppPerformance } from "./lib/performance-marks";
 import { replaceMovedPath } from "./lib/path-move";
@@ -278,18 +279,6 @@ function aiResultSignature(result: AiDiffResult) {
 
 function aiPreviewActionKey(result: AiDiffResult, previewId?: string) {
   return previewId ? `preview${aiResultSignatureSeparator}${previewId}` : `result${aiResultSignatureSeparator}${aiResultSignature(result)}`;
-}
-
-function explicitAiTextSelection(selection: AiSelectionContext | null | undefined) {
-  if (selection?.source !== "selection" || !selection.text.trim()) return null;
-
-  return selection;
-}
-
-function aiCommandTextSelection(selection: AiSelectionContext | null | undefined) {
-  if (!selection?.text.trim()) return null;
-
-  return selection;
 }
 
 function selectionAnchorsEqual(left: SelectionAnchor | null, right: SelectionAnchor | null) {
@@ -1233,7 +1222,9 @@ function WorkspaceApp() {
     openAiAgentPanel();
   }, [activeAiAgentSessionId, aiAgentSessions, createInitializedAiAgentSession, openAiAgentPanel, selectWorkspaceSession]);
   const handleTextSelectionChange = useCallback((selection: AiSelectionContext | null) => {
-    updateActiveAiSelection(selection);
+    const automaticSelection = automaticAiSelection(selection);
+
+    updateActiveAiSelection(automaticSelection);
     clearAiSelectionToolbarCopySuccess();
     setAiSelectionToolbarActiveActions([]);
     setAiSelectionToolbarHeadingLevel(null);
@@ -1257,7 +1248,7 @@ function WorkspaceApp() {
       return;
     }
 
-    if (selection.source !== "selection") {
+    if (!automaticSelection) {
       setAiSelectionToolbarAnchor(null);
       editor.clearAiSelection();
       if (aiResultsRef.current.length === 0) aiCommand.closeAiCommand();
@@ -1301,7 +1292,7 @@ function WorkspaceApp() {
         getEditorSelectionAnchor() ?? selectionAnchorFromDomSelection(window.getSelection())
       );
     } else if (!hideInlineAiCommandForAgentPanel) {
-      aiCommand.openAiCommand(selection);
+      aiCommand.openAiCommand(automaticSelection);
       return;
     } else {
       setAiSelectionToolbarAnchor(null);
@@ -1309,7 +1300,7 @@ function WorkspaceApp() {
     }
 
     if (showQuickInput && !hideInlineAiCommandForAgentPanel) {
-      aiCommand.openAiCommand(selection);
+      aiCommand.openAiCommand(automaticSelection);
     }
   }, [
     aiAgentOpen,
@@ -1338,7 +1329,7 @@ function WorkspaceApp() {
     aiContextMenuActionRef.current = (intent: AiQuickActionIntent, prompt: string) => {
       if (!aiFeatureEnabled || sourceSurfaceActive || readOnlyMode) return;
 
-      const selection = explicitAiTextSelection(getActiveAiSelection()) ?? explicitAiTextSelection(getEditorSelection());
+      const selection = automaticAiSelection(getActiveAiSelection()) ?? automaticAiSelection(getEditorSelection());
       if (!selection) return;
 
       holdAiSelection(selection);
@@ -1388,7 +1379,7 @@ function WorkspaceApp() {
     if (!aiFeatureEnabled) return false;
     if (sourceSurfaceActive || readOnlyMode) return false;
 
-    const selection = explicitAiTextSelection(getActiveAiSelection()) ?? explicitAiTextSelection(getEditorSelection());
+    const selection = automaticAiSelection(getActiveAiSelection()) ?? automaticAiSelection(getEditorSelection());
 
     return Boolean(selection);
   }, [aiFeatureEnabled, getActiveAiSelection, getEditorSelection, readOnlyMode, sourceSurfaceActive]);
@@ -1404,7 +1395,7 @@ function WorkspaceApp() {
 
     if (sourceSurfaceActive || readOnlyMode) return;
 
-    const selection = aiCommandTextSelection(getActiveAiSelection()) ?? aiCommandTextSelection(getEditorSelection());
+    const selection = aiCommandSelection(getActiveAiSelection()) ?? aiCommandSelection(getEditorSelection());
     if (!selection) return;
 
     updateActiveAiSelection(selection);
@@ -1422,7 +1413,7 @@ function WorkspaceApp() {
     updateActiveAiSelection
   ]);
   const handleAiCommandSelectionContextFocus = useCallback(() => {
-    const selection = aiCommandTextSelection(getActiveAiSelection()) ?? aiCommandTextSelection(getEditorSelection());
+    const selection = aiCommandSelection(getActiveAiSelection()) ?? aiCommandSelection(getEditorSelection());
     if (!selection) return;
 
     holdAiSelection(selection);

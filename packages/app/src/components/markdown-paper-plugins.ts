@@ -1,5 +1,7 @@
 import {
   commands as commonmarkCommands,
+  hardbreakAttr,
+  hardbreakSchema,
   imageSchema,
   inputRules as commonmarkInputRules,
   keymap as commonmarkKeymap,
@@ -21,6 +23,7 @@ import { Plugin } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { $prose, $remark } from "@milkdown/kit/utils";
 import type { AiSelectionContext } from "@markra/ai";
+import { parseMarkdownCalloutMarker } from "@markra/shared";
 import { readAiSelectionContextFromView } from "../hooks/useEditorController";
 
 type MarkdownTreeNode = {
@@ -54,6 +57,54 @@ const markraBlockImageSchema = imageSchema.extendSchema((previous) => (ctx) => (
   }
 }));
 
+function hardbreakDomAttrs(attrs: Record<string, unknown>) {
+  const existingClass = typeof attrs.class === "string" && attrs.class.length > 0 ? attrs.class : "";
+  return {
+    ...attrs,
+    class: ["markra-hardbreak", existingClass].filter(Boolean).join(" ")
+  };
+}
+
+const markraHardbreakSchema = hardbreakSchema.extendSchema((previous) => (ctx) => {
+  const baseSchema = previous(ctx);
+
+  return {
+    ...baseSchema,
+    attrs: {
+      ...baseSchema.attrs,
+      renderLineBreak: {
+        default: false,
+        validate: "boolean"
+      }
+    },
+    parseDOM: [
+      {
+        tag: 'span.markra-hardbreak[data-type="hardbreak"]',
+        getAttrs: () => ({ isInline: true, renderLineBreak: true })
+      },
+      ...(baseSchema.parseDOM ?? [])
+    ],
+    parseMarkdown: {
+      match: ({ type }) => type === "break",
+      runner: (state, node, type) => {
+        const data = node.data as undefined | { isInline?: boolean; renderLineBreak?: boolean };
+        state.addNode(type, {
+          isInline: Boolean(data?.isInline),
+          renderLineBreak: Boolean(data?.renderLineBreak)
+        });
+      }
+    },
+    toDOM: (node) => {
+      if (!(node.attrs.isInline && node.attrs.renderLineBreak)) {
+        return baseSchema.toDOM?.(node) ?? ["br", ctx.get(hardbreakAttr.key)(node)];
+      }
+
+      const attrs = hardbreakDomAttrs(ctx.get(hardbreakAttr.key)(node));
+      return ["span", attrs, ["br"]];
+    }
+  };
+});
+
 function lineNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -75,6 +126,31 @@ function blankParagraphNode(): MarkdownTreeNode {
   };
 }
 
+function markdownNodeText(node: MarkdownTreeNode): string {
+  if (typeof node.value === "string") return node.value;
+  return node.children?.map(markdownNodeText).join("") ?? "";
+}
+
+function appendExplicitEmptyCalloutBodyLines(node: MarkdownTreeNode, children: MarkdownTreeNode[]) {
+  if (node.type !== "blockquote") return;
+
+  const firstChild = children[0];
+  if (firstChild?.type !== "paragraph" || !parseMarkdownCalloutMarker(markdownNodeText(firstChild))) return;
+
+  const nodeEndLine = lineNumber(node.position?.end?.line);
+  let lastChildEndLine: number | null = null;
+  for (let childIndex = children.length - 1; childIndex >= 0; childIndex -= 1) {
+    lastChildEndLine = lineNumber(children[childIndex]?.position?.end?.line);
+    if (lastChildEndLine !== null) break;
+  }
+  if (nodeEndLine === null || lastChildEndLine === null) return;
+
+  const trailingEmptyBodyLines = Math.max(0, nodeEndLine - lastChildEndLine);
+  for (let lineIndex = 0; lineIndex < trailingEmptyBodyLines; lineIndex += 1) {
+    children.push(blankParagraphNode());
+  }
+}
+
 function preserveBlankParagraphs(node: MarkdownTreeNode) {
   if (!Array.isArray(node.children)) return;
 
@@ -94,6 +170,9 @@ function preserveBlankParagraphs(node: MarkdownTreeNode) {
 
     children.push(child);
   });
+
+  appendExplicitEmptyCalloutBodyLines(node, children);
+
   node.children = children;
 }
 
@@ -198,6 +277,7 @@ export const markraCommonmark = [
   markraBlockImageRemarkPlugin,
   commonmarkSchema,
   markraBlockImageSchema,
+  markraHardbreakSchema,
   commonmarkInputRules,
   commonmarkCommands,
   commonmarkKeymap,
@@ -228,6 +308,10 @@ function selectionIsInsideNodeName(selection: Selection, nodeName: string) {
   return [selection.$from, selection.$to].every(($pos) => positionHasAncestorNodeName($pos, nodeName));
 }
 
+function editorViewIsComposing(view: EditorView) {
+  return Boolean((view as EditorView & { composing?: boolean }).composing);
+}
+
 export function markraTextSelectionObserverPlugin(
   onTextSelectionChange: (selection: AiSelectionContext | null) => unknown
 ) {
@@ -235,6 +319,8 @@ export function markraTextSelectionObserverPlugin(
     let lastSignature = "";
 
     const notifySelectionChange = (view: EditorView, options: { requireFocusForEmptySelection: boolean }) => {
+      if (editorViewIsComposing(view)) return;
+
       const { selection } = view.state;
 
       if (selectionIsInsideNodeName(selection, "code_block")) {
