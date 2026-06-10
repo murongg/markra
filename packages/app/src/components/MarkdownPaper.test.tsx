@@ -6531,6 +6531,33 @@ describe("MarkdownPaper editing", () => {
     expect(markdown).not.toContain(">   - First detail\n>     Second detail");
   });
 
+  it("keeps callout continuation Shift+Tab undoable as one step", async () => {
+    const source = [
+      "> [!NOTE]",
+      ">",
+      "> - s",
+      ">   - sa",
+      ">   - sd",
+      ">     - sad",
+      ">     - sad",
+      ">     - First detail",
+      ">       Second detail"
+    ].join("\n");
+    const { editor, view } = await renderEditor(source);
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    moveCursor(view, findTextPosition(view, "Second detail"));
+    expect(pressShortcut(view, "Tab", { shiftKey: true })).toBe(true);
+    expect(serializeMarkdown(view.state.doc)).toContain(">     - First detail\n>   - Second detail");
+
+    expect(pressShortcut(view, "z", { metaKey: true })).toBe(true);
+    expect(serializeMarkdown(view.state.doc)).toContain(">     - First detail\n>       Second detail");
+    expect(serializeMarkdown(view.state.doc)).not.toContain(">     - First detail\n>   - Second detail");
+
+    expect(pressShortcut(view, "z", { metaKey: true, shiftKey: true })).toBe(true);
+    expect(serializeMarkdown(view.state.doc)).toContain(">     - First detail\n>   - Second detail");
+  });
+
   it("continues typed list items inside callouts on Enter", async () => {
     const { container, editor, view } = await renderEditor("> [!WARNING]\n>");
 
