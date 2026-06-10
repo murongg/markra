@@ -162,6 +162,23 @@ describe("editor stylesheet", () => {
     expect(imageSelectionStyles).not.toContain("outline-none");
   });
 
+  it("gives horizontal rules a forgiving hit target without heavy selected-node feedback", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const ruleStart = styles.indexOf(".markdown-paper hr {");
+    const ruleEnd = styles.indexOf(".ai-chat-markdown", ruleStart);
+    const ruleStyles = styles.slice(ruleStart, ruleEnd);
+
+    expect(ruleStart).toBeGreaterThanOrEqual(0);
+    expect(ruleEnd).toBeGreaterThan(ruleStart);
+    expect(ruleStyles).toContain("height:");
+    expect(ruleStyles).toContain("cursor: pointer");
+    expect(ruleStyles).toContain("background:");
+    expect(ruleStyles).toContain(".markdown-paper hr:hover");
+    expect(ruleStyles).toContain(".markdown-paper hr.ProseMirror-selectednode");
+    expect(ruleStyles).toContain("outline: none");
+    expect(ruleStyles).toContain("100% 2px");
+  });
+
   it("suppresses editor selection chrome while document search is open", () => {
     const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
     const searchChromeStart = styles.indexOf(".editor-content-slot[data-document-search-open=\"true\"]");

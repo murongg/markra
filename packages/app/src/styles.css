@@ -3084,7 +3084,18 @@
   }
 
   .markdown-paper hr {
-    @apply my-8 border-0 border-t border-(--border-default);
+    @apply my-8 border-0;
+    height: 12px;
+    cursor: pointer;
+    background: linear-gradient(var(--border-default), var(--border-default)) center / 100% 1px no-repeat;
+  }
+
+  .markdown-paper hr:hover {
+    background: linear-gradient(color-mix(in srgb, var(--border-default) 72%, var(--text-secondary)), color-mix(in srgb, var(--border-default) 72%, var(--text-secondary))) center / 100% 2px no-repeat;
+  }
+
+  .markdown-paper hr.ProseMirror-selectednode {
+    outline: none;
   }
 
   .ai-chat-markdown {

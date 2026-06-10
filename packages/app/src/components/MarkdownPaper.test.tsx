@@ -516,6 +516,87 @@ function mockTopLevelBlockDragLayout(view: EditorView, container: HTMLElement) {
   );
 }
 
+function mockThinHorizontalRuleBlockDragLayout(view: EditorView, container: HTMLElement) {
+  const blocks = Array.from(container.querySelectorAll<HTMLElement>(".ProseMirror > *"));
+  const positions = topLevelBlockPositions(view);
+  const blockRects = [
+    {
+      bottom: 128,
+      height: 28,
+      left: 160,
+      right: 640,
+      top: 100,
+      width: 480,
+      x: 160,
+      y: 100,
+      toJSON: () => ({})
+    },
+    {
+      bottom: 141,
+      height: 1,
+      left: 160,
+      right: 640,
+      top: 140,
+      width: 480,
+      x: 160,
+      y: 140,
+      toJSON: () => ({})
+    },
+    {
+      bottom: 188,
+      height: 28,
+      left: 160,
+      right: 640,
+      top: 160,
+      width: 480,
+      x: 160,
+      y: 160,
+      toJSON: () => ({})
+    }
+  ] as DOMRect[];
+  const originalPosAtCoords = view.posAtCoords.bind(view);
+
+  if (blocks.length !== blockRects.length || positions.length !== blockRects.length) {
+    throw new Error("Expected a paragraph, horizontal rule, and paragraph block.");
+  }
+
+  for (const [index, block] of blocks.entries()) {
+    block.getBoundingClientRect = vi.fn(() => blockRects[index]);
+  }
+
+  view.dom.getBoundingClientRect = vi.fn(() => ({
+    bottom: 260,
+    height: 180,
+    left: 160,
+    right: 640,
+    top: 90,
+    width: 480,
+    x: 160,
+    y: 90,
+    toJSON: () => ({})
+  } as DOMRect));
+
+  Object.defineProperty(view, "posAtCoords", {
+    configurable: true,
+    value: ({ left, top }: { left: number; top: number }) => {
+      if (left < 160 || left > 640) return null;
+
+      const index = blockRects.findIndex((rect) => top >= rect.top && top <= rect.bottom);
+      if (index < 0) return null;
+
+      const position = positions[index];
+      return { inside: position, pos: position + 1 };
+    }
+  });
+
+  return () => {
+    Object.defineProperty(view, "posAtCoords", {
+      configurable: true,
+      value: originalPosAtCoords
+    });
+  };
+}
+
 function mockListItemBlockDragLayout(view: EditorView, container: HTMLElement) {
   return mockBlockDragLayout(
     view,
@@ -2497,6 +2578,48 @@ describe("MarkdownPaper editing", () => {
 
     const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
     expect(serializeMarkdown(view.state.doc)).toBe("Second\n\nFirst\n\nThird\n");
+    restoreLayout();
+  });
+
+  it("reorders a horizontal rule from a nearby gutter hover", async () => {
+    const { container, editor, view } = await renderEditor("First\n\n---\n\nSecond");
+    const restoreLayout = mockThinHorizontalRuleBlockDragLayout(view, container);
+    const surface = container.querySelector<HTMLElement>(".ProseMirror");
+    const paper = surface?.closest<HTMLElement>(".markdown-paper");
+    expect(surface?.querySelector("hr")).toBeInTheDocument();
+    expect(paper).toBeInTheDocument();
+
+    fireEvent.pointerMove(paper!, {
+      clientX: 136,
+      clientY: 146
+    });
+
+    const handle = screen.getByRole("button", { name: "Drag block" });
+    expect(handle.closest(".markra-block-toolbar")).toHaveAttribute("data-show", "true");
+
+    fireEvent.pointerDown(handle, {
+      button: 0,
+      buttons: 1,
+      clientX: 136,
+      clientY: 146,
+      pointerId: 9
+    });
+    fireEvent.pointerMove(document, {
+      buttons: 1,
+      clientX: 136,
+      clientY: 180,
+      pointerId: 9
+    });
+    expect(paper!.querySelector(".markra-block-drop-indicator")).toHaveAttribute("data-show", "true");
+    fireEvent.pointerUp(document, {
+      button: 0,
+      clientX: 136,
+      clientY: 180,
+      pointerId: 9
+    });
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toBe("First\n\nSecond\n\n---\n");
     restoreLayout();
   });
 

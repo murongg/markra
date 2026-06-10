@@ -36,6 +36,16 @@ type MarkdownTreeNode = {
   value?: unknown;
 };
 
+type MarkdownStringifySettings = {
+  rule?: "*" | "-" | "_" | null;
+  ruleRepetition?: number | null;
+  ruleSpaces?: boolean | null;
+};
+
+type RemarkProcessorData = {
+  settings?: MarkdownStringifySettings;
+};
+
 const blankParagraphContainerTypes = new Set(["blockquote", "listItem", "root"]);
 
 const markraBlockImageSchema = imageSchema.extendSchema((previous) => (ctx) => ({
@@ -272,7 +282,23 @@ const markraBlockImageRemarkPlugin = $remark("markraBlockImageRemark", () => () 
   liftImageParagraphs(tree);
 });
 
+function markraMarkdownStyleRemark(this: { data: () => RemarkProcessorData }) {
+  const data = this.data();
+  data.settings = {
+    ...data.settings,
+    rule: "-",
+    ruleRepetition: 3,
+    ruleSpaces: false
+  };
+}
+
+const markraMarkdownStyleRemarkPlugin = $remark<"markraMarkdownStyleRemark", undefined>(
+  "markraMarkdownStyleRemark",
+  () => markraMarkdownStyleRemark
+);
+
 export const markraCommonmark = [
+  markraMarkdownStyleRemarkPlugin,
   markraBlankParagraphRemarkPlugin,
   markraBlockImageRemarkPlugin,
   commonmarkSchema,
