@@ -2,7 +2,8 @@ import { SerializerReady, serializerCtx } from "@milkdown/kit/core";
 import type { Ctx, MilkdownPlugin } from "@milkdown/kit/ctx";
 import { blockquoteSchema, listItemSchema, paragraphSchema } from "@milkdown/kit/preset/commonmark";
 import { splitBlock } from "@milkdown/kit/prose/commands";
-import type { Node as ProseNode, ResolvedPos } from "@milkdown/kit/prose/model";
+import { closeHistory } from "@milkdown/kit/prose/history";
+import { Fragment, type Node as ProseNode, type ResolvedPos } from "@milkdown/kit/prose/model";
 import { liftListItem, splitListItem } from "@milkdown/kit/prose/schema-list";
 import { Plugin, TextSelection, type Command, type EditorState } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
@@ -233,9 +234,204 @@ function positionHasAncestorNodeName($pos: ResolvedPos, nodeName: string) {
   return false;
 }
 
+function ancestorDepthByNodeName($pos: ResolvedPos, nodeName: string) {
+  for (let depth = $pos.depth; depth > 0; depth -= 1) {
+    if ($pos.node(depth).type.name === nodeName) return depth;
+  }
+
+  return null;
+}
+
 function selectionIsInsideNodeName(state: EditorState, nodeName: string) {
   const { selection } = state;
   return [selection.$from, selection.$to].every(($pos) => positionHasAncestorNodeName($pos, nodeName));
+}
+
+function isListNode(node: ProseNode) {
+  return node.type.name === "bullet_list" || node.type.name === "ordered_list";
+}
+
+type EmptyListItemContext = {
+  $from: ResolvedPos;
+  from: number;
+  itemIndex: number;
+  listItem: ProseNode;
+  listItemDepth: number;
+  parentList: ProseNode;
+  parentListDepth: number;
+  to: number;
+};
+
+function emptyListItemContext(state: EditorState): EmptyListItemContext | null {
+  const { selection } = state;
+  if (!(selection instanceof TextSelection) || !selection.empty) return null;
+  if (!selection.$from.parent.isTextblock || selection.$from.parent.content.size > 0) return null;
+
+  const { $from } = selection;
+  const listItemDepth = ancestorDepthByNodeName($from, "list_item");
+  if (listItemDepth === null) return null;
+
+  const parentListDepth = listItemDepth - 1;
+  if (parentListDepth <= 0) return null;
+
+  const parentList = $from.node(parentListDepth);
+  if (!isListNode(parentList)) return null;
+
+  return {
+    $from,
+    from: $from.before(listItemDepth),
+    itemIndex: $from.index(parentListDepth),
+    listItem: $from.node(listItemDepth),
+    listItemDepth,
+    parentList,
+    parentListDepth,
+    to: $from.after(listItemDepth)
+  };
+}
+
+function firstTextBlockStartPosition(node: ProseNode, nodeFrom: number) {
+  let position: number | null = null;
+
+  node.descendants((child, offset) => {
+    if (!child.isTextblock) return true;
+
+    position = nodeFrom + offset + 2;
+    return false;
+  });
+
+  return position;
+}
+
+function firstTextBlockEndPosition(node: ProseNode, nodeFrom: number) {
+  let position: number | null = null;
+
+  node.descendants((child, offset) => {
+    if (!child.isTextblock) return true;
+
+    position = nodeFrom + offset + 2 + child.content.size;
+    return false;
+  });
+
+  return position;
+}
+
+function listItemHasOnlyEmptyTextBlocksAndLists(listItem: ProseNode) {
+  let valid = true;
+
+  listItem.forEach((child) => {
+    if (isListNode(child)) return;
+    if (!child.isTextblock || child.content.size > 0) valid = false;
+  });
+
+  return valid;
+}
+
+function childListItems(listItem: ProseNode) {
+  const items: ProseNode[] = [];
+
+  listItem.forEach((child) => {
+    if (!isListNode(child)) return;
+
+    child.forEach((item) => {
+      items.push(item);
+    });
+  });
+
+  return items;
+}
+
+function promoteEmptyListItemChildren(view: EditorView) {
+  const context = emptyListItemContext(view.state);
+  if (!context) return false;
+  if (!listItemHasOnlyEmptyTextBlocksAndLists(context.listItem)) return false;
+
+  const promotedItems = childListItems(context.listItem);
+  if (promotedItems.length === 0) return false;
+
+  const transaction = closeHistory(view.state.tr.replaceWith(context.from, context.to, Fragment.fromArray(promotedItems)));
+  const selectionPosition = Math.min(context.from + 2, transaction.doc.content.size);
+
+  view.dispatch(
+    transaction
+      .setSelection(TextSelection.near(transaction.doc.resolve(selectionPosition), 1))
+      .scrollIntoView()
+  );
+  view.focus();
+
+  return true;
+}
+
+function removeFirstEmptyLeafListItem(view: EditorView) {
+  const context = emptyListItemContext(view.state);
+  if (!context) return false;
+  if (context.listItem.childCount !== 1) return false;
+  if (context.itemIndex !== 0 || context.parentList.childCount <= 1) return false;
+
+  const nextItem = context.parentList.child(context.itemIndex + 1);
+  const nextItemPosition = firstTextBlockStartPosition(nextItem, context.to) ?? context.to + 1;
+  const transaction = closeHistory(view.state.tr.delete(context.from, context.to));
+  const mappedSelectionPosition = Math.min(
+    Math.max(transaction.mapping.map(nextItemPosition, -1), 1),
+    transaction.doc.content.size
+  );
+
+  view.dispatch(
+    transaction
+      .setSelection(TextSelection.near(transaction.doc.resolve(mappedSelectionPosition), 1))
+      .scrollIntoView()
+  );
+  view.focus();
+
+  return true;
+}
+
+function emptyNestedLeafListRange(state: EditorState) {
+  const context = emptyListItemContext(state);
+  if (!context) return null;
+  if (context.listItem.childCount !== 1) return null;
+  if (context.parentList.childCount !== 1) return null;
+
+  const parentListItemDepth = context.parentListDepth - 1;
+  if (parentListItemDepth <= 0 || context.$from.node(parentListItemDepth).type.name !== "list_item") return null;
+
+  const parentListItemFrom = context.$from.before(parentListItemDepth);
+  const selectionPosition =
+    firstTextBlockEndPosition(context.$from.node(parentListItemDepth), parentListItemFrom) ??
+    parentListItemFrom + 1;
+
+  return {
+    from: context.$from.before(context.parentListDepth),
+    selectionPosition,
+    to: context.$from.after(context.parentListDepth)
+  };
+}
+
+function removeEmptyNestedCalloutListItem(view: EditorView) {
+  const range = emptyNestedLeafListRange(view.state);
+  if (!range) return false;
+
+  const transaction = closeHistory(view.state.tr.delete(range.from, range.to));
+  const mappedSelectionPosition = Math.min(
+    Math.max(transaction.mapping.map(range.selectionPosition, -1), 1),
+    transaction.doc.content.size
+  );
+
+  view.dispatch(
+    transaction
+      .setSelection(TextSelection.near(transaction.doc.resolve(mappedSelectionPosition), -1))
+      .scrollIntoView()
+  );
+  view.focus();
+
+  return true;
+}
+
+function removeEmptyCalloutListItem(view: EditorView) {
+  return (
+    promoteEmptyListItemChildren(view) ||
+    removeFirstEmptyLeafListItem(view) ||
+    removeEmptyNestedCalloutListItem(view)
+  );
 }
 
 function emptySelectionBlockRange(view: EditorView) {
@@ -797,7 +993,14 @@ export const markraCalloutPlugin = $prose((ctx) => {
 
         const callout = findCalloutAtSelection(view);
         if (!callout) return false;
-        if (selectionIsInsideNodeName(view.state, "list_item")) return false;
+        if (selectionIsInsideNodeName(view.state, "list_item")) {
+          const handled = removeEmptyCalloutListItem(view);
+          if (!handled) return false;
+
+          event.preventDefault();
+          return true;
+        }
+
         if (calloutVisibleText(callout).length > 0) {
           deleteHoldStartedInsideNonEmptyCallout = true;
         }
