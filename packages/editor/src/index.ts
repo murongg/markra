@@ -20,3 +20,4 @@ export * from "./shortcuts.ts";
 export * from "./slash-commands.ts";
 export * from "./table-controls.ts";
 export * from "./task-list.ts";
+export * from "./trailing-paragraph.ts";

@@ -44,6 +44,7 @@ import {
   markraSlashCommands,
   markraTableControlsPlugin,
   markraTaskListPlugin,
+  markraTrailingParagraphPlugin,
   markraTaskListSchema,
   normalizeMarkdownShortcuts,
   serializeLinkImageLiveMarkdown,
@@ -329,6 +330,7 @@ function MilkdownEditorSurface({
           })
         )
         .use(markraTableControlsPlugin(tableControlLabels))
+        .use(markraTrailingParagraphPlugin)
         .use(markraLinkImageLivePlugin(resolveImageSrc))
         .use(markraHeadingLevelPlugin)
         .use(

@@ -6234,6 +6234,53 @@ describe("MarkdownPaper editing", () => {
     expect(serializeMarkdown(view.state.doc)).toContain("| Markra | Editor |");
   });
 
+  it.each([
+    {
+      label: "table",
+      source: ["| Name | Role |", "| --- | --- |", "| Example | Writer |"].join("\n"),
+      terminalType: "table"
+    },
+    {
+      label: "callout",
+      source: "> [!WARNING]\n>\n> Check this first.",
+      terminalType: "blockquote"
+    },
+    {
+      label: "bullet list",
+      source: "- First\n- Second",
+      terminalType: "bullet_list"
+    },
+    {
+      label: "ordered list",
+      source: "1. First\n2. Second",
+      terminalType: "ordered_list"
+    }
+  ])("creates a trailing paragraph after clicking past a terminal $label", async ({ source, terminalType }) => {
+    const { container, editor, view } = await renderEditor(source);
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    let trailingAffordance: HTMLElement | null = null;
+
+    await waitFor(() => {
+      trailingAffordance = container.querySelector(".ProseMirror .markra-trailing-paragraph");
+      expect(trailingAffordance).toBeInTheDocument();
+    });
+
+    expect(view.state.doc.child(0).type.name).toBe(terminalType);
+    expect(view.state.doc.child(view.state.doc.childCount - 1).type.name).toBe(terminalType);
+
+    fireEvent.mouseDown(trailingAffordance!);
+
+    await waitFor(() => expect(view.state.doc.child(view.state.doc.childCount - 1).type.name).toBe("paragraph"));
+    expect(view.state.doc.child(view.state.doc.childCount - 1).content.size).toBe(0);
+
+    moveCursor(view, findLastTextBlockCursor(view));
+    typeText(view, "After terminal block");
+
+    expect(view.state.doc.child(view.state.doc.childCount - 1).type.name).toBe("paragraph");
+    expect(view.state.doc.child(view.state.doc.childCount - 1).textContent).toBe("After terminal block");
+    expect(serializeMarkdown(view.state.doc)).toContain("After terminal block");
+  });
+
   it("renders GitHub-style alert blockquotes as callouts while preserving Markdown source", async () => {
     const source = "> [!NOTE]\n> Keep this in mind.";
     const { container, editor, view } = await renderEditor(source);
