@@ -25,6 +25,7 @@ describe("web runtime", () => {
     expect(runtime.features.ai).toBe(false);
     expect(runtime.features.export).toBe(true);
     expect(runtime.features.nativeWindowChrome).toBe(false);
+    expect(runtime.features.networkProxy).toBe(false);
     expect(runtime.features.pandoc).toBe(false);
     expect(runtime.features.s3ImageUpload).toBe(false);
     expect(runtime.features.updater).toBe(false);

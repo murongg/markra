@@ -43,6 +43,14 @@ describe("SettingsShell", () => {
     expect(onCategoryChange).toHaveBeenCalledWith("storage");
   });
 
+  it("shows network as its own settings category", () => {
+    const onCategoryChange = renderSettingsSidebar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Network" }));
+
+    expect(onCategoryChange).toHaveBeenCalledWith("network");
+  });
+
   it("shows backups as its own settings category", () => {
     const onCategoryChange = renderSettingsSidebar();
 
@@ -95,6 +103,16 @@ describe("SettingsShell", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Storage" })).toBeInTheDocument();
+  });
+
+  it("uses the network category title for the active panel", () => {
+    render(
+      <SettingsContent activeCategory="network" translate={translate}>
+        <div />
+      </SettingsContent>
+    );
+
+    expect(screen.getByRole("heading", { name: "Network" })).toBeInTheDocument();
   });
 
   it("uses the backups category title for the active panel", () => {

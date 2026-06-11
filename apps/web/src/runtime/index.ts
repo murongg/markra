@@ -29,6 +29,7 @@ export function createWebRuntime(options: WebRuntimeOptions = {}): AppRuntime {
       ai: false,
       export: true,
       nativeWindowChrome: false,
+      networkProxy: false,
       pandoc: false,
       s3ImageUpload: false,
       updater: false

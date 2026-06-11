@@ -48,6 +48,7 @@ export const desktopRuntime = {
     ai: true,
     export: true,
     nativeWindowChrome: true,
+    networkProxy: true,
     pandoc: true,
     s3ImageUpload: true,
     updater: true

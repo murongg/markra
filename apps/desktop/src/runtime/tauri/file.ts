@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import { debug, fileNameFromPath } from "@markra/shared";
+import { networkSettingsForNativeRequest } from "./network";
 import type {
   PicGoImageUploadSettings,
   S3ImageUploadSettings,
@@ -899,6 +900,12 @@ function encodeMarkdownRelativePath(path: string) {
   return path.split("/").map(encodeMarkdownUrlSegment).join("/");
 }
 
+async function requestWithNetwork<TRequest extends Record<string, unknown>>(request: TRequest) {
+  const network = await networkSettingsForNativeRequest();
+
+  return network ? { ...request, network } : request;
+}
+
 export async function saveNativeClipboardImage({
   documentPath,
   fileName,
@@ -922,9 +929,9 @@ export async function saveNativeClipboardImage({
 
 export async function downloadNativeWebImage({ src }: DownloadNativeWebImageInput): Promise<File> {
   const downloadedImage = await invoke<WebImageDownloadResponse>("download_web_image", {
-    request: {
+    request: await requestWithNetwork({
       url: src
-    }
+    })
   });
 
   return new File([new Uint8Array(downloadedImage.bytes)], downloadedImage.fileName, {
@@ -939,7 +946,7 @@ export async function uploadNativeWebDavImage({
 }: UploadNativeWebDavImageInput): Promise<SavedNativeClipboardImage> {
   const bytes = Array.from(new Uint8Array(await image.arrayBuffer()));
   const uploadedImage = await invoke<RemoteImageUploadResponse>("upload_webdav_image", {
-    request: {
+    request: await requestWithNetwork({
       bytes,
       fileName,
       mimeType: image.type,
@@ -948,7 +955,7 @@ export async function uploadNativeWebDavImage({
       serverUrl: settings.serverUrl,
       uploadPath: settings.uploadPath,
       username: settings.username
-    }
+    })
   });
 
   return {
@@ -964,13 +971,13 @@ export async function uploadNativePicGoImage({
 }: UploadNativePicGoImageInput): Promise<SavedNativeClipboardImage> {
   const bytes = Array.from(new Uint8Array(await image.arrayBuffer()));
   const uploadedImage = await invoke<RemoteImageUploadResponse>("upload_picgo_image", {
-    request: {
+    request: await requestWithNetwork({
       bytes,
       fileName,
       mimeType: image.type,
       secret: settings.secret,
       serverUrl: settings.serverUrl
-    }
+    })
   });
 
   return {
@@ -986,7 +993,7 @@ export async function uploadNativeS3Image({
 }: UploadNativeS3ImageInput): Promise<SavedNativeClipboardImage> {
   const bytes = Array.from(new Uint8Array(await image.arrayBuffer()));
   const uploadedImage = await invoke<RemoteImageUploadResponse>("upload_s3_image", {
-    request: {
+    request: await requestWithNetwork({
       accessKeyId: settings.accessKeyId,
       bucket: settings.bucket,
       bytes,
@@ -997,7 +1004,7 @@ export async function uploadNativeS3Image({
       region: settings.region,
       secretAccessKey: settings.secretAccessKey,
       uploadPath: settings.uploadPath
-    }
+    })
   });
 
   return {
@@ -1026,13 +1033,13 @@ export async function syncNativeMarkdownFolder({
   }
 
   return invoke<NativeMarkdownSyncResponse>("sync_webdav_markdown_folder", {
-    request: {
+    request: await requestWithNetwork({
       password: webdav.password,
       remotePath: webdav.remotePath,
       serverUrl: webdav.serverUrl,
       sourcePath,
       username: webdav.username
-    }
+    })
   });
 }
 

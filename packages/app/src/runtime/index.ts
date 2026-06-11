@@ -238,6 +238,7 @@ export type AppFeatureRuntime = {
   ai: boolean;
   export: boolean;
   nativeWindowChrome: boolean;
+  networkProxy: boolean;
   pandoc: boolean;
   s3ImageUpload: boolean;
   updater: boolean;
@@ -369,6 +370,7 @@ export function createDefaultAppRuntime(): AppRuntime {
       ai: true,
       export: true,
       nativeWindowChrome: true,
+      networkProxy: true,
       pandoc: true,
       s3ImageUpload: true,
       updater: true
@@ -436,6 +438,7 @@ export type {
   AppTheme,
   EditorPreferences,
   ExportSettings,
+  NetworkSettings,
   PicGoImageUploadSettings,
   RecentMarkdownFile,
   S3ImageUploadSettings,

@@ -7,6 +7,7 @@ mod language;
 mod markdown_files;
 mod menu;
 mod menu_labels;
+mod network;
 mod opened_files;
 mod remote_sync;
 mod watcher;

@@ -62,6 +62,7 @@ import {
   getStoredEditorPreferences,
   getStoredExportSettings,
   getStoredLanguage,
+  getStoredNetworkSettings,
   getStoredRecentMarkdownFiles,
   getStoredRecentMarkdownFolders,
   getStoredTheme,
@@ -82,12 +83,14 @@ import {
   saveStoredEditorPreferences,
   saveStoredExportSettings,
   saveStoredLanguage,
+  saveStoredNetworkSettings,
   saveStoredRecentMarkdownFile,
   saveStoredRecentMarkdownFolder,
   saveStoredTheme,
   saveStoredWorkspaceState,
   setStoredAiAgentSessionArchived,
   normalizeBackupSettings,
+  normalizeNetworkSettings,
   normalizeSyncSettings,
   type RecentMarkdownFile,
   type RecentMarkdownFolder
@@ -352,6 +355,11 @@ vi.mock("../lib/settings/app-settings", () => ({
     providerId: "local-bing",
     searxngApiHost: ""
   },
+  defaultNetworkSettings: {
+    bypassLocalAddresses: true,
+    proxyEnabled: false,
+    proxyUrl: ""
+  },
   defaultExportSettings: {
     pandocArgs: "",
     pandocPath: "",
@@ -376,6 +384,7 @@ vi.mock("../lib/settings/app-settings", () => ({
   getStoredEditorPreferences: vi.fn(),
   getStoredExportSettings: vi.fn(),
   getStoredLanguage: vi.fn(),
+  getStoredNetworkSettings: vi.fn(),
   getStoredRecentMarkdownFiles: vi.fn(),
   getStoredRecentMarkdownFolders: vi.fn(),
   getStoredTheme: vi.fn(),
@@ -500,6 +509,12 @@ vi.mock("../lib/settings/app-settings", () => ({
     searxngApiHost: "",
     ...settings
   })),
+  normalizeNetworkSettings: vi.fn((settings) => ({
+    bypassLocalAddresses: true,
+    proxyEnabled: false,
+    proxyUrl: "",
+    ...(typeof settings === "object" && settings !== null ? settings : {})
+  })),
   normalizeBackupSettings: vi.fn((settings) => ({
     backupOnExit: false,
     intervalMinutes: 0,
@@ -545,6 +560,7 @@ vi.mock("../lib/settings/app-settings", () => ({
   saveStoredEditorPreferences: vi.fn(),
   saveStoredExportSettings: vi.fn(),
   saveStoredLanguage: vi.fn(),
+  saveStoredNetworkSettings: vi.fn(),
   saveStoredRecentMarkdownFile: vi.fn(),
   saveStoredRecentMarkdownFolder: vi.fn(),
   saveStoredTheme: vi.fn(),
@@ -651,6 +667,7 @@ export const mockedGetStoredCustomThemeCss = vi.mocked(getStoredCustomThemeCss);
 export const mockedGetStoredEditorPreferences = vi.mocked(getStoredEditorPreferences);
 export const mockedGetStoredExportSettings = vi.mocked(getStoredExportSettings);
 export const mockedGetStoredLanguage = vi.mocked(getStoredLanguage);
+export const mockedGetStoredNetworkSettings = vi.mocked(getStoredNetworkSettings);
 export const mockedGetStoredRecentMarkdownFiles = vi.mocked(getStoredRecentMarkdownFiles);
 export const mockedGetStoredRecentMarkdownFolders = vi.mocked(getStoredRecentMarkdownFolders);
 export const mockedGetStoredTheme = vi.mocked(getStoredTheme);
@@ -672,12 +689,14 @@ export const mockedSaveStoredCustomThemeCss = vi.mocked(saveStoredCustomThemeCss
 export const mockedSaveStoredEditorPreferences = vi.mocked(saveStoredEditorPreferences);
 export const mockedSaveStoredExportSettings = vi.mocked(saveStoredExportSettings);
 export const mockedSaveStoredLanguage = vi.mocked(saveStoredLanguage);
+export const mockedSaveStoredNetworkSettings = vi.mocked(saveStoredNetworkSettings);
 export const mockedSaveStoredRecentMarkdownFile = vi.mocked(saveStoredRecentMarkdownFile);
 export const mockedSaveStoredRecentMarkdownFolder = vi.mocked(saveStoredRecentMarkdownFolder);
 export const mockedSaveStoredTheme = vi.mocked(saveStoredTheme);
 export const mockedSaveStoredWorkspaceState = vi.mocked(saveStoredWorkspaceState);
 export const mockedSetStoredAiAgentSessionArchived = vi.mocked(setStoredAiAgentSessionArchived);
 export const mockedNormalizeBackupSettings = vi.mocked(normalizeBackupSettings);
+export const mockedNormalizeNetworkSettings = vi.mocked(normalizeNetworkSettings);
 export const mockedNormalizeSyncSettings = vi.mocked(normalizeSyncSettings);
 export const mockedListenAppAiSettingsChanged = vi.mocked(listenAppAiSettingsChanged);
 export const mockedListenAppBackupSettingsChanged = vi.mocked(listenAppBackupSettingsChanged);
@@ -832,6 +851,7 @@ export function installAppTestHarness() {
     mockedGetStoredCustomThemeCss.mockReset();
     mockedGetStoredEditorPreferences.mockReset();
     mockedGetStoredExportSettings.mockReset();
+    mockedGetStoredNetworkSettings.mockReset();
     mockedGetStoredTheme.mockReset();
     mockedGetStoredWorkspaceState.mockReset();
     mockedInitializeStoredAiAgentSession.mockReset();
@@ -841,6 +861,7 @@ export function installAppTestHarness() {
     mockedRemoveStoredRecentMarkdownFolder.mockReset();
     mockedResetWelcomeDocumentState.mockReset();
     mockedNormalizeBackupSettings.mockReset();
+    mockedNormalizeNetworkSettings.mockReset();
     mockedNormalizeSyncSettings.mockReset();
     mockedSaveStoredAiAgentPreferences.mockReset();
     mockedSaveStoredAiAgentSession.mockReset();
@@ -852,6 +873,7 @@ export function installAppTestHarness() {
     mockedSaveStoredEditorPreferences.mockReset();
     mockedSaveStoredExportSettings.mockReset();
     mockedSaveStoredLanguage.mockReset();
+    mockedSaveStoredNetworkSettings.mockReset();
     mockedSaveStoredRecentMarkdownFile.mockReset();
     mockedSaveStoredRecentMarkdownFolder.mockReset();
     mockedSaveStoredTheme.mockReset();
@@ -992,6 +1014,11 @@ export function installAppTestHarness() {
       maxResults: 5,
       providerId: "local-bing",
       searxngApiHost: ""
+    });
+    mockedGetStoredNetworkSettings.mockResolvedValue({
+      bypassLocalAddresses: true,
+      proxyEnabled: false,
+      proxyUrl: ""
     });
     mockedGetStoredAiAgentSessionSummary.mockResolvedValue(null);
     mockedGetStoredEditorPreferences.mockResolvedValue({
@@ -1139,6 +1166,12 @@ export function installAppTestHarness() {
       targetPath: "",
       ...(typeof settings === "object" && settings !== null ? settings : {})
     }));
+    mockedNormalizeNetworkSettings.mockImplementation((settings) => ({
+      bypassLocalAddresses: true,
+      proxyEnabled: false,
+      proxyUrl: "",
+      ...(typeof settings === "object" && settings !== null ? settings : {})
+    }));
     mockedNormalizeSyncSettings.mockImplementation((settings) => {
       const value = typeof settings === "object" && settings !== null ? settings as Record<string, unknown> : {};
       const webdav = typeof value.webdav === "object" && value.webdav !== null
@@ -1172,6 +1205,7 @@ export function installAppTestHarness() {
     mockedSaveStoredAiAgentSessionTitle.mockResolvedValue(undefined);
     mockedSaveStoredAiSettings.mockResolvedValue(undefined);
     mockedSaveStoredLanguage.mockResolvedValue(undefined);
+    mockedSaveStoredNetworkSettings.mockResolvedValue(undefined);
     mockedSaveStoredRecentMarkdownFile.mockResolvedValue([]);
     mockedSaveStoredRecentMarkdownFolder.mockResolvedValue([]);
     mockedSaveStoredTheme.mockResolvedValue(undefined);

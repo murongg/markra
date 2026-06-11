@@ -292,6 +292,7 @@ describe("Markra workspace", () => {
         ai: false,
         export: false,
         nativeWindowChrome: false,
+        networkProxy: false,
         pandoc: false,
         s3ImageUpload: false,
         updater: false
@@ -363,6 +364,7 @@ describe("Markra workspace", () => {
         ai: false,
         export: true,
         nativeWindowChrome: false,
+        networkProxy: false,
         pandoc: false,
         s3ImageUpload: false,
         updater: false
@@ -403,6 +405,7 @@ describe("Markra workspace", () => {
         ai: true,
         export: true,
         nativeWindowChrome: false,
+        networkProxy: true,
         pandoc: true,
         s3ImageUpload: true,
         updater: true
@@ -955,7 +958,8 @@ describe("Markra workspace", () => {
       "Editor",
       "Templates",
       "Keyboard shortcuts",
-      "Export"
+      "Export",
+      "Network"
     ]);
     expect(categoryButtons[0]).toHaveAttribute("aria-current", "page");
     expect(categoryButtons[1]).not.toHaveAttribute("aria-current");
@@ -1534,6 +1538,7 @@ describe("Markra workspace", () => {
         ai: true,
         export: true,
         nativeWindowChrome: false,
+        networkProxy: true,
         pandoc: true,
         s3ImageUpload: true,
         updater: true

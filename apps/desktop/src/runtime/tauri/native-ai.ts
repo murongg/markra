@@ -1,14 +1,17 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { networkSettingsForNativeRequest, type NativeNetworkSettings } from "./network";
 
 export type NativeAiHttpRequest = {
   headers: Record<string, string>;
   method: "GET";
+  network?: NativeNetworkSettings;
   url: string;
 };
 
 export type NativeAiChatRequest = {
   body: string;
   headers: Record<string, string>;
+  network?: NativeNetworkSettings;
   url: string;
 };
 
@@ -33,11 +36,19 @@ type NativeAiChatStreamEvent =
     };
 
 export function requestNativeAiJson(request: NativeAiHttpRequest): Promise<NativeAiHttpResponse> {
-  return invoke<NativeAiHttpResponse>("request_ai_provider_json", { request });
+  return networkSettingsForNativeRequest().then((network) =>
+    invoke<NativeAiHttpResponse>("request_ai_provider_json", {
+      request: network ? { ...request, network } : request
+    })
+  );
 }
 
 export function requestNativeChat(request: NativeAiChatRequest): Promise<NativeAiHttpResponse> {
-  return invoke<NativeAiHttpResponse>("request_native_chat", { request });
+  return networkSettingsForNativeRequest().then((network) =>
+    invoke<NativeAiHttpResponse>("request_native_chat", {
+      request: network ? { ...request, network } : request
+    })
+  );
 }
 
 export async function requestNativeChatStream(
@@ -49,7 +60,11 @@ export async function requestNativeChatStream(
       onChunk(event.chunk);
     }
   });
-  const response = await invoke<NativeAiStreamResponse>("request_native_chat_stream", { onEvent, request });
+  const network = await networkSettingsForNativeRequest();
+  const response = await invoke<NativeAiStreamResponse>("request_native_chat_stream", {
+    onEvent,
+    request: network ? { ...request, network } : request
+  });
 
   return response;
 }

@@ -41,6 +41,7 @@ const aiAgentPreferencesKey = "aiAgentPreferences";
 const editorPreferencesKey = "editorPreferences";
 const exportSettingsKey = "exportSettings";
 const webSearchKey = "webSearch";
+const networkKey = "network";
 const backupSettingsKey = "backupSettings";
 const syncSettingsKey = "syncSettings";
 const workspaceKey = "workspace";
@@ -172,6 +173,11 @@ export type WebDavSyncSettings = {
   remotePath: string;
   serverUrl: string;
   username: string;
+};
+export type NetworkSettings = {
+  bypassLocalAddresses: boolean;
+  proxyEnabled: boolean;
+  proxyUrl: string;
 };
 export type SyncSettings = {
   autoSyncOnSave: boolean;
@@ -343,6 +349,11 @@ export const defaultWebSearchSettings: WebSearchSettings = {
   maxResults: 5,
   providerId: "local-bing",
   searxngApiHost: ""
+};
+export const defaultNetworkSettings: NetworkSettings = {
+  bypassLocalAddresses: true,
+  proxyEnabled: false,
+  proxyUrl: ""
 };
 export const defaultBackupSettings: BackupSettings = {
   backupOnExit: false,
@@ -742,6 +753,20 @@ export async function saveStoredWebSearchSettings(settings: WebSearchSettings) {
   const store = await loadSettingsStore();
 
   await store.set(webSearchKey, normalizeWebSearchSettings(settings));
+  await store.save();
+}
+
+export async function getStoredNetworkSettings(): Promise<NetworkSettings> {
+  const store = await loadSettingsStore();
+  const settings = await store.get<Partial<NetworkSettings>>(networkKey);
+
+  return normalizeNetworkSettings(settings);
+}
+
+export async function saveStoredNetworkSettings(settings: NetworkSettings) {
+  const store = await loadSettingsStore();
+
+  await store.set(networkKey, normalizeNetworkSettings(settings));
   await store.save();
 }
 
@@ -1430,6 +1455,48 @@ function normalizeWebSearchApiHost(value: unknown) {
     url.hash = "";
 
     return url.toString().replace(/\/+$/u, "");
+  } catch {
+    return "";
+  }
+}
+
+export function normalizeNetworkSettings(value: unknown): NetworkSettings {
+  if (typeof value !== "object" || value === null) return { ...defaultNetworkSettings };
+
+  const settings = value as Partial<NetworkSettings>;
+  const proxyUrl = normalizeProxyUrl(settings.proxyUrl);
+  if (settings.proxyEnabled === true && !proxyUrl) return { ...defaultNetworkSettings };
+
+  const proxyEnabled = typeof settings.proxyEnabled === "boolean"
+    ? settings.proxyEnabled && proxyUrl.length > 0
+    : defaultNetworkSettings.proxyEnabled;
+
+  return {
+    bypassLocalAddresses:
+      typeof settings.bypassLocalAddresses === "boolean"
+        ? settings.bypassLocalAddresses
+        : defaultNetworkSettings.bypassLocalAddresses,
+    proxyEnabled,
+    proxyUrl
+  };
+}
+
+function normalizeProxyUrl(value: unknown) {
+  if (typeof value !== "string") return "";
+
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  try {
+    const url = new URL(trimmed);
+    if (!["http:", "https:", "socks5:", "socks5h:"].includes(url.protocol)) return "";
+    if (!url.hostname) return "";
+
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+
+    return url.toString().replace(/\/$/u, "");
   } catch {
     return "";
   }

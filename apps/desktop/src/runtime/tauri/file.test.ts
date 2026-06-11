@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
+import { getStoredNetworkSettings } from "@markra/app/settings";
 import {
   confirmNativeMarkdownFileDelete,
   confirmNativeUnsavedMarkdownDocumentDiscard,
@@ -61,12 +62,17 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   save: vi.fn()
 }));
 
+vi.mock("@markra/app/settings", () => ({
+  getStoredNetworkSettings: vi.fn()
+}));
+
 const mockedInvoke = vi.mocked(invoke);
 const mockedListen = vi.mocked(listen);
 const mockedGetCurrentWindow = vi.mocked(getCurrentWindow);
 const mockedConfirm = vi.mocked(confirm);
 const mockedOpen = vi.mocked(open);
 const mockedSave = vi.mocked(save);
+const mockedGetStoredNetworkSettings = vi.mocked(getStoredNetworkSettings);
 
 const mockReadmePath = "/mock-files/readme.md";
 const mockDraftPath = "/mock-files/draft.md";
@@ -83,6 +89,12 @@ describe("native file access", () => {
     mockedConfirm.mockReset();
     mockedOpen.mockReset();
     mockedSave.mockReset();
+    mockedGetStoredNetworkSettings.mockReset();
+    mockedGetStoredNetworkSettings.mockResolvedValue({
+      bypassLocalAddresses: true,
+      proxyEnabled: false,
+      proxyUrl: ""
+    });
     onDragDropEvent.mockReset();
     mockedGetCurrentWindow.mockReturnValue({
       onDragDropEvent
@@ -864,6 +876,32 @@ describe("native file access", () => {
     });
   });
 
+  it("passes app network proxy settings to native web image downloads", async () => {
+    mockedGetStoredNetworkSettings.mockResolvedValueOnce({
+      bypassLocalAddresses: true,
+      proxyEnabled: true,
+      proxyUrl: "socks5://127.0.0.1:1080"
+    });
+    mockedInvoke.mockResolvedValue({
+      bytes: [1, 2, 3],
+      fileName: "kitten.png",
+      mimeType: "image/png"
+    });
+
+    await downloadNativeWebImage({ src: "https://images.example.com/kitten.png" });
+
+    expect(mockedInvoke).toHaveBeenCalledWith("download_web_image", {
+      request: {
+        network: {
+          bypassLocalAddresses: true,
+          proxyEnabled: true,
+          proxyUrl: "socks5://127.0.0.1:1080"
+        },
+        url: "https://images.example.com/kitten.png"
+      }
+    });
+  });
+
   it("uploads a clipboard image to WebDAV through Tauri", async () => {
     const image = new File([new Uint8Array([4, 5, 6])], "Diagram.png", { type: "image/png" });
     mockedInvoke.mockResolvedValue({
@@ -1033,6 +1071,49 @@ describe("native file access", () => {
 
     expect(mockedInvoke).toHaveBeenCalledWith("sync_webdav_markdown_folder", {
       request: {
+        password: "secret",
+        remotePath: "notes",
+        serverUrl: "https://dav.example.test/remote.php/dav/files/ada/",
+        sourcePath: mockFolderPath,
+        username: "ada"
+      }
+    });
+  });
+
+  it("passes app network proxy settings to native WebDAV sync", async () => {
+    mockedGetStoredNetworkSettings.mockResolvedValueOnce({
+      bypassLocalAddresses: true,
+      proxyEnabled: true,
+      proxyUrl: "http://127.0.0.1:7890"
+    });
+    mockedInvoke.mockResolvedValue({
+      bytesDownloaded: 0,
+      bytesUploaded: 0,
+      conflictFiles: 0,
+      downloadedFiles: 0,
+      scannedFiles: 0,
+      skippedFiles: 0,
+      uploadedFiles: 0
+    });
+
+    await syncNativeMarkdownFolder({
+      provider: "webdav",
+      sourcePath: mockFolderPath,
+      webdav: {
+        password: "secret",
+        remotePath: "notes",
+        serverUrl: "https://dav.example.test/remote.php/dav/files/ada/",
+        username: "ada"
+      }
+    });
+
+    expect(mockedInvoke).toHaveBeenCalledWith("sync_webdav_markdown_folder", {
+      request: {
+        network: {
+          bypassLocalAddresses: true,
+          proxyEnabled: true,
+          proxyUrl: "http://127.0.0.1:7890"
+        },
         password: "secret",
         remotePath: "notes",
         serverUrl: "https://dav.example.test/remote.php/dav/files/ada/",

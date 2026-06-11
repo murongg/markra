@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
+use crate::network::{apply_network_settings, NetworkSettings};
+
 const REMOTE_SYNC_TIMEOUT_SECS: u64 = 60;
 const SYNC_METADATA_DIR: &str = ".markra-sync";
 const WEBDAV_MANIFEST_FILE: &str = "webdav-manifest.json";
@@ -18,6 +20,7 @@ const WEBDAV_MANIFEST_FILE: &str = "webdav-manifest.json";
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WebDavSyncRequest {
+    network: Option<NetworkSettings>,
     password: String,
     remote_path: String,
     server_url: String,
@@ -90,7 +93,7 @@ pub(crate) async fn sync_webdav_markdown_folder(
 async fn execute_webdav_sync(request: WebDavSyncRequest) -> Result<WebDavSyncSummary, String> {
     let source_root = sync_source_root(&PathBuf::from(&request.source_path))?;
     let root_url = webdav_sync_root_url(&request.server_url, &request.remote_path)?;
-    let client = remote_sync_http_client()?;
+    let client = remote_sync_http_client(request.network.as_ref())?;
 
     ensure_webdav_root_collections(&client, &request).await?;
 
@@ -238,9 +241,11 @@ async fn execute_webdav_sync(request: WebDavSyncRequest) -> Result<WebDavSyncSum
     Ok(summary)
 }
 
-fn remote_sync_http_client() -> Result<Client, String> {
-    Client::builder()
-        .timeout(Duration::from_secs(REMOTE_SYNC_TIMEOUT_SECS))
+fn remote_sync_http_client(network: Option<&NetworkSettings>) -> Result<Client, String> {
+    apply_network_settings(
+        Client::builder().timeout(Duration::from_secs(REMOTE_SYNC_TIMEOUT_SECS)),
+        network,
+    )?
         .build()
         .map_err(|error| error.to_string())
 }

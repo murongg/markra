@@ -8,6 +8,7 @@ import {
   ExportSettings,
   GeneralSettings,
   KeyboardShortcutsSettings,
+  NetworkSettings,
   SyncSettings,
   StorageSettings,
   TemplatesSettings,
@@ -53,8 +54,10 @@ export function SettingsWindow() {
     handleUpdateEditorPreferences,
     handleUpdateMarkdownTemplate,
     handleUpdateExportSettings,
+    handleUpdateNetworkSettings,
     handleUpdateWebSearchSettings,
     markdownTemplates,
+    networkSettings,
     selectedAiProvider,
     setActiveCategory,
     setSelectedAiProviderId,
@@ -69,6 +72,7 @@ export function SettingsWindow() {
   const appFeatures = getAppRuntime().features;
   const hiddenCategories: SettingsCategory[] = [
     ...(appFeatures.ai ? [] : (["ai", "providers", "web"] as SettingsCategory[])),
+    ...(appFeatures.networkProxy ? [] : (["network"] as SettingsCategory[])),
     ...(appFeatures.export ? [] : (["export"] as SettingsCategory[]))
   ];
   const activeSettingsCategory = hiddenCategories.includes(activeCategory) ? "general" : activeCategory;
@@ -123,6 +127,13 @@ export function SettingsWindow() {
               onResetWelcomeDocument={handleResetWelcomeDocument}
               onSelectLanguage={appLanguage.selectLanguage}
               onUpdatePreferences={handleUpdateEditorPreferences}
+            />
+          ) : null}
+          {activeSettingsCategory === "network" ? (
+            <NetworkSettings
+              settings={networkSettings}
+              translate={translate}
+              onUpdateSettings={handleUpdateNetworkSettings}
             />
           ) : null}
           {appFeatures.ai && activeSettingsCategory === "ai" ? (

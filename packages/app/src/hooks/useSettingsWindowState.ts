@@ -12,12 +12,14 @@ import {
   getStoredSyncSettings,
   getStoredEditorPreferences,
   getStoredExportSettings,
+  getStoredNetworkSettings,
   getStoredWebSearchSettings,
   getStoredWorkspaceState,
   defaultBackupSettings,
   defaultSyncSettings,
   defaultEditorPreferences,
   defaultExportSettings,
+  defaultNetworkSettings,
   defaultWebSearchSettings,
   resetWelcomeDocumentState,
   saveStoredAiSettings,
@@ -25,6 +27,7 @@ import {
   saveStoredSyncSettings,
   saveStoredEditorPreferences,
   saveStoredExportSettings,
+  saveStoredNetworkSettings,
   saveStoredWebSearchSettings,
   normalizeBackupSettings,
   normalizeSyncSettings,
@@ -36,6 +39,7 @@ import {
   type BackupSettings,
   type EditorPreferences,
   type ExportSettings,
+  type NetworkSettings,
   type WebSearchSettings,
   type SyncSettings
 } from "../lib/settings/app-settings";
@@ -73,6 +77,7 @@ import { useAppTheme } from "./useAppTheme";
 
 export type SettingsCategory =
   | "general"
+  | "network"
   | "ai"
   | "providers"
   | "web"
@@ -122,6 +127,7 @@ export function useSettingsWindowState() {
   const [editorPreferences, setEditorPreferences] = useState<EditorPreferences>(defaultEditorPreferences);
   const [markdownTemplates, setMarkdownTemplates] = useState<MarkdownTemplate[]>([]);
   const [exportSettings, setExportSettings] = useState<ExportSettings>(defaultExportSettings);
+  const [networkSettings, setNetworkSettings] = useState<NetworkSettings>(defaultNetworkSettings);
   const [webSearchSettings, setWebSearchSettings] = useState<WebSearchSettings>(defaultWebSearchSettings);
   const [selectedAiProviderId, setSelectedAiProviderId] = useState<string | undefined>(
     () => createDefaultAiSettings().defaultProviderId
@@ -193,6 +199,10 @@ export function useSettingsWindowState() {
 
   useEffect(() => {
     let cancelled = false;
+
+    getStoredNetworkSettings().then((settings) => {
+      if (!cancelled) setNetworkSettings(settings);
+    }).catch(() => {});
 
     getStoredWebSearchSettings().then((settings) => {
       if (!cancelled) setWebSearchSettings(settings);
@@ -343,6 +353,11 @@ export function useSettingsWindowState() {
     saveStoredEditorPreferences(preferences)
       .then(() => notifyAppEditorPreferencesChanged(preferences))
       .catch(() => {});
+  }, []);
+
+  const handleUpdateNetworkSettings = useCallback((settings: NetworkSettings) => {
+    setNetworkSettings(settings);
+    saveStoredNetworkSettings(settings).catch(() => {});
   }, []);
 
   const handleSaveMarkdownTemplate = useCallback((template: MarkdownTemplate) => {
@@ -578,12 +593,14 @@ export function useSettingsWindowState() {
     handleUpdateSyncSettings,
     handleUpdateEditorPreferences,
     handleUpdateExportSettings,
+    handleUpdateNetworkSettings,
     handleDetectPandocPath,
     handleUpdateWebSearchSettings,
     selectedAiProvider,
     setActiveCategory: handleSelectCategory,
     setSelectedAiProviderId,
     markdownTemplates,
+    networkSettings,
     settingsFocusTarget,
     syncRunning,
     syncSettings,

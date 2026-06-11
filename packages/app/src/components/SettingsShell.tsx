@@ -11,6 +11,7 @@ import {
   PenLine,
   SlidersHorizontal,
   Sparkles,
+  Wifi,
   X,
   type LucideIcon
 } from "lucide-react";
@@ -87,6 +88,11 @@ const settingsCategories: SettingsCategoryDefinition[] = [
     icon: Download,
     id: "export",
     labelKey: "settings.categories.export"
+  },
+  {
+    icon: Wifi,
+    id: "network",
+    labelKey: "settings.categories.network"
   }
 ];
 
