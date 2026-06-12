@@ -5266,6 +5266,17 @@ describe("MarkdownPaper editing", () => {
     await settleMarkdownListener();
   });
 
+  it("keeps escaped literal asterisks between inline code visible", async () => {
+    const source = "`n!`/`(n1!` \\* `n2!` \\* ... \\* `nk!`)";
+    const { container } = await renderEditor(source);
+
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe("n!/(n1! * n2! * ... * nk!)");
+    expect(container.querySelectorAll(".ProseMirror code")).toHaveLength(4);
+    expect(container.querySelector(".ProseMirror .markra-live-mark-emphasis")).not.toBeInTheDocument();
+    expectHiddenMarkdownDelimiters(container, 0);
+    await settleMarkdownListener();
+  });
+
   it("supports inline markdown formatting shortcuts", async () => {
     const strong = await renderEditor();
     typeText(strong.view, "bold");

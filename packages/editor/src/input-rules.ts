@@ -554,7 +554,7 @@ export function markraLiveMarkdownSpecs(ctx: Ctx, options: MarkraLiveMarkdownOpt
     },
     {
       markers: ["***"],
-      pattern: /\*\*\*[^\n]*?\*\*\*/g,
+      pattern: /(?<!\*)\*\*\*(?!\s)[^\n]*?(?<!\s)\*\*\*(?!\*)/g,
       marks: [
         {
           kind: "strong",
@@ -594,7 +594,7 @@ export function markraLiveMarkdownSpecs(ctx: Ctx, options: MarkraLiveMarkdownOpt
     },
     {
       markers: ["**"],
-      pattern: /\*\*[^\n]*?\*\*/g,
+      pattern: /(?<!\*)\*\*(?!\s)[^\n]*?(?<!\s)\*\*(?!\*)/g,
       marks: [
         {
           kind: "strong",
@@ -640,7 +640,7 @@ export function markraLiveMarkdownSpecs(ctx: Ctx, options: MarkraLiveMarkdownOpt
       : []),
     {
       markers: ["*"],
-      pattern: /(?<!\*)\*(?!\*)[^*\n]*?(?<!\*)\*(?!\*)/g,
+      pattern: /(?<!\*)\*(?![\s*])[^*\n]*?(?<![\s*])\*(?!\*)/g,
       marks: [
         {
           kind: "emphasis",
