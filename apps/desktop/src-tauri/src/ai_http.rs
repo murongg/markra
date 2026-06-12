@@ -74,8 +74,8 @@ async fn execute_ai_provider_json_request(
         reqwest::Client::builder().timeout(Duration::from_secs(AI_PROVIDER_REQUEST_TIMEOUT_SECS)),
         request.network.as_ref(),
     )?
-        .build()
-        .map_err(|error| error.to_string())?;
+    .build()
+    .map_err(|error| error.to_string())?;
 
     let response = client
         .get(url)
@@ -99,8 +99,8 @@ async fn execute_native_chat_request(
         reqwest::Client::builder().timeout(Duration::from_secs(AI_CHAT_REQUEST_TIMEOUT_SECS)),
         request.network.as_ref(),
     )?
-        .build()
-        .map_err(|error| error.to_string())?;
+    .build()
+    .map_err(|error| error.to_string())?;
 
     let response = client
         .post(url)
@@ -126,8 +126,8 @@ async fn execute_native_chat_stream_request(
         reqwest::Client::builder().timeout(Duration::from_secs(AI_CHAT_REQUEST_TIMEOUT_SECS)),
         request.network.as_ref(),
     )?
-        .build()
-        .map_err(|error| error.to_string())?;
+    .build()
+    .map_err(|error| error.to_string())?;
 
     let mut response = client
         .post(url)

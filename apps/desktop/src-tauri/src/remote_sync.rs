@@ -246,8 +246,8 @@ fn remote_sync_http_client(network: Option<&NetworkSettings>) -> Result<Client, 
         Client::builder().timeout(Duration::from_secs(REMOTE_SYNC_TIMEOUT_SECS)),
         network,
     )?
-        .build()
-        .map_err(|error| error.to_string())
+    .build()
+    .map_err(|error| error.to_string())
 }
 
 fn sync_source_root(path: &Path) -> Result<PathBuf, String> {

@@ -73,8 +73,8 @@ async fn execute_web_resource_request(
             .timeout(Duration::from_secs(WEB_RESOURCE_REQUEST_TIMEOUT_SECS)),
         request.network.as_ref(),
     )?
-        .build()
-        .map_err(|error| error.to_string())?;
+    .build()
+    .map_err(|error| error.to_string())?;
 
     for _ in 0..=WEB_RESOURCE_MAX_REDIRECTS {
         let response = client
@@ -126,8 +126,8 @@ async fn execute_web_image_download(
             .timeout(Duration::from_secs(WEB_RESOURCE_REQUEST_TIMEOUT_SECS)),
         request.network.as_ref(),
     )?
-        .build()
-        .map_err(|error| error.to_string())?;
+    .build()
+    .map_err(|error| error.to_string())?;
 
     for _ in 0..=WEB_RESOURCE_MAX_REDIRECTS {
         let response = client

@@ -272,8 +272,8 @@ fn image_upload_http_client(network: Option<&NetworkSettings>) -> Result<Client,
         Client::builder().timeout(Duration::from_secs(IMAGE_UPLOAD_REQUEST_TIMEOUT_SECS)),
         network,
     )?
-        .build()
-        .map_err(|error| error.to_string())
+    .build()
+    .map_err(|error| error.to_string())
 }
 
 fn apply_basic_auth(builder: RequestBuilder, username: &str, password: &str) -> RequestBuilder {
