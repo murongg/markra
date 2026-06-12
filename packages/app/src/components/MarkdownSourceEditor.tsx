@@ -13,7 +13,7 @@ import {
 import type { ExtendedSyntaxPreferences } from "../lib/settings/app-settings";
 import { EditorWidthResizer } from "./EditorWidthResizer";
 
-type MarkdownSourceEditorProps = {
+export type MarkdownSourceEditorProps = {
   autoFocus?: boolean;
   bodyFontSize?: number;
   content: string;
@@ -303,7 +303,8 @@ export function MarkdownSourceEditor({
     () => [
       minimalSetup,
       markdown({
-        base: markdownLanguage
+        base: markdownLanguage,
+        codeLanguages: []
       }),
       EditorView.lineWrapping,
       contentAttributesCompartmentRef.current.of(markdownSourceContentAttributes(sourceLabel, readOnly)),

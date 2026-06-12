@@ -2394,12 +2394,12 @@ describe("Markra workspace", () => {
     expect(sourceModeButton).toBeEnabled();
     fireEvent.click(sourceModeButton);
 
-    const sourceEditors = screen.getAllByRole("textbox", { name: "Markdown source" });
+    const sourceEditors = await screen.findAllByRole("textbox", { name: "Markdown source" });
     expect(sourceEditors.map((editor) => readMarkdownSource(editor).trimEnd())).toEqual(
       expect.arrayContaining(["# Guide\n\nReference", "# Third\n\nIndependent"])
     );
 
-    const sideSource = within(replacedSidePane).getByRole("textbox", { name: "Markdown source" });
+    const sideSource = await within(replacedSidePane).findByRole("textbox", { name: "Markdown source" });
     expect(readMarkdownSource(sideSource)).toBe("# Third\n\nIndependent");
 
     replaceMarkdownSource(sideSource, "# Third\n\nIndependent update");
@@ -2739,8 +2739,8 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
-    const sideSource = within(sidePane).getByRole("textbox", { name: "Markdown source" });
-    const mainSource = screen.getAllByRole("textbox", { name: "Markdown source" }).find((editor) =>
+    const sideSource = await within(sidePane).findByRole("textbox", { name: "Markdown source" });
+    const mainSource = (await screen.findAllByRole("textbox", { name: "Markdown source" })).find((editor) =>
       !sidePane.contains(editor)
     ) as HTMLElement;
 
@@ -2868,7 +2868,7 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
-    const sideSource = within(sidePane).getByRole("textbox", { name: "Markdown source" });
+    const sideSource = await within(sidePane).findByRole("textbox", { name: "Markdown source" });
 
     fireEvent.focus(sideSource);
     replaceMarkdownSource(sideSource, "# Second\n\nFocused side draft");
@@ -2941,7 +2941,7 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
-    fireEvent.focus(within(sidePane).getByRole("textbox", { name: "Markdown source" }));
+    fireEvent.focus(await within(sidePane).findByRole("textbox", { name: "Markdown source" }));
 
     fireEvent.keyDown(window, { key: "w", metaKey: true });
 
@@ -4207,7 +4207,7 @@ describe("Markra workspace", () => {
 
     const [visualPane, , sourcePane] = Array.from(splitSurface!.children) as HTMLElement[];
     expect(within(visualPane!).getByLabelText("Markdown editor")).toHaveAttribute("data-editor-engine", "milkdown");
-    expect(within(sourcePane!).getByRole("textbox", { name: "Markdown source" })).toBeInTheDocument();
+    expect(await within(sourcePane!).findByRole("textbox", { name: "Markdown source" })).toBeInTheDocument();
   });
 
   it("resizes split panes from the center divider and persists the ratio", async () => {
@@ -4309,7 +4309,7 @@ describe("Markra workspace", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
-    const sourceScroll = screen.getByLabelText("Markdown source").closest(".paper-scroll")!;
+    const sourceScroll = (await screen.findByLabelText("Markdown source")).closest(".paper-scroll")!;
     mockScrollMetrics(sourceScroll, {
       clientHeight: 200,
       scrollHeight: 1200,

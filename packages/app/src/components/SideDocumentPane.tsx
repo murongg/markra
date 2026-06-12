@@ -4,9 +4,9 @@ import type { EditorContentWidth } from "../lib/editor-width";
 import type { EditorTheme, ExtendedSyntaxPreferences } from "../lib/settings/app-settings";
 import type { MarkdownDocumentLinkFile } from "../lib/document-links";
 import { shouldBlockLargeMarkdownVisual } from "../lib/large-markdown";
+import { LazyMarkdownSourceEditor } from "./LazyMarkdownSourceEditor";
 import { LargeMarkdownNotice } from "./LargeMarkdownNotice";
 import { MarkdownPaper } from "./MarkdownPaper";
-import { MarkdownSourceEditor } from "./MarkdownSourceEditor";
 
 type SideDocumentPaneProps = {
   bodyFontSize: number;
@@ -73,7 +73,7 @@ export function SideDocumentPane({
       onFocusCapture={onFocus}
     >
       {mode === "source" ? (
-        <MarkdownSourceEditor
+        <LazyMarkdownSourceEditor
           bodyFontSize={bodyFontSize}
           content={content}
           contentWidth={contentWidth}

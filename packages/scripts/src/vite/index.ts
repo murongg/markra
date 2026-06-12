@@ -58,6 +58,7 @@ const milkdownDependencies = dependencyPattern([
 const tauriDependencies = dependencyPattern(["@tauri-apps"]);
 const iconDependencies = dependencyPattern(["lucide-react", "lucide-static"]);
 const piAgentDependencies = dependencyPattern(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai", "typebox"]);
+const markdownSourceEditorDependencies = dependencyPattern(["@codemirror/lang-markdown", "@lezer/markdown"]);
 const codeEditorDependencies = dependencyPattern(["@codemirror", "codemirror"]);
 const dndDependencies = dependencyPattern(["@dnd-kit"]);
 const mathDependencies = dependencyPattern(["katex"]);
@@ -93,6 +94,7 @@ function vendorChunkName(id: string) {
   if (tauriDependencies.test(id)) return "tauri-vendor";
   if (iconDependencies.test(id)) return "icons-vendor";
   if (piAgentDependencies.test(id)) return "pi-agent-vendor";
+  if (markdownSourceEditorDependencies.test(id)) return "markdown-source-editor-vendor";
   if (codeEditorDependencies.test(id)) return "code-editor-vendor";
   if (dndDependencies.test(id)) return "dnd-vendor";
   if (mathDependencies.test(id)) return "math-vendor";
