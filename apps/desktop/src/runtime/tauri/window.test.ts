@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { platform } from "@tauri-apps/plugin-os";
 import { exit } from "@tauri-apps/plugin-process";
 import {
   closeNativeWindow,
@@ -11,6 +12,7 @@ import {
   listNativeEditorWindowRestoreStates,
   minimizeNativeWindow,
   openSettingsWindow,
+  setNativeWindowTitle,
   setNativeEditorWindowRestoreState,
   toggleNativeWindowFullscreen,
   toggleNativeWindowMaximized
@@ -28,6 +30,10 @@ vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn()
 }));
 
+vi.mock("@tauri-apps/plugin-os", () => ({
+  platform: vi.fn()
+}));
+
 vi.mock("@tauri-apps/plugin-process", () => ({
   exit: vi.fn()
 }));
@@ -35,6 +41,7 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 const mockedGetCurrentWindow = vi.mocked(getCurrentWindow);
 const mockedInvoke = vi.mocked(invoke);
 const mockedListen = vi.mocked(listen);
+const mockedPlatform = vi.mocked(platform);
 const mockedExit = vi.mocked(exit);
 
 describe("native window actions", () => {
@@ -46,6 +53,7 @@ describe("native window actions", () => {
     mockedGetCurrentWindow.mockReset();
     mockedInvoke.mockReset();
     mockedListen.mockReset();
+    mockedPlatform.mockReturnValue("macos");
     mockedExit.mockReset();
   });
 
@@ -132,6 +140,32 @@ describe("native window actions", () => {
 
     expect(isFullscreen).toHaveBeenCalledTimes(1);
     expect(setFullscreen).toHaveBeenCalledWith(true);
+  });
+
+  it("updates the native window title outside Windows", async () => {
+    const setTitle = vi.fn().mockResolvedValue(undefined);
+    mockedPlatform.mockReturnValue("linux");
+    mockedGetCurrentWindow.mockReturnValue({ setTitle } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await setNativeWindowTitle("Guide.md *");
+
+    expect(document.title).toBe("Guide.md *");
+    expect(setTitle).toHaveBeenCalledWith("Guide.md *");
+  });
+
+  it("keeps Windows native title on file names without syncing dirty markers", async () => {
+    const setTitle = vi.fn().mockResolvedValue(undefined);
+    mockedPlatform.mockReturnValue("windows");
+    mockedGetCurrentWindow.mockReturnValue({ setTitle } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await setNativeWindowTitle("Guide.md");
+    await setNativeWindowTitle("Guide.md *");
+    await setNativeWindowTitle("Notes.md *");
+
+    expect(document.title).toBe("Notes.md *");
+    expect(setTitle).toHaveBeenCalledTimes(2);
+    expect(setTitle).toHaveBeenNthCalledWith(1, "Guide.md");
+    expect(setTitle).toHaveBeenNthCalledWith(2, "Notes.md");
   });
 
   it("skips native calls outside Tauri", async () => {

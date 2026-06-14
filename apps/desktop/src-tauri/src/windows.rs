@@ -619,6 +619,18 @@ mod tests {
     }
 
     #[test]
+    fn windows_main_window_config_uses_stable_app_title() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.windows.conf.json"))
+                .expect("windows Tauri config should be valid JSON");
+        let title = config
+            .pointer("/app/windows/0/title")
+            .and_then(serde_json::Value::as_str);
+
+        assert_eq!(title, Some("Markra"));
+    }
+
+    #[test]
     fn linux_main_window_config_disables_transparency() {
         let config_path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.linux.conf.json");

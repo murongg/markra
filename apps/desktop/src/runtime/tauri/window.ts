@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { platform } from "@tauri-apps/plugin-os";
 import { exit } from "@tauri-apps/plugin-process";
 
 export type NativeSettingsWindowTarget = "exportPandocPath";
@@ -24,9 +25,26 @@ type NativeSettingsWindowTargetPayload = {
 
 const nativeSettingsWindowTargetEvent = "markra://settings-window-target";
 const nativeAppExitRequestedEvent = "markra://app-exit-requested";
+let lastNativeWindowTitle: { platform: string | null; title: string } | null = null;
 
 function isNativeSettingsWindowTarget(value: unknown): value is NativeSettingsWindowTarget {
   return value === "exportPandocPath";
+}
+
+function currentDesktopPlatform() {
+  try {
+    return platform();
+  } catch {
+    return null;
+  }
+}
+
+function nativeWindowTitleForPlatform(title: string, desktopPlatform: string | null) {
+  if (desktopPlatform === "windows" && title.endsWith(" *")) {
+    return title.slice(0, -2);
+  }
+
+  return title;
 }
 
 export function openSettingsWindow(target?: NativeSettingsWindowTarget) {
@@ -73,8 +91,22 @@ export async function setNativeWindowTitle(title: string) {
     return;
   }
 
+  const desktopPlatform = currentDesktopPlatform();
+  const nativeTitle = nativeWindowTitleForPlatform(title, desktopPlatform);
+
+  if (
+    lastNativeWindowTitle?.platform === desktopPlatform &&
+    lastNativeWindowTitle.title === nativeTitle
+  ) {
+    return;
+  }
+
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  await getCurrentWindow().setTitle(title);
+  await getCurrentWindow().setTitle(nativeTitle);
+  lastNativeWindowTitle = {
+    platform: desktopPlatform,
+    title: nativeTitle
+  };
 }
 
 async function getCurrentNativeWindow() {
