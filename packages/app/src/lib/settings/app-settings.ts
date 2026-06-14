@@ -26,6 +26,25 @@ import {
   type AiQuickActionPrompts
 } from "../ai-actions";
 import { getAppRuntime } from "../../runtime";
+import {
+  defaultWorkspaceState,
+  normalizeWorkspaceState,
+  type StoredWorkspaceDraftTab,
+  type StoredWorkspaceSideBySideGroup,
+  type StoredWorkspaceState,
+  type StoredWorkspaceWindow
+} from "./workspace-state";
+
+export {
+  defaultWorkspaceState,
+  normalizeWorkspaceState
+} from "./workspace-state";
+export type {
+  StoredWorkspaceDraftTab,
+  StoredWorkspaceSideBySideGroup,
+  StoredWorkspaceState,
+  StoredWorkspaceWindow
+} from "./workspace-state";
 
 const settingsStorePath = "settings.json";
 const aiAgentSessionIndexStorePath = "ai-agent-sessions/index.json";
@@ -186,33 +205,6 @@ export type SyncSettings = {
   lastSyncAt: number | null;
   provider: SyncProvider;
   remotePath: string;
-};
-export type StoredWorkspaceState = {
-  activeDraftId?: string | null;
-  aiAgentSessionId: string | null;
-  draftTabs?: StoredWorkspaceDraftTab[];
-  filePath: string | null;
-  fileTreeOpen: boolean;
-  folderName: string | null;
-  folderPath: string | null;
-  openFilePaths: string[];
-  openWindows?: StoredWorkspaceWindow[];
-  sideBySideGroup?: StoredWorkspaceSideBySideGroup | null;
-};
-export type StoredWorkspaceDraftTab = {
-  content: string;
-  id: string;
-  name: string;
-  path: string | null;
-};
-export type StoredWorkspaceWindow = {
-  filePath: string | null;
-  label: string;
-  openFilePaths: string[];
-};
-export type StoredWorkspaceSideBySideGroup = {
-  primaryFilePath: string;
-  sideFilePath: string;
 };
 export type RecentMarkdownFolder = {
   name: string;
@@ -392,16 +384,6 @@ const exportMarginPresetMm: Record<Exclude<PdfMarginPreset, "custom">, number> =
   none: 0,
   normal: 18,
   wide: 25
-};
-
-export const defaultWorkspaceState: StoredWorkspaceState = {
-  aiAgentSessionId: null,
-  filePath: null,
-  fileTreeOpen: false,
-  folderName: null,
-  folderPath: null,
-  openFilePaths: [],
-  openWindows: []
 };
 
 function loadSettingsStore() {
@@ -1500,133 +1482,6 @@ function normalizeProxyUrl(value: unknown) {
   } catch {
     return "";
   }
-}
-
-export function normalizeWorkspaceState(value: unknown): StoredWorkspaceState {
-  if (typeof value !== "object" || value === null) return defaultWorkspaceState;
-
-  const workspace = value as Partial<StoredWorkspaceState>;
-  const openFilePaths = normalizeWorkspaceOpenFilePaths(workspace.openFilePaths);
-  const openFilePathSet = new Set(openFilePaths);
-  const draftTabs = normalizeWorkspaceDraftTabs(workspace.draftTabs);
-  const activeDraftId = normalizeNullableString(workspace.activeDraftId);
-  const persistedActiveDraftId = activeDraftId && draftTabs.some((draft) => draft.id === activeDraftId)
-    ? activeDraftId
-    : null;
-  const sideBySideGroup = normalizeWorkspaceSideBySideGroup(workspace.sideBySideGroup);
-  const persistedSideBySideGroup =
-    sideBySideGroup &&
-    openFilePathSet.has(sideBySideGroup.primaryFilePath) &&
-    openFilePathSet.has(sideBySideGroup.sideFilePath)
-      ? sideBySideGroup
-      : null;
-
-  return {
-    ...(draftTabs.length > 0 ? { activeDraftId: persistedActiveDraftId, draftTabs } : {}),
-    aiAgentSessionId: normalizeNullableString(workspace.aiAgentSessionId),
-    filePath: normalizeNullableString(workspace.filePath),
-    fileTreeOpen: typeof workspace.fileTreeOpen === "boolean" ? workspace.fileTreeOpen : false,
-    folderName: normalizeNullableString(workspace.folderName),
-    folderPath: normalizeNullableString(workspace.folderPath),
-    openFilePaths,
-    openWindows: normalizeWorkspaceWindows(workspace.openWindows),
-    ...(persistedSideBySideGroup ? { sideBySideGroup: persistedSideBySideGroup } : {})
-  };
-}
-
-function normalizeWorkspaceDraftTabs(value: unknown): StoredWorkspaceDraftTab[] {
-  if (!Array.isArray(value)) return [];
-
-  const seenIds = new Set<string>();
-  const draftTabs: StoredWorkspaceDraftTab[] = [];
-  const normalizeDraftString = (item: unknown) => {
-    if (typeof item !== "string") return null;
-
-    const trimmed = item.trim();
-    return trimmed ? trimmed : null;
-  };
-
-  value.forEach((item) => {
-    if (typeof item !== "object" || item === null) return;
-
-    const candidate = item as Partial<StoredWorkspaceDraftTab>;
-    const id = normalizeDraftString(candidate.id);
-    if (!id || seenIds.has(id) || typeof candidate.content !== "string") return;
-
-    const path = normalizeDraftString(candidate.path);
-    if (!path && candidate.content.trim().length === 0) return;
-
-    const name = normalizeDraftString(candidate.name) ?? (path ? pathNameFromPath(path) : "Untitled.md");
-    seenIds.add(id);
-    draftTabs.push({
-      content: candidate.content,
-      id,
-      name,
-      path
-    });
-  });
-
-  return draftTabs;
-}
-
-function normalizeWorkspaceOpenFilePaths(value: unknown) {
-  if (!Array.isArray(value)) return [];
-
-  const seenPaths = new Set<string>();
-  const paths: string[] = [];
-
-  value.forEach((item) => {
-    const path = normalizeNullableString(item);
-    if (!path || seenPaths.has(path)) return;
-
-    seenPaths.add(path);
-    paths.push(path);
-  });
-
-  return paths;
-}
-
-function normalizeWorkspaceWindows(value: unknown): StoredWorkspaceWindow[] {
-  if (!Array.isArray(value)) return [];
-
-  const seenLabels = new Set<string>();
-  const windows: StoredWorkspaceWindow[] = [];
-
-  value.forEach((item) => {
-    if (typeof item !== "object" || item === null) return;
-
-    const candidate = item as Partial<StoredWorkspaceWindow>;
-    const label = normalizeNullableString(candidate.label);
-    if (!label || seenLabels.has(label)) return;
-
-    const filePath = normalizeNullableString(candidate.filePath);
-    const openFilePaths = normalizeWorkspaceOpenFilePaths(candidate.openFilePaths);
-    if (filePath && !openFilePaths.includes(filePath)) openFilePaths.push(filePath);
-    if (!filePath && openFilePaths.length === 0) return;
-
-    seenLabels.add(label);
-    windows.push({
-      filePath,
-      label,
-      openFilePaths
-    });
-  });
-
-  return windows;
-}
-
-function normalizeWorkspaceSideBySideGroup(value: unknown): StoredWorkspaceSideBySideGroup | null {
-  if (typeof value !== "object" || value === null) return null;
-
-  const group = value as Partial<StoredWorkspaceSideBySideGroup>;
-  const primaryFilePath = normalizeNullableString(group.primaryFilePath);
-  const sideFilePath = normalizeNullableString(group.sideFilePath);
-  if (!primaryFilePath || !sideFilePath || primaryFilePath === sideFilePath) return null;
-
-  return {
-    primaryFilePath,
-    sideFilePath
-  };
 }
 
 function aiAgentSessionStorePath(sessionId: string | null) {

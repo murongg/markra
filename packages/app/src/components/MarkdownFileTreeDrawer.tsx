@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type Key,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -66,6 +65,38 @@ import {
   suggestedMarkdownTemplateFileName,
   type MarkdownTemplate
 } from "../lib/templates";
+import {
+  buildMarkdownFileTree,
+  buildVisibleFileTreeRows,
+  collectMarkdownFolderPaths,
+  collectMarkdownFolderTargetPaths,
+  creatingAtFileTreeParentPath,
+  defaultFileTreeSort,
+  fallbackFileTreeViewportHeight,
+  fileTreeRowHeight,
+  fileTreeRowIndentClass,
+  fileTreeRowIndentStyle,
+  fileTreeVirtualizationThreshold,
+  filterMarkdownFileTree,
+  folderExpandedForFileTreeRows,
+  folderNodeAsFile,
+  normalizeCreateParentPath,
+  parentPathFromPath,
+  virtualFileTreeRowsForOffset,
+  type FileNode,
+  type FileTreeCreateRowKind,
+  type FileTreeRenderItem,
+  type FileTreeRowRenderMode,
+  type FileTreeSort,
+  type FileTreeSortDirection,
+  type FileTreeSortKey,
+  type FolderNode,
+  type TreeNode
+} from "./file-tree/file-tree-model";
+import {
+  buildOutlineRenderItems,
+  visibleOutlineRenderItems
+} from "./file-tree/outline-model";
 
 type MarkdownFileTreeDrawerProps = {
   currentPath: string | null;
@@ -102,30 +133,6 @@ type MarkdownFileTreeDrawerProps = {
   onToggleMarkdownFiles?: () => unknown;
 };
 
-type FolderNode = {
-  type: "folder";
-  createdAt?: number;
-  name: string;
-  path: string | null;
-  relativePath: string;
-  modifiedAt?: number;
-  children: TreeNode[];
-};
-
-type FileNode = {
-  type: "file";
-  file: NativeMarkdownFolderFile;
-  name: string;
-  relativePath: string;
-};
-
-type TreeNode = FolderNode | FileNode;
-type FileTreeSortKey = "createdAt" | "modifiedAt" | "name";
-type FileTreeSortDirection = "ascending" | "descending";
-type FileTreeSort = {
-  direction: FileTreeSortDirection;
-  key: FileTreeSortKey;
-};
 type FileTreeDragData = {
   file: NativeMarkdownFolderFile;
 };
@@ -149,105 +156,11 @@ type FileTreeDropTargetProps = {
   id: UniqueIdentifier;
   targetParentPath: string | null;
 };
-type OutlineRenderItem = {
-  hasChildren: boolean;
-  index: number;
-  item: MarkdownOutlineItem;
-  key: string;
-};
-type FileTreeCreateRowKind = "file" | "folder";
-type FileTreeRenderItem =
-  | {
-    createType: FileTreeCreateRowKind;
-    depth: number;
-    key: string;
-    type: "create";
-  }
-  | {
-    depth: number;
-    expanded?: boolean;
-    key: string;
-    node: TreeNode;
-    type: "node";
-  };
-type VirtualFileTreeRow = {
-  index: number;
-  key: Key;
-  size: number;
-  start: number;
-};
-type FileTreeRowRenderMode = "nested" | "virtual";
 type SidebarPanel = "files" | "outline";
 const outlineLevelFilters = ["all", 1, 2, 3] as const;
 type OutlineLevelFilter = typeof outlineLevelFilters[number];
 
 const emptyMarkdownTemplates: readonly MarkdownTemplate[] = [];
-const defaultFileTreeSort = {
-  direction: "ascending",
-  key: "name"
-} satisfies FileTreeSort;
-
-function nodeNameSort(left: TreeNode, right: TreeNode) {
-  return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
-}
-
-function nodeTimestamp(node: TreeNode, key: Exclude<FileTreeSortKey, "name">) {
-  const value = node.type === "folder" ? node[key] : node.file[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function sortTreeNodes(nodes: TreeNode[], sort: FileTreeSort) {
-  nodes.sort((a, b) => {
-    if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
-    if (sort.key === "name") {
-      return sort.direction === "ascending" ? nodeNameSort(a, b) : nodeNameSort(b, a);
-    }
-
-    const leftTimestamp = nodeTimestamp(a, sort.key);
-    const rightTimestamp = nodeTimestamp(b, sort.key);
-    if (leftTimestamp !== null && rightTimestamp !== null && leftTimestamp !== rightTimestamp) {
-      return sort.direction === "ascending" ? leftTimestamp - rightTimestamp : rightTimestamp - leftTimestamp;
-    }
-    if (leftTimestamp !== null && rightTimestamp === null) return -1;
-    if (leftTimestamp === null && rightTimestamp !== null) return 1;
-    return nodeNameSort(a, b);
-  });
-
-  nodes.forEach((node) => {
-    if (node.type === "folder") sortTreeNodes(node.children, sort);
-  });
-}
-
-function normalizeCreateParentPath(path: string | null | undefined) {
-  const trimmedPath = path?.trim();
-  return trimmedPath ? trimmedPath : null;
-}
-
-function nativePathSeparator(path: string) {
-  return path.includes("\\") && !path.includes("/") ? "\\" : "/";
-}
-
-function joinNativePath(rootPath: string | null | undefined, relativePath: string) {
-  const normalizedRootPath = normalizeCreateParentPath(rootPath);
-  if (!normalizedRootPath) return null;
-
-  const pathSeparator = nativePathSeparator(normalizedRootPath);
-  const normalizedRelativePath = relativePath
-    .split(/[\\/]/)
-    .filter(Boolean)
-    .join(pathSeparator);
-
-  if (!normalizedRelativePath) return normalizedRootPath;
-
-  return `${normalizedRootPath.replace(/[\\/]+$/, "")}${pathSeparator}${normalizedRelativePath}`;
-}
-
-function parentPathFromPath(path: string) {
-  const lastSeparatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  if (lastSeparatorIndex < 0) return null;
-  if (lastSeparatorIndex === 0) return path.slice(0, 1);
-  return path.slice(0, lastSeparatorIndex);
-}
 
 function fileTreeDragId(file: NativeMarkdownFolderFile) {
   return `file-tree-drag:${file.path}`;
@@ -409,187 +322,11 @@ function FileTreeDragOverlay({
   );
 }
 
-function buildMarkdownFileTree(
-  files: NativeMarkdownFolderFile[],
-  rootPath?: string | null,
-  sort: FileTreeSort = defaultFileTreeSort
-) {
-  const rootNodes: TreeNode[] = [];
-  const folders = new Map<string, FolderNode>();
-
-  const ensureFolder = (
-    relativePath: string,
-    siblings: TreeNode[],
-    folderName: string,
-    folderPath = joinNativePath(rootPath, relativePath)
-  ) => {
-    let folder = folders.get(relativePath);
-
-    if (!folder) {
-      folder = {
-        type: "folder",
-        createdAt: undefined,
-        name: folderName,
-        path: folderPath,
-        relativePath,
-        modifiedAt: undefined,
-        children: []
-      };
-      folders.set(relativePath, folder);
-      siblings.push(folder);
-    } else if (!folder.path && folderPath) {
-      folder.path = folderPath;
-    }
-
-    return folder;
-  };
-
-  files.forEach((file) => {
-    const parts = file.relativePath.split(/[\\/]/).filter(Boolean);
-    if (parts.length === 0) return;
-
-    let siblings = rootNodes;
-    let parentPath = "";
-
-    parts.slice(0, -1).forEach((folderName) => {
-      const relativePath = parentPath ? `${parentPath}/${folderName}` : folderName;
-      const folder = ensureFolder(relativePath, siblings, folderName);
-
-      siblings = folder.children;
-      parentPath = relativePath;
-    });
-
-    if (file.kind === "folder") {
-      const folder = ensureFolder(file.relativePath, siblings, parts.at(-1) ?? file.name, file.path);
-      folder.createdAt = file.createdAt;
-      folder.modifiedAt = file.modifiedAt;
-      return;
-    }
-
-    siblings.push({
-      type: "file",
-      file,
-      name: parts.at(-1) ?? file.name,
-      relativePath: file.relativePath
-    });
-  });
-
-  sortTreeNodes(rootNodes, sort);
-  return rootNodes;
-}
-
-function filterMarkdownFileTree(nodes: TreeNode[], query: string): TreeNode[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return nodes;
-
-  return nodes.flatMap((node): TreeNode[] => {
-    if (node.type === "file") {
-      return node.relativePath.toLowerCase().includes(normalizedQuery) ? [node] : [];
-    }
-
-    const children = filterMarkdownFileTree(node.children, normalizedQuery);
-    return children.length > 0 ? [{ ...node, children }] : [];
-  });
-}
-
-function collectMarkdownFolderPaths(nodes: TreeNode[]) {
-  const paths: string[] = [];
-
-  const collect = (treeNodes: TreeNode[]) => {
-    treeNodes.forEach((node) => {
-      if (node.type !== "folder") return;
-
-      paths.push(node.relativePath);
-      collect(node.children);
-    });
-  };
-
-  collect(nodes);
-  return paths;
-}
-
-function collectMarkdownFolderTargetPaths(nodes: TreeNode[]) {
-  const paths: string[] = [];
-
-  const collect = (treeNodes: TreeNode[]) => {
-    treeNodes.forEach((node) => {
-      if (node.type !== "folder") return;
-
-      if (node.path) paths.push(node.path);
-      collect(node.children);
-    });
-  };
-
-  collect(nodes);
-  return paths;
-}
-
-function outlineItemKey(item: MarkdownOutlineItem, index: number) {
-  return `${index}:${item.level}:${item.title}`;
-}
-
-function outlineItemHasVisibleChildren(
-  items: MarkdownOutlineItem[],
-  index: number,
-  maxLevel: number | null
-) {
-  const item = items[index];
-  if (!item) return false;
-
-  for (let nextIndex = index + 1; nextIndex < items.length; nextIndex += 1) {
-    const nextItem = items[nextIndex];
-    if (!nextItem || nextItem.level <= item.level) return false;
-    if (maxLevel === null || nextItem.level <= maxLevel) return true;
-  }
-
-  return false;
-}
-
-function buildOutlineRenderItems(items: MarkdownOutlineItem[], maxLevel: number | null) {
-  return items.flatMap((item, index): OutlineRenderItem[] => {
-    if (maxLevel !== null && item.level > maxLevel) return [];
-
-    return [{
-      hasChildren: outlineItemHasVisibleChildren(items, index, maxLevel),
-      index,
-      item,
-      key: outlineItemKey(item, index)
-    }];
-  });
-}
-
-function visibleOutlineRenderItems(items: OutlineRenderItem[], collapsedKeys: ReadonlySet<string>) {
-  let collapsedAncestorLevel: number | null = null;
-
-  return items.filter(({ item, key }) => {
-    const hiddenByAncestor = collapsedAncestorLevel !== null && item.level > collapsedAncestorLevel;
-    if (hiddenByAncestor) return false;
-
-    collapsedAncestorLevel = collapsedKeys.has(key) ? item.level : null;
-    return true;
-  });
-}
-
-function folderNodeAsFile(node: FolderNode): NativeMarkdownFolderFile {
-  return {
-    createdAt: node.createdAt,
-    kind: "folder",
-    modifiedAt: node.modifiedAt,
-    name: node.name,
-    path: node.path ?? node.relativePath,
-    relativePath: node.relativePath
-  };
-}
-
 const defaultOutlineHeightPercent = 40;
 const minOutlineHeightPercent = 24;
 const maxOutlineHeightPercent = 72;
 const outlineResizeKeyboardStepPercent = 5;
 const outlineResizeFallbackHeight = 320;
-const fileTreeRowHeight = 32;
-const fileTreeVirtualizationThreshold = 200;
-const fileTreeVirtualOverscanCount = 10;
-const fallbackFileTreeViewportHeight = 320;
 const fileTreeContextRowSelectionClassName = "select-none [-webkit-user-select:none]";
 const fileTreeDropTargetClassName = "bg-(--bg-active) text-(--text-heading)";
 const fileTreeDropListTargetClassName = "rounded-sm bg-(--bg-active)";
@@ -599,159 +336,6 @@ const sidebarPanelTabInactiveClassName = "text-(--text-secondary) hover:text-(--
 
 function sidebarPanelTabClassName(selected: boolean) {
   return `${sidebarPanelTabBaseClassName} ${selected ? sidebarPanelTabActiveClassName : sidebarPanelTabInactiveClassName}`;
-}
-
-function creatingAtFileTreeParentPath(
-  parentPath: string | null | undefined,
-  depth: number,
-  creatingParentPath: string | null
-) {
-  const normalizedParentPath = normalizeCreateParentPath(parentPath);
-  if (!normalizedParentPath && depth > 0) return false;
-  return normalizedParentPath === creatingParentPath;
-}
-
-function appendFileTreeCreateRows(
-  rows: FileTreeRenderItem[],
-  parentPath: string | null | undefined,
-  depth: number,
-  creatingFile: boolean,
-  creatingFolder: boolean,
-  creatingParentPath: string | null
-) {
-  if ((!creatingFile && !creatingFolder) || !creatingAtFileTreeParentPath(parentPath, depth, creatingParentPath)) {
-    return;
-  }
-
-  const parentKey = normalizeCreateParentPath(parentPath) ?? "__root__";
-  if (creatingFile) {
-    rows.push({
-      createType: "file",
-      depth,
-      key: `create:file:${parentKey}:${depth}`,
-      type: "create"
-    });
-  }
-
-  if (creatingFolder) {
-    rows.push({
-      createType: "folder",
-      depth,
-      key: `create:folder:${parentKey}:${depth}`,
-      type: "create"
-    });
-  }
-}
-
-function folderExpandedForFileTreeRows(
-  node: FolderNode,
-  depth: number,
-  expandedFolders: ReadonlySet<string>,
-  searchActive: boolean,
-  creatingFile: boolean,
-  creatingFolder: boolean,
-  creatingParentPath: string | null
-) {
-  return searchActive ||
-    expandedFolders.has(node.relativePath) ||
-    ((creatingFile || creatingFolder) &&
-      creatingAtFileTreeParentPath(node.path, depth + 1, creatingParentPath));
-}
-
-function buildVisibleFileTreeRows(
-  nodes: TreeNode[],
-  expandedFolders: ReadonlySet<string>,
-  searchQuery: string,
-  creatingFile: boolean,
-  creatingFolder: boolean,
-  creatingParentPath: string | null,
-  depth = 0,
-  parentPath: string | null = null,
-  rows: FileTreeRenderItem[] = []
-) {
-  const searchActive = searchQuery.trim().length > 0;
-
-  appendFileTreeCreateRows(rows, parentPath, depth, creatingFile, creatingFolder, creatingParentPath);
-
-  nodes.forEach((node) => {
-    if (node.type === "folder") {
-      const expanded = folderExpandedForFileTreeRows(
-        node,
-        depth,
-        expandedFolders,
-        searchActive,
-        creatingFile,
-        creatingFolder,
-        creatingParentPath
-      );
-
-      rows.push({
-        depth,
-        expanded,
-        key: `folder:${node.relativePath}`,
-        node,
-        type: "node"
-      });
-
-      if (expanded) {
-        buildVisibleFileTreeRows(
-          node.children,
-          expandedFolders,
-          searchQuery,
-          creatingFile,
-          creatingFolder,
-          creatingParentPath,
-          depth + 1,
-          node.path,
-          rows
-        );
-      }
-      return;
-    }
-
-    rows.push({
-      depth,
-      key: `file:${node.file.path}`,
-      node,
-      type: "node"
-    });
-  });
-
-  return rows;
-}
-
-function virtualFileTreeRowsForOffset(
-  rows: readonly FileTreeRenderItem[],
-  getFileTreeRowKey: (index: number) => Key,
-  scrollOffset: number,
-  viewportHeight: number
-) {
-  const visibleRowCount = Math.ceil(viewportHeight / fileTreeRowHeight);
-  const renderedRowCount = visibleRowCount + fileTreeVirtualOverscanCount * 2;
-  const rawStartIndex = Math.max(0, Math.floor(scrollOffset / fileTreeRowHeight) - fileTreeVirtualOverscanCount);
-  const maxStartIndex = Math.max(0, rows.length - renderedRowCount);
-  const startIndex = Math.min(rawStartIndex, maxStartIndex);
-  const endIndex = Math.min(rows.length, startIndex + renderedRowCount);
-  const virtualRows: VirtualFileTreeRow[] = [];
-
-  for (let index = startIndex; index < endIndex; index += 1) {
-    virtualRows.push({
-      index,
-      key: getFileTreeRowKey(index),
-      size: fileTreeRowHeight,
-      start: index * fileTreeRowHeight
-    });
-  }
-
-  return virtualRows;
-}
-
-function fileTreeRowIndentStyle(depth: number, mode: FileTreeRowRenderMode) {
-  return mode === "virtual" ? { paddingLeft: `${32 + depth * 20}px` } : undefined;
-}
-
-function fileTreeRowIndentClass(mode: FileTreeRowRenderMode) {
-  return mode === "virtual" ? "" : "pl-8";
 }
 
 export function MarkdownFileTreeDrawer({

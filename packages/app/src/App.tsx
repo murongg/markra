@@ -75,9 +75,7 @@ import {
   clampNumber,
   debug,
   findSearchRanges,
-  isMarkdownPath,
   normalizeSearchIndex,
-  parentPathFromPath,
   t,
   type I18nKey,
   type SearchRange
@@ -164,65 +162,33 @@ import {
   markdownTemplateEntryFromTemplate,
   type MarkdownTemplate
 } from "./lib/templates";
+import {
+  aiPreviewActionKey,
+  aiResultSignature,
+  createImageDocumentTab,
+  defaultSaveDirectoryFromFileTree,
+  documentTabAsFolderFile,
+  emptyWorkspaceSearchResponse,
+  imageDocumentTabId,
+  nextGlobalSearchRecentQueries,
+  replaceTextRange,
+  replaceTextRanges,
+  restoreElementScrollTop,
+  selectionAnchorsEqual,
+  unsavedMarkdownFileNameFromTreeInput,
+  type ImageDocumentTab
+} from "./app/workspace-model";
 
 const aiAgentPanelDefaultWidth = 384;
 const aiAgentPanelMinWidth = 320;
 const aiAgentPanelMaxWidth = 760;
 const splitPaneKeyboardStepPercent = 5;
-const aiResultSignatureSeparator = "\u001f";
 const aiSelectionCopySuccessMs = 1600;
 const sideDocumentPaneKeyboardStepPercent = 5;
 const sideDocumentMainPanePercentMin = 35;
 const sideDocumentMainPanePercentMax = 70;
 const defaultSideDocumentMainPanePercent = 50;
 export const globalSearchDebounceMs = 180;
-const globalSearchRecentQueryLimit = 8;
-const emptyWorkspaceSearchResponse: WorkspaceSearchResponse = {
-  results: [],
-  searchedFileCount: 0,
-  truncated: false,
-  unreadableFileCount: 0
-};
-
-type ImageDocumentTab = NativeMarkdownFolderFile & {
-  id: string;
-};
-
-function imageDocumentTabId(path: string) {
-  return `image:${path}`;
-}
-
-function createImageDocumentTab(file: NativeMarkdownFolderFile): ImageDocumentTab {
-  return {
-    ...file,
-    id: imageDocumentTabId(file.path)
-  };
-}
-
-function unsavedMarkdownFileNameFromTreeInput(fileName: string) {
-  const trimmedName = fileName.trim();
-  if (!trimmedName) return "Untitled.md";
-  return /\.(?:md|markdown)$/iu.test(trimmedName) ? trimmedName : `${trimmedName}.md`;
-}
-
-function documentTabAsFolderFile(tab: MarkdownTabsBarDocumentItem): NativeMarkdownFolderFile | null {
-  if (!tab.path) return null;
-
-  return {
-    ...(tab.displayKind === "image" ? { kind: "asset" as const } : {}),
-    name: tab.name || "Untitled.md",
-    path: tab.path,
-    relativePath: tab.path
-  };
-}
-
-function defaultSaveDirectoryFromFileTree(sourcePath: string | null) {
-  const trimmedSourcePath = sourcePath?.trim();
-  if (!trimmedSourcePath) return null;
-  if (!isMarkdownPath(trimmedSourcePath)) return trimmedSourcePath;
-
-  return parentPathFromPath(trimmedSourcePath);
-}
 
 function persistSideDocumentGroup(group: StoredWorkspaceSideBySideGroup | null) {
   saveStoredWorkspaceState({ sideBySideGroup: group }).catch(() => {});
@@ -301,66 +267,6 @@ async function runPandocSetupAction(action: "cancel" | "install" | "setPath") {
   if (action === "setPath") {
     await openSettingsWindow("exportPandocPath");
   }
-}
-
-function aiResultSignature(result: AiDiffResult) {
-  if (result.type === "error") return `error${aiResultSignatureSeparator}${result.message}`;
-
-  return [
-    result.type,
-    result.from,
-    result.to,
-    result.original,
-    result.replacement
-  ].join(aiResultSignatureSeparator);
-}
-
-function aiPreviewActionKey(result: AiDiffResult, previewId?: string) {
-  return previewId ? `preview${aiResultSignatureSeparator}${previewId}` : `result${aiResultSignatureSeparator}${aiResultSignature(result)}`;
-}
-
-function selectionAnchorsEqual(left: SelectionAnchor | null, right: SelectionAnchor | null) {
-  if (left === right) return true;
-  if (!left || !right) return false;
-
-  return left.bottom === right.bottom
-    && left.left === right.left
-    && left.right === right.right
-    && left.top === right.top;
-}
-
-function replaceTextRange(content: string, range: SearchRange, replacement: string) {
-  return `${content.slice(0, range.from)}${replacement}${content.slice(range.to)}`;
-}
-
-function replaceTextRanges(content: string, ranges: SearchRange[], replacement: string) {
-  return [...ranges]
-    .sort((left, right) => right.from - left.from)
-    .reduce((nextContent, range) => replaceTextRange(nextContent, range, replacement), content);
-}
-
-function restoreElementScrollTop(element: HTMLElement, scrollTop: number) {
-  try {
-    element.scrollTop = scrollTop;
-  } catch {
-    // Non-browser DOM doubles can expose scrollTop as read-only.
-  }
-}
-
-function nextGlobalSearchRecentQueries(current: string[], query: string) {
-  const normalizedQuery = query.trim();
-  if (!normalizedQuery) return current;
-
-  const normalizedQueryKey = normalizedQuery.toLowerCase();
-  const nextQueries = [
-    normalizedQuery,
-    ...current.filter((currentQuery) => currentQuery.toLowerCase() !== normalizedQueryKey)
-  ].slice(0, globalSearchRecentQueryLimit);
-
-  return current.length === nextQueries.length
-    && current.every((currentQuery, index) => currentQuery === nextQueries[index])
-    ? current
-    : nextQueries;
 }
 
 export default function App() {
