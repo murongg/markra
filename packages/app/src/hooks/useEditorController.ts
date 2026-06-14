@@ -387,7 +387,7 @@ export function useEditorController() {
     }
   }, []);
 
-  const replaceMarkdown = useCallback((markdown: string) => {
+  const replaceMarkdown = useCallback((markdown: string, options: { addToHistory?: boolean } = {}) => {
     try {
       const editor = editorRef.current;
       if (!editor) {
@@ -417,8 +417,11 @@ export function useEditorController() {
         const parsedDocument = parseMarkdown(markdown);
         const selectionPosition = Math.min(view.state.selection.from, parsedDocument.content.size);
         const tr = view.state.tr
-          .replace(0, view.state.doc.content.size, new Slice(parsedDocument.content, 0, 0))
-          .setMeta("addToHistory", false);
+          .replace(0, view.state.doc.content.size, new Slice(parsedDocument.content, 0, 0));
+
+        if (!options.addToHistory) {
+          tr.setMeta("addToHistory", false);
+        }
 
         tr.setSelection(TextSelection.near(tr.doc.resolve(selectionPosition))).scrollIntoView();
         view.dispatch(tr);
@@ -605,9 +608,13 @@ export function useEditorController() {
   }, []);
 
   const runEditorShortcut = useCallback(
-    (key: string, modifiers: Pick<KeyboardEventInit, "altKey" | "shiftKey"> = {}) => {
+    (
+      key: string,
+      modifiers: Pick<KeyboardEventInit, "altKey" | "shiftKey"> = {},
+      options: { focusEditor?: boolean } = {}
+    ) => {
       const editor = editorRef.current;
-      if (!editor) return;
+      if (!editor) return false;
 
       const view = editor.action((ctx) => ctx.get(editorViewCtx));
       const event = new KeyboardEvent("keydown", {
@@ -619,9 +626,11 @@ export function useEditorController() {
       });
       const handled = view.someProp("handleKeyDown", (handler) => handler(view, event));
 
-      if (handled) {
+      if (handled && options.focusEditor !== false) {
         view.focus();
       }
+
+      return Boolean(handled);
     },
     []
   );

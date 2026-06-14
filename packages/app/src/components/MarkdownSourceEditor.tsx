@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type CSSProperties, type Ref, type UIEvent } from "react";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { Annotation, Compartment, EditorSelection, EditorState, Transaction, type Extension, type Range } from "@codemirror/state";
-import { Decoration, EditorView } from "@codemirror/view";
+import { Annotation, Compartment, EditorSelection, EditorState, Prec, Transaction, type Extension, type Range } from "@codemirror/state";
+import { Decoration, EditorView, keymap } from "@codemirror/view";
 import { minimalSetup } from "codemirror";
 import { parseMarkdownCalloutMarker, t, type AppLanguage, type SearchRange } from "@markra/shared";
 import {
@@ -29,6 +29,8 @@ export type MarkdownSourceEditorProps = {
   onContentWidthResizeEnd?: () => unknown;
   onContentWidthResizeStart?: () => unknown;
   onScroll?: (event: UIEvent<HTMLElement>) => unknown;
+  onRedo?: () => unknown;
+  onUndo?: () => unknown;
   readOnly?: boolean;
   searchActiveIndex?: number;
   searchMatches?: SearchRange[];
@@ -51,6 +53,39 @@ function markdownSourceContentAttributes(label: string, readOnly: boolean): Exte
     role: "textbox",
     spellcheck: "false"
   });
+}
+
+function markdownSourceSharedHistoryExtension(
+  onUndoRef: { current?: () => unknown },
+  onRedoRef: { current?: () => unknown }
+): Extension {
+  const runRedo = () => {
+    if (!onRedoRef.current) return false;
+
+    onRedoRef.current();
+    return true;
+  };
+
+  return Prec.highest(keymap.of([
+    {
+      key: "Mod-z",
+      run() {
+        if (!onUndoRef.current) return false;
+
+        onUndoRef.current();
+        return true;
+      }
+    },
+    {
+      key: "Ctrl-Shift-z",
+      run: runRedo
+    },
+    {
+      key: "Mod-y",
+      mac: "Mod-Shift-z",
+      run: runRedo
+    }
+  ]));
 }
 
 function clampSearchRange(match: SearchRange, documentLength: number) {
@@ -266,6 +301,8 @@ export function MarkdownSourceEditor({
   onContentWidthResizeEnd,
   onContentWidthResizeStart,
   onScroll,
+  onRedo,
+  onUndo,
   readOnly = false,
   searchActiveIndex = -1,
   searchMatches = [],
@@ -275,6 +312,8 @@ export function MarkdownSourceEditor({
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
   const initialContentRef = useRef(content);
   const onChangeRef = useRef(onChange);
+  const onRedoRef = useRef(onRedo);
+  const onUndoRef = useRef(onUndo);
   const viewRef = useRef<EditorView | null>(null);
   const contentAttributesCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
@@ -299,9 +338,18 @@ export function MarkdownSourceEditor({
     onChangeRef.current = onChange;
   }, [onChange]);
 
+  useEffect(() => {
+    onRedoRef.current = onRedo;
+  }, [onRedo]);
+
+  useEffect(() => {
+    onUndoRef.current = onUndo;
+  }, [onUndo]);
+
   const extensions = useMemo(
     () => [
       minimalSetup,
+      markdownSourceSharedHistoryExtension(onUndoRef, onRedoRef),
       markdown({
         base: markdownLanguage,
         codeLanguages: []

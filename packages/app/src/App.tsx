@@ -447,6 +447,7 @@ function WorkspaceApp() {
   const pendingEditorContentWidthPxRef = useRef<number | null>(null);
   const pendingSplitVisualPanePercentRef = useRef(defaultSplitVisualPanePercent);
   const pendingSideDocumentMainPanePercentRef = useRef(defaultSideDocumentMainPanePercent);
+  const sourceToVisualHistoryRef = useRef(false);
   const sourceToVisualSyncingRef = useRef(false);
   const lastDocumentSearchRevealRevisionRef = useRef(0);
   const documentRevisionRef = useRef(0);
@@ -2544,9 +2545,15 @@ function WorkspaceApp() {
   const handleSourceMarkdownChange = useCallback((content: string, options?: { documentRevision?: number }) => {
     if (readOnlyMode) return;
 
+    if (
+      content !== document.content &&
+      (options?.documentRevision === undefined || options.documentRevision === document.revision)
+    ) {
+      sourceToVisualHistoryRef.current = true;
+    }
     if (splitMode) setActiveEditorSurface("source");
     handleMarkdownChange(content, options);
-  }, [handleMarkdownChange, readOnlyMode, splitMode]);
+  }, [document.content, document.revision, handleMarkdownChange, readOnlyMode, splitMode]);
   const syncSplitPaneScrollPosition = useCallback((sourceSurface: EditorSurface, sourceElement: HTMLElement) => {
     if (!splitMode) return false;
 
@@ -2640,10 +2647,11 @@ function WorkspaceApp() {
     syncVisualMarkdownAfterEditorCommand();
   }, [insertEditorMarkdownTable, readOnlyMode, syncVisualMarkdownAfterEditorCommand]);
   const handleRunEditorShortcut = useCallback((...args: Parameters<typeof runEditorShortcut>) => {
-    if (readOnlyMode) return;
+    if (readOnlyMode) return false;
 
-    runEditorShortcut(...args);
+    const handled = runEditorShortcut(...args);
     syncVisualMarkdownAfterEditorCommand();
+    return handled;
   }, [readOnlyMode, runEditorShortcut, syncVisualMarkdownAfterEditorCommand]);
   const handleAiSelectionToolbarFormattingAction = useCallback((action: SelectionFormattingToolbarAction) => {
     if (readOnlyMode) return;
@@ -3101,16 +3109,25 @@ function WorkspaceApp() {
     visualEditorReadySequence
   ]);
   useEffect(() => {
-    if (!splitMode || activeEditorSurface !== "source") return;
+    if (!sourceSurfaceActive || largeMarkdownVisualBlocked) {
+      sourceToVisualHistoryRef.current = false;
+      return;
+    }
 
     sourceToVisualSyncingRef.current = true;
-    replaceEditorMarkdown(document.content);
-    sourceToVisualSyncingRef.current = false;
+    try {
+      const synced = replaceEditorMarkdown(document.content, {
+        addToHistory: sourceToVisualHistoryRef.current
+      });
+      if (synced) sourceToVisualHistoryRef.current = false;
+    } finally {
+      sourceToVisualSyncingRef.current = false;
+    }
   }, [
-    activeEditorSurface,
     document.content,
+    largeMarkdownVisualBlocked,
     replaceEditorMarkdown,
-    splitMode,
+    sourceSurfaceActive,
     visualEditorReadySequence
   ]);
   const aiAgentContext = useMemo(() => ({
@@ -3711,7 +3728,17 @@ function WorkspaceApp() {
                           })}
                           onContentWidthChange={handleEditorContentWidthChange}
                           onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
+                          onRedo={
+                            largeMarkdownVisualBlocked
+                              ? undefined
+                              : () => handleRunEditorShortcut("z", { shiftKey: true }, { focusEditor: false })
+                          }
                           onScroll={handleSourcePaneScroll}
+                          onUndo={
+                            largeMarkdownVisualBlocked
+                              ? undefined
+                              : () => handleRunEditorShortcut("z", {}, { focusEditor: false })
+                          }
                           readOnly={readOnlyMode}
                           searchActiveIndex={normalizedDocumentSearchActiveIndex}
                           searchMatches={visibleSourceDocumentSearchMatches}
@@ -3720,69 +3747,90 @@ function WorkspaceApp() {
                         />
                       </div>
                     </div>
-                  ) : sourceMode ? (
-                    <LazyMarkdownSourceEditor
-                      autoFocus
-                      bodyFontSize={editorPreferences.preferences.bodyFontSize}
-                      content={document.content}
-                      contentWidth={activeEditorContentWidth}
-                      contentWidthPx={activeEditorContentWidthPx}
-                      extendedSyntax={editorPreferences.preferences.extendedSyntax}
-                      language={appLanguage.language}
-                      lineHeight={editorPreferences.preferences.lineHeight}
-                      onChange={(content) => handleSourceMarkdownChange(content, {
-                        documentRevision: document.revision
-                      })}
-                      onContentWidthChange={handleEditorContentWidthChange}
-                      onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
-                      onScroll={handleSourcePaneScroll}
-                      readOnly={readOnlyMode}
-                      searchActiveIndex={normalizedDocumentSearchActiveIndex}
-                      searchMatches={visibleSourceDocumentSearchMatches}
-                      scrollRef={sourceScrollRef}
-                      topInset="titlebar"
-                    />
                   ) : (
-                    largeMarkdownVisualBlocked ? (
-                      <LargeMarkdownNotice
-                        language={appLanguage.language}
-                        onOpenSourceMode={handleEditorModeToggle}
-                      />
-                    ) : (
-                      <MarkdownPaper
-                        autoFocus={shouldFocusEditorOnReady(document.content)}
-                        bottomOverlayInset={aiCommandVisible ? aiCommandOverlayInset : 0}
-                        bodyFontSize={editorPreferences.preferences.bodyFontSize}
-                        contentWidth={activeEditorContentWidth}
-                        contentWidthPx={activeEditorContentWidthPx}
-                        documentKey={activeTabId}
-                        documentPath={document.path}
-                        editorTheme={appTheme.editorTheme}
-                        extendedSyntax={editorPreferences.preferences.extendedSyntax}
-                        initialContent={document.content}
-                        language={appLanguage.language}
-                        lineHeight={editorPreferences.preferences.lineHeight}
-                        markdownShortcuts={editorPreferences.preferences.markdownShortcuts}
-                        onEditorReady={handleVisualEditorReady}
-                        onMarkdownChange={(content) => handleVisualMarkdownChange(content, {
-                          documentRevision: document.revision
-                        })}
-                        onContentWidthChange={handleEditorContentWidthChange}
-                        onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
-                        onSaveClipboardImage={handleSaveClipboardImage}
-                        onSaveRemoteClipboardImage={handleSaveRemoteClipboardImage}
-                        openExternalUrl={handleOpenEditorLink}
-                        readOnly={readOnlyMode}
-                        onTextSelectionChange={handleTextSelectionChange}
-                        resolveImageSrc={resolveImageSrc}
-                        revision={document.revision}
-                        onScroll={handleVisualPaneScroll}
-                        scrollRef={visualScrollRef}
-                        topInset="titlebar"
-                        workspaceFiles={fileTreeFiles}
-                        wrapCodeBlocks={editorPreferences.preferences.wrapCodeBlocks}
-                      />
-                    )
+                    <div className="relative h-full min-h-0">
+                      {largeMarkdownVisualBlocked ? (
+                        sourceMode ? null : (
+                          <LargeMarkdownNotice
+                            language={appLanguage.language}
+                            onOpenSourceMode={handleEditorModeToggle}
+                          />
+                        )
+                      ) : (
+                        <div
+                          aria-hidden={sourceMode ? "true" : undefined}
+                          className="h-full min-h-0"
+                          hidden={sourceMode}
+                        >
+                          <MarkdownPaper
+                            autoFocus={!sourceMode && shouldFocusEditorOnReady(document.content)}
+                            bottomOverlayInset={!sourceMode && aiCommandVisible ? aiCommandOverlayInset : 0}
+                            bodyFontSize={editorPreferences.preferences.bodyFontSize}
+                            contentWidth={activeEditorContentWidth}
+                            contentWidthPx={activeEditorContentWidthPx}
+                            documentKey={activeTabId}
+                            documentPath={document.path}
+                            editorTheme={appTheme.editorTheme}
+                            extendedSyntax={editorPreferences.preferences.extendedSyntax}
+                            initialContent={document.content}
+                            language={appLanguage.language}
+                            lineHeight={editorPreferences.preferences.lineHeight}
+                            markdownShortcuts={editorPreferences.preferences.markdownShortcuts}
+                            onEditorReady={handleVisualEditorReady}
+                            onMarkdownChange={(content) => handleVisualMarkdownChange(content, {
+                              documentRevision: document.revision
+                            })}
+                            onContentWidthChange={handleEditorContentWidthChange}
+                            onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
+                            onSaveClipboardImage={handleSaveClipboardImage}
+                            onSaveRemoteClipboardImage={handleSaveRemoteClipboardImage}
+                            openExternalUrl={handleOpenEditorLink}
+                            readOnly={readOnlyMode}
+                            onTextSelectionChange={handleTextSelectionChange}
+                            resolveImageSrc={resolveImageSrc}
+                            revision={document.revision}
+                            onScroll={handleVisualPaneScroll}
+                            scrollRef={visualScrollRef}
+                            topInset="titlebar"
+                            workspaceFiles={fileTreeFiles}
+                            wrapCodeBlocks={editorPreferences.preferences.wrapCodeBlocks}
+                          />
+                        </div>
+                      )}
+                      {sourceMode ? (
+                        <LazyMarkdownSourceEditor
+                          autoFocus
+                          bodyFontSize={editorPreferences.preferences.bodyFontSize}
+                          content={document.content}
+                          contentWidth={activeEditorContentWidth}
+                          contentWidthPx={activeEditorContentWidthPx}
+                          extendedSyntax={editorPreferences.preferences.extendedSyntax}
+                          language={appLanguage.language}
+                          lineHeight={editorPreferences.preferences.lineHeight}
+                          onChange={(content) => handleSourceMarkdownChange(content, {
+                            documentRevision: document.revision
+                          })}
+                          onContentWidthChange={handleEditorContentWidthChange}
+                          onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
+                          onRedo={
+                            largeMarkdownVisualBlocked
+                              ? undefined
+                              : () => handleRunEditorShortcut("z", { shiftKey: true }, { focusEditor: false })
+                          }
+                          onScroll={handleSourcePaneScroll}
+                          onUndo={
+                            largeMarkdownVisualBlocked
+                              ? undefined
+                              : () => handleRunEditorShortcut("z", {}, { focusEditor: false })
+                          }
+                          readOnly={readOnlyMode}
+                          searchActiveIndex={normalizedDocumentSearchActiveIndex}
+                          searchMatches={visibleSourceDocumentSearchMatches}
+                          scrollRef={sourceScrollRef}
+                          topInset="titlebar"
+                        />
+                      ) : null}
+                    </div>
                   )}
                   <QuietStatus
                     backupLabel={backupStatusLabel}

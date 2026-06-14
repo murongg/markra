@@ -1679,7 +1679,10 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
 
-    const sourceEditor = await screen.findByLabelText("Markdown editor");
+    const sourceEditor = (await screen.findByTestId("markdown-source-editor")).closest<HTMLElement>(
+      '[data-editor-engine="source"]'
+    );
+    expect(sourceEditor).toBeInTheDocument();
     expect(sourceEditor).toHaveAttribute("data-editor-engine", "source");
     expect(sourceEditor).toHaveStyle({
       maxWidth: "980px"
@@ -3974,9 +3977,73 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
 
-    expect(await screen.findByText("Source edit")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Source edit" })).toBeInTheDocument();
     expect(screen.getByText("Updated from source mode.")).toBeInTheDocument();
     expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-engine", "milkdown");
+  });
+
+  it("keeps visual undo history after switching to source mode and back", async () => {
+    const { container } = renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+    await waitFor(() => expect(mockedInstallNativeApplicationMenu).toHaveBeenCalledTimes(1));
+    const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls[0]?.[0] as NativeMenuHandlers;
+
+    act(() => {
+      menuHandlers.insertTable?.();
+    });
+
+    await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+    await waitFor(() => expect(readMarkdownSource(sourceEditor)).toContain("| - | - |"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
+
+    act(() => {
+      menuHandlers.editUndo?.();
+    });
+    await waitFor(() => expect(container.querySelector(".ProseMirror table")).not.toBeInTheDocument());
+
+    act(() => {
+      menuHandlers.editRedo?.();
+    });
+    await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
+  });
+
+  it("keeps source edits undoable after switching back to visual mode", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+    await waitFor(() => expect(mockedInstallNativeApplicationMenu).toHaveBeenCalledTimes(1));
+    const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls[0]?.[0] as NativeMenuHandlers;
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    replaceMarkdownSource(
+      await screen.findByRole("textbox", { name: "Markdown source" }),
+      "# Source history\n\nShared undo."
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    expect(await screen.findByRole("heading", { name: "Source history" })).toBeInTheDocument();
+    expect(screen.getByText("Shared undo.")).toBeInTheDocument();
+
+    act(() => {
+      menuHandlers.editUndo?.();
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Source history" })).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole("heading", { name: "Welcome to Markra" })).toBeInTheDocument();
+
+    act(() => {
+      menuHandlers.editRedo?.();
+    });
+    expect(await screen.findByRole("heading", { name: "Source history" })).toBeInTheDocument();
+    expect(screen.getByText("Shared undo.")).toBeInTheDocument();
   });
 
   it("keeps callout body line breaks when switching from source to visual mode", async () => {

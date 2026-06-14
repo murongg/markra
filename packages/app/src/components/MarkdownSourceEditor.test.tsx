@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { redo, undo } from "@codemirror/commands";
 import { EditorView } from "@codemirror/view";
 import { MarkdownSourceEditor } from "./MarkdownSourceEditor";
@@ -110,6 +110,26 @@ describe("MarkdownSourceEditor", () => {
     });
     expect(view.state.doc.toString()).toBe("# Changed");
     expect(handleChange).toHaveBeenLastCalledWith("# Changed");
+  });
+
+  it("routes undo and redo shortcuts to shared history handlers when provided", () => {
+    const handleRedo = vi.fn();
+    const handleUndo = vi.fn();
+    const { container } = render(
+      <MarkdownSourceEditor
+        content="# Shared history"
+        onChange={() => {}}
+        onRedo={handleRedo}
+        onUndo={handleUndo}
+      />
+    );
+    const view = getMarkdownSourceView(container);
+
+    fireEvent.keyDown(view.contentDOM, { ctrlKey: true, key: "z" });
+    expect(handleUndo).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(view.contentDOM, { ctrlKey: true, key: "y" });
+    expect(handleRedo).toHaveBeenCalledTimes(1);
   });
 
   it("highlights GitHub-style alert markers in CodeMirror source mode", async () => {
