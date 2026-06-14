@@ -6840,6 +6840,36 @@ describe("MarkdownPaper editing", () => {
       label: "ordered list",
       source: "1. First\n2. Second",
       terminalType: "ordered_list"
+    },
+    {
+      label: "heading",
+      source: "## Terminal heading",
+      terminalType: "heading"
+    },
+    {
+      label: "code block",
+      source: ["```ts", "const value = 1;", "```"].join("\n"),
+      terminalType: "code_block"
+    },
+    {
+      label: "Mermaid code block",
+      source: ["```mermaid", "flowchart TD", "  A --> B", "```"].join("\n"),
+      terminalType: "code_block"
+    },
+    {
+      label: "horizontal rule",
+      source: "___",
+      terminalType: "hr"
+    },
+    {
+      label: "image",
+      source: "![Screenshot](assets/example-image.png)",
+      terminalType: "image"
+    },
+    {
+      label: "frontmatter",
+      source: ["---", "title: Synthetic draft", "---"].join("\n"),
+      terminalType: "frontmatter"
     }
   ])("creates a trailing paragraph after clicking past a terminal $label", async ({ source, terminalType }) => {
     const { container, editor, view } = await renderEditor(source);
@@ -6865,6 +6895,23 @@ describe("MarkdownPaper editing", () => {
     expect(view.state.doc.child(view.state.doc.childCount - 1).type.name).toBe("paragraph");
     expect(view.state.doc.child(view.state.doc.childCount - 1).textContent).toBe("After terminal block");
     expect(serializeMarkdown(view.state.doc)).toContain("After terminal block");
+  });
+
+  it.each([
+    { label: "level 1 heading", source: "# Terminal heading" },
+    { label: "level 2 heading", source: "## Terminal heading" }
+  ])("creates a trailing paragraph after clicking editor blank space below a terminal $label", async ({ source }) => {
+    const { editor, view } = await renderEditor(source);
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    fireEvent.mouseDown(view.dom, { button: 0 });
+
+    await waitFor(() => expect(view.state.doc.child(view.state.doc.childCount - 1).type.name).toBe("paragraph"));
+    expect(view.state.doc.child(view.state.doc.childCount - 1).content.size).toBe(0);
+
+    typeText(view, "After heading");
+
+    expect(serializeMarkdown(view.state.doc)).toContain("After heading");
   });
 
   it("renders GitHub-style alert blockquotes as callouts while preserving Markdown source", async () => {

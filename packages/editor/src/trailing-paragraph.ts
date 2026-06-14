@@ -6,19 +6,34 @@ import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 
 const trailingParagraphKey = new PluginKey("markraTrailingParagraph");
+const terminalAffordanceTextblockNodeNames = new Set([
+  "code_block",
+  "frontmatter",
+  "heading"
+]);
+const terminalAffordanceAtomNodeNames = new Set([
+  "hr",
+  "html",
+  "image"
+]);
 
 function needsTrailingParagraphAffordance(doc: ProseNode, paragraph: NodeType) {
   const lastNode = doc.lastChild;
   if (!lastNode) return false;
   if (lastNode.type === paragraph) return false;
-  if (lastNode.isTextblock || lastNode.isAtom) return false;
+  if (lastNode.isTextblock && !terminalAffordanceTextblockNodeNames.has(lastNode.type.name)) return false;
+  if (lastNode.isAtom && !terminalAffordanceAtomNodeNames.has(lastNode.type.name)) return false;
 
   return doc.canReplaceWith(doc.childCount, doc.childCount, paragraph);
 }
 
+function isPlainLeftMouseDown(event: MouseEvent) {
+  return event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+}
+
 function insertTrailingParagraph(view: EditorView, paragraph: NodeType) {
-  if (!view.editable) return;
-  if (!needsTrailingParagraphAffordance(view.state.doc, paragraph)) return;
+  if (!view.editable) return false;
+  if (!needsTrailingParagraphAffordance(view.state.doc, paragraph)) return false;
 
   const insertAt = view.state.doc.content.size;
   const transaction = view.state.tr.insert(insertAt, paragraph.create());
@@ -28,6 +43,7 @@ function insertTrailingParagraph(view: EditorView, paragraph: NodeType) {
       .scrollIntoView()
   );
   view.focus();
+  return true;
 }
 
 function createTrailingParagraphWidget(view: EditorView, paragraph: NodeType) {
@@ -56,6 +72,16 @@ export function createTrailingParagraphPlugin(paragraph: NodeType) {
   return new Plugin({
     key: trailingParagraphKey,
     props: {
+      handleDOMEvents: {
+        mousedown(view, event) {
+          if (event.target !== view.dom || !isPlainLeftMouseDown(event)) return false;
+          if (!insertTrailingParagraph(view, paragraph)) return false;
+
+          event.preventDefault();
+          event.stopPropagation();
+          return true;
+        }
+      },
       decorations(state) {
         if (!needsTrailingParagraphAffordance(state.doc, paragraph)) return DecorationSet.empty;
 
