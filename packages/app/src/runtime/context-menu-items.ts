@@ -14,6 +14,7 @@ import {
   type ContextMenuEntry
 } from "../components/ContextMenu";
 import type {
+  NativeEditorContextMenuEntryOptions,
   NativeEditorContextMenuOptions,
   NativeMarkdownFileTreeContextMenuHandlers,
   NativeMenuCommand,
@@ -22,6 +23,8 @@ import type {
 import type { NativeMarkdownFolderFile } from "../lib/tauri/file";
 
 type BrowserEditCommand = "copy" | "cut" | "paste" | "selectAll";
+
+type EditorContextMenuEntryOptions = NativeEditorContextMenuEntryOptions;
 
 export type ContextMenuIdPrefixes = {
   editor: string;
@@ -104,13 +107,22 @@ function runDocumentEditCommand(
   }
 }
 
-async function pasteClipboardText(documentTarget: Document) {
+async function readBrowserClipboardText(documentTarget: Document) {
   const clipboard = documentTarget.defaultView?.navigator.clipboard;
   const readText = clipboard?.readText;
-  if (typeof readText !== "function") return false;
+  if (typeof readText !== "function") return null;
+
+  return readText.call(clipboard);
+}
+
+async function pasteClipboardText(
+  documentTarget: Document,
+  readClipboardText?: NativeEditorContextMenuOptions["readClipboardText"]
+) {
+  const readText = readClipboardText ?? (() => readBrowserClipboardText(documentTarget));
 
   try {
-    const text = await readText.call(clipboard);
+    const text = await readText();
     if (!text) return false;
 
     return runDocumentEditCommand(documentTarget, "insertText", false, text);
@@ -119,18 +131,24 @@ async function pasteClipboardText(documentTarget: Document) {
   }
 }
 
-function runBrowserEditCommand(command: BrowserEditCommand) {
+function runBrowserEditCommand(command: BrowserEditCommand, options: Pick<EditorContextMenuEntryOptions, "readClipboardText"> = {}) {
   const documentTarget = typeof document === "undefined" ? null : document;
   if (!documentTarget) return false;
 
   const handled = runDocumentEditCommand(documentTarget, command);
   if (handled || command !== "paste") return handled;
 
-  return pasteClipboardText(documentTarget);
+  return pasteClipboardText(documentTarget, options.readClipboardText);
 }
 
-function browserItem(id: string, label: string, accelerator: string, command: BrowserEditCommand) {
-  return contextMenuItem(id, label, accelerator, () => runBrowserEditCommand(command), false);
+function browserItem(
+  id: string,
+  label: string,
+  accelerator: string,
+  command: BrowserEditCommand,
+  options: Pick<EditorContextMenuEntryOptions, "readClipboardText"> = {}
+) {
+  return contextMenuItem(id, label, accelerator, () => runBrowserEditCommand(command, options), false);
 }
 
 function readAiCommandsAvailable(options: NativeEditorContextMenuOptions) {
@@ -144,7 +162,7 @@ function readAiCommandsAvailable(options: NativeEditorContextMenuOptions) {
 export function createEditorContextMenuEntries(
   handlers: NativeMenuHandlers,
   language: AppLanguage = "en",
-  options: { aiCommandsAvailable?: boolean; markdownShortcuts?: MarkdownShortcutMap } = {},
+  options: EditorContextMenuEntryOptions = {},
   idPrefixes: Partial<ContextMenuIdPrefixes> = {}
 ): ContextMenuEntry[] {
   const prefixes = {
@@ -187,10 +205,10 @@ export function createEditorContextMenuEntries(
     contextMenuItem(editorId("export-latex"), label("menu.exportLatex"), undefined, handlers.exportLatex)
   ]);
   const entries: ContextMenuEntry[] = [
-    browserItem(editorId("cut"), label("menu.cut"), "CmdOrCtrl+X", "cut"),
-    browserItem(editorId("copy"), label("menu.copy"), "CmdOrCtrl+C", "copy"),
-    browserItem(editorId("paste"), label("menu.paste"), "CmdOrCtrl+V", "paste"),
-    browserItem(editorId("select-all"), label("menu.selectAll"), "CmdOrCtrl+A", "selectAll"),
+    browserItem(editorId("cut"), label("menu.cut"), "CmdOrCtrl+X", "cut", options),
+    browserItem(editorId("copy"), label("menu.copy"), "CmdOrCtrl+C", "copy", options),
+    browserItem(editorId("paste"), label("menu.paste"), "CmdOrCtrl+V", "paste", options),
+    browserItem(editorId("select-all"), label("menu.selectAll"), "CmdOrCtrl+A", "selectAll", options),
     contextMenuSeparator(),
     contextMenuSubmenu(editorId("format"), label("menu.format"), formatItems),
     contextMenuSeparator(),
@@ -230,7 +248,8 @@ export function createEditorContextMenuEntriesFromOptions(
     language,
     {
       aiCommandsAvailable: readAiCommandsAvailable(options),
-      markdownShortcuts: options.markdownShortcuts
+      markdownShortcuts: options.markdownShortcuts,
+      readClipboardText: options.readClipboardText
     },
     idPrefixes
   );
