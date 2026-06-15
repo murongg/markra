@@ -84,14 +84,49 @@ export function nativeAcceleratorsForMarkdownShortcuts(shortcuts: MarkdownShortc
   return accelerators;
 }
 
+function runDocumentEditCommand(
+  documentTarget: Document,
+  command: string,
+  showDefaultUI?: boolean,
+  value?: string
+) {
+  const execCommand = (documentTarget as unknown as Record<string, unknown>)["execCommand"];
+  if (typeof execCommand !== "function") return false;
+
+  try {
+    if (showDefaultUI === undefined && value === undefined) {
+      return Boolean(execCommand.call(documentTarget, command));
+    }
+
+    return Boolean(execCommand.call(documentTarget, command, showDefaultUI, value));
+  } catch {
+    return false;
+  }
+}
+
+async function pasteClipboardText(documentTarget: Document) {
+  const clipboard = documentTarget.defaultView?.navigator.clipboard;
+  const readText = clipboard?.readText;
+  if (typeof readText !== "function") return false;
+
+  try {
+    const text = await readText.call(clipboard);
+    if (!text) return false;
+
+    return runDocumentEditCommand(documentTarget, "insertText", false, text);
+  } catch {
+    return false;
+  }
+}
+
 function runBrowserEditCommand(command: BrowserEditCommand) {
   const documentTarget = typeof document === "undefined" ? null : document;
-  const execCommand = documentTarget
-    ? (documentTarget as unknown as Record<string, unknown>)["execCommand"]
-    : null;
-  if (typeof execCommand === "function") {
-    execCommand.call(documentTarget, command);
-  }
+  if (!documentTarget) return false;
+
+  const handled = runDocumentEditCommand(documentTarget, command);
+  if (handled || command !== "paste") return handled;
+
+  return pasteClipboardText(documentTarget);
 }
 
 function browserItem(id: string, label: string, accelerator: string, command: BrowserEditCommand) {
