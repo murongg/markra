@@ -72,6 +72,7 @@ export type MarkdownPaperSurfaceProps = {
   extendedSyntax?: ExtendedSyntaxPreferences;
   markdownShortcuts?: MarkdownShortcutMap;
   onEditorReady: (editor: Editor | null, options?: { autoFocus?: boolean }) => unknown;
+  onActiveOutlineIndexChange?: (index: number | null) => unknown;
   onMarkdownChange: (content: string) => unknown;
   onSaveClipboardImage?: SaveClipboardImage;
   onSaveRemoteClipboardImage?: SaveRemoteClipboardImage;
@@ -148,6 +149,7 @@ function MilkdownEditorSurface({
   language,
   markdownShortcuts,
   onEditorReady,
+  onActiveOutlineIndexChange,
   onMarkdownChange,
   onSaveClipboardImage,
   onSaveRemoteClipboardImage,
@@ -160,6 +162,7 @@ function MilkdownEditorSurface({
   const initialContentRef = useRef(initialContent);
   const documentPathRef = useRef(documentPath);
   const onMarkdownChangeRef = useRef(onMarkdownChange);
+  const onActiveOutlineIndexChangeRef = useRef(onActiveOutlineIndexChange);
   const openExternalUrlRef = useRef(openExternalUrl);
   const onSaveClipboardImageRef = useRef(onSaveClipboardImage);
   const onSaveRemoteClipboardImageRef = useRef(onSaveRemoteClipboardImage);
@@ -230,6 +233,10 @@ function MilkdownEditorSurface({
   useEffect(() => {
     onMarkdownChangeRef.current = onMarkdownChange;
   }, [onMarkdownChange]);
+
+  useEffect(() => {
+    onActiveOutlineIndexChangeRef.current = onActiveOutlineIndexChange;
+  }, [onActiveOutlineIndexChange]);
 
   useEffect(() => {
     openExternalUrlRef.current = openExternalUrl;
@@ -339,9 +346,16 @@ function MilkdownEditorSurface({
           })
         )
         .use(
-          markraTextSelectionObserverPlugin((selection) => {
-            onTextSelectionChangeRef.current?.(selection);
-          })
+          markraTextSelectionObserverPlugin(
+            (selection) => {
+              onTextSelectionChangeRef.current?.(selection);
+            },
+            {
+              onActiveOutlineIndexChange: (index) => {
+                onActiveOutlineIndexChangeRef.current?.(index);
+              }
+            }
+          )
         )
         .use(markraTableControlsPlugin(tableControlLabels))
         .use(markraTrailingParagraphPlugin)

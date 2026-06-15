@@ -948,84 +948,16 @@
     user-select: none;
   }
 
-  .markdown-source-highlight code {
-    font-family: inherit;
-  }
-
-  .markdown-source-input {
-    -webkit-text-fill-color: transparent;
-    caret-color: var(--accent);
-    cursor: var(--editor-text-cursor);
-  }
-
-  .markdown-source-input::selection {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
-    -webkit-text-fill-color: transparent;
-  }
-
-  .markra-source-search-transparent {
-    color: transparent;
-  }
-
   .markra-cm-source-search-match,
-  .markra-source-search-match,
   .markra-search-match {
     border-radius: 2px;
     background: color-mix(in srgb, var(--accent) 16%, transparent);
   }
 
-  .markra-source-search-match {
-    color: transparent;
-  }
-
   .markra-cm-source-search-match-current,
-  .markra-source-search-match-current,
   .markra-search-match-current {
     background: color-mix(in srgb, var(--accent) 30%, transparent);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
-  }
-
-  .markdown-source-token-muted {
-    color: color-mix(in srgb, var(--text-secondary) 62%, transparent);
-  }
-
-  .markdown-source-token-heading-marker,
-  .markdown-source-token-list-marker,
-  .markdown-source-token-quote-marker {
-    color: var(--text-md-char);
-    font-weight: 720;
-  }
-
-  .markdown-source-token-heading {
-    color: var(--text-heading);
-    font-weight: 680;
-  }
-
-  .markdown-source-token-code-fence,
-  .markdown-source-token-code-info,
-  .markdown-source-token-inline-code {
-    color: oklch(45% 0.15 258);
-  }
-
-  .markdown-source-token-code {
-    color: oklch(43% 0.13 151);
-  }
-
-  .markdown-source-token-callout {
-    color: color-mix(in srgb, var(--accent-hover) 82%, var(--text-primary));
-    font-weight: 700;
-  }
-
-  .markdown-source-token-link {
-    color: var(--link-color);
-  }
-
-  .markdown-source-token-emphasis {
-    color: oklch(42% 0.14 29);
-  }
-
-  .markdown-source-token-rule {
-    color: var(--text-md-char);
   }
 
   .markdown-paper {

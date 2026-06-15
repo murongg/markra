@@ -785,18 +785,19 @@ describe("MarkdownPaper editing", () => {
     expect(container.querySelector(".paper-scroll")).toHaveClass("h-full", "min-h-0", "overflow-auto");
   });
 
-  it("keeps enough bottom space for outline jumps near the end of a document", async () => {
+  it("does not add base bottom padding to the visual editor paper", async () => {
     const { container } = await renderEditor("# Synthetic heading");
     const paper = container.querySelector(".markdown-paper");
 
-    expect(paper?.getAttribute("style")).toContain("padding-bottom: calc(100vh - 4rem)");
+    expect(paper).not.toHaveClass("pb-30");
+    expect(paper?.getAttribute("style")).toContain("padding-bottom: 0px");
   });
 
-  it("adds bottom overlays to the outline jump reserve", async () => {
+  it("adds only bottom overlay spacing when a floating control is visible", async () => {
     const { container } = await renderEditor("# Synthetic heading", { bottomOverlayInset: 96 });
     const paper = container.querySelector(".markdown-paper");
 
-    expect(paper?.getAttribute("style")).toContain("padding-bottom: calc(96px + calc(100vh - 4rem))");
+    expect(paper?.getAttribute("style")).toContain("padding-bottom: 96px");
   });
 
   it("marks the editor paper with the default resolved app theme", async () => {

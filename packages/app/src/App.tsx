@@ -243,6 +243,7 @@ function WorkspaceApp() {
   const [aiSelectionToolbarHeadingLevel, setAiSelectionToolbarHeadingLevel] = useState<SelectionHeadingLevel | null>(null);
   const [aiSelectionToolbarCopySucceeded, setAiSelectionToolbarCopySucceeded] = useState(false);
   const [aiContextMenuActionPending, setAiContextMenuActionPending] = useState(false);
+  const [activeOutlineIndex, setActiveOutlineIndex] = useState<number | null>(null);
   const setAiSelectionToolbarAnchorIfChanged = useCallback((nextAnchor: SelectionAnchor | null) => {
     setAiSelectionToolbarAnchor((currentAnchor) =>
       selectionAnchorsEqual(currentAnchor, nextAnchor) ? currentAnchor : nextAnchor
@@ -401,6 +402,9 @@ function WorkspaceApp() {
       visualEditorReadyRevisionRef.current = null;
     }
   }, [handleMilkdownEditorReady]);
+  const handleActiveOutlineIndexChange = useCallback((index: number | null) => {
+    setActiveOutlineIndex((current) => current === index ? current : index);
+  }, []);
   useDefaultContextMenuBlocker();
   const fileTree = useMarkdownFileTree({
     onWorkspaceSessionChange: setAiAgentSessionId
@@ -503,6 +507,13 @@ function WorkspaceApp() {
     wordCount
   } = markdownDocument;
   documentRevisionRef.current = document.revision;
+  const activeDocumentOutlineIndex =
+    !sourceSurfaceActive &&
+    activeOutlineIndex !== null &&
+    activeOutlineIndex >= 0 &&
+    activeOutlineIndex < outlineItems.length
+      ? activeOutlineIndex
+      : null;
   visualEditorReadyDetailRef.current = {
     chars: document.content.length,
     path: document.path,
@@ -534,6 +545,9 @@ function WorkspaceApp() {
 
     handleVisualEditorReady(activeEditor, { autoFocus: false });
   }, [activeTabId, handleVisualEditorReady]);
+  useEffect(() => {
+    setActiveOutlineIndex(null);
+  }, [activeTabId, document.path]);
   const workspaceKey = document.path ?? fileTree.sourcePath ?? null;
   setWorkspaceBackupSyncSourcePath(fileTreeSourcePath ?? document.path);
   const workspaceSearch = useWorkspaceSearch({
@@ -597,13 +611,15 @@ function WorkspaceApp() {
     documentSearchOpen && documentSearchSurface === "source" ? sourceDocumentSearchMatches : [];
   const {
     isApplyingSourceToVisualSync,
-    markSourceEditForHistory
+    markSourceEditForHistory,
+    syncSourceEditsToVisualHistory
   } = useSharedEditorHistory({
     documentContent: document.content,
     documentRevision: document.revision,
     largeMarkdownVisualBlocked,
     replaceEditorMarkdown,
     sourceSurfaceActive,
+    syncSourceToVisual: splitMode && activeEditorSurface === "source",
     visualEditorReadySequence
   });
   const activeAiAgentSessionId = workspaceSessionId ?? aiAgentSessionId;
@@ -2145,11 +2161,12 @@ function WorkspaceApp() {
   }, []);
   const handleVisualMarkdownChange = useCallback((content: string, options?: { documentRevision?: number }) => {
     if (isApplyingSourceToVisualSync()) return;
+    if (sourceSurfaceActive) return;
     if (readOnlyMode) return;
 
     if (splitMode) setActiveEditorSurface("visual");
     handleMarkdownChange(content, options);
-  }, [handleMarkdownChange, isApplyingSourceToVisualSync, readOnlyMode, splitMode]);
+  }, [handleMarkdownChange, isApplyingSourceToVisualSync, readOnlyMode, sourceSurfaceActive, splitMode]);
   const handleSourceMarkdownChange = useCallback((content: string, options?: { documentRevision?: number }) => {
     if (readOnlyMode) return;
 
@@ -2256,14 +2273,6 @@ function WorkspaceApp() {
     syncVisualMarkdownAfterEditorCommand();
     return handled;
   }, [readOnlyMode, runEditorShortcut, syncVisualMarkdownAfterEditorCommand]);
-  const sourceEditorHistoryHandlers = useMemo(() => {
-    if (largeMarkdownVisualBlocked) return {};
-
-    return {
-      onRedo: () => handleRunEditorShortcut("z", { shiftKey: true }, { focusEditor: false }),
-      onUndo: () => handleRunEditorShortcut("z", {}, { focusEditor: false })
-    };
-  }, [handleRunEditorShortcut, largeMarkdownVisualBlocked]);
   const handleAiSelectionToolbarFormattingAction = useCallback((action: SelectionFormattingToolbarAction) => {
     if (readOnlyMode) return;
 
@@ -2491,6 +2500,7 @@ function WorkspaceApp() {
     captureActiveDocumentViewState();
 
     if (sourceMode) {
+      syncSourceEditsToVisualHistory();
       queueEditorModeScroll("visual");
       setEditorMode("visual");
       setActiveEditorSurface("visual");
@@ -2508,6 +2518,7 @@ function WorkspaceApp() {
     queueEditorModeScroll,
     sourceMode,
     sourceModeAvailable,
+    syncSourceEditsToVisualHistory,
     updateActiveAiSelection
   ]);
   const handleEditorSplitToggle = useCallback(() => {
@@ -3121,6 +3132,7 @@ function WorkspaceApp() {
               language={appLanguage.language}
               lineHeight={editorPreferences.preferences.lineHeight}
               markdownShortcuts={editorPreferences.preferences.markdownShortcuts}
+              onActiveOutlineIndexChange={tabActive ? handleActiveOutlineIndexChange : undefined}
               onEditorReady={(readyEditor, options) => handleMainVisualEditorReady(tab.id, readyEditor, options)}
               onMarkdownChange={(content) => {
                 const options = { documentRevision: tab.revision };
@@ -3205,6 +3217,7 @@ function WorkspaceApp() {
         <div className={workspaceLayoutClassName} style={workspaceLayoutStyle}>
           <div className="markdown-file-tree-slot min-h-0 overflow-hidden">
             <MarkdownFileTreeDrawer
+              activeOutlineIndex={activeDocumentOutlineIndex}
               currentPath={activeImageFile?.path ?? (hasOpenDocument ? document.path : null)}
               customTemplates={markdownTemplates}
               files={fileTreeFiles}
@@ -3362,7 +3375,6 @@ function WorkspaceApp() {
                           })}
                           onContentWidthChange={handleEditorContentWidthChange}
                           onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
-                          {...sourceEditorHistoryHandlers}
                           onScroll={handleSourcePaneScroll}
                           readOnly={readOnlyMode}
                           searchActiveIndex={normalizedDocumentSearchActiveIndex}
@@ -3390,7 +3402,6 @@ function WorkspaceApp() {
                           })}
                           onContentWidthChange={handleEditorContentWidthChange}
                           onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
-                          {...sourceEditorHistoryHandlers}
                           onScroll={handleSourcePaneScroll}
                           readOnly={readOnlyMode}
                           searchActiveIndex={normalizedDocumentSearchActiveIndex}

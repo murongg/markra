@@ -338,11 +338,48 @@ function editorViewIsComposing(view: EditorView) {
   return Boolean((view as EditorView & { composing?: boolean }).composing);
 }
 
+export function activeOutlineIndexFromEditorView(view: EditorView) {
+  const cursor = view.state.selection.head;
+  let outlineIndex = -1;
+  let activeOutlineIndex: number | null = null;
+
+  view.state.doc.descendants((node, position) => {
+    if (node.type.name !== "heading") return true;
+
+    if (node.textContent.trim()) {
+      outlineIndex += 1;
+      if (position <= cursor) {
+        activeOutlineIndex = outlineIndex;
+      }
+    }
+
+    return false;
+  });
+
+  return activeOutlineIndex;
+}
+
+type TextSelectionObserverOptions = {
+  onActiveOutlineIndexChange?: (index: number | null) => unknown;
+};
+
 export function markraTextSelectionObserverPlugin(
-  onTextSelectionChange: (selection: AiSelectionContext | null) => unknown
+  onTextSelectionChange: (selection: AiSelectionContext | null) => unknown,
+  options: TextSelectionObserverOptions = {}
 ) {
   return $prose(() => {
     let lastSignature = "";
+    let lastActiveOutlineIndex: number | null | undefined;
+
+    const notifyActiveOutlineIndexChange = (view: EditorView, force = false) => {
+      if (!options.onActiveOutlineIndexChange) return;
+
+      const activeOutlineIndex = activeOutlineIndexFromEditorView(view);
+      if (!force && activeOutlineIndex === lastActiveOutlineIndex) return;
+
+      lastActiveOutlineIndex = activeOutlineIndex;
+      options.onActiveOutlineIndexChange(activeOutlineIndex);
+    };
 
     const notifySelectionChange = (
       view: EditorView,
@@ -438,6 +475,8 @@ export function markraTextSelectionObserverPlugin(
       view(view) {
         const ownerDocument = view.dom.ownerDocument;
         let pointerSelectionPending = false;
+        notifyActiveOutlineIndexChange(view, true);
+
         const handleMouseDown = (event: MouseEvent) => {
           if (event.button !== 0) return;
 
@@ -467,11 +506,19 @@ export function markraTextSelectionObserverPlugin(
           destroy() {
             ownerDocument.removeEventListener("mousedown", handleMouseDown, true);
             ownerDocument.removeEventListener("mouseup", handleMouseUp, true);
+            if (lastActiveOutlineIndex !== undefined) {
+              lastActiveOutlineIndex = undefined;
+              options.onActiveOutlineIndexChange?.(null);
+            }
           },
           update(view, previousState) {
             const { selection } = view.state;
             const selectionChanged = !selection.eq(previousState.selection);
+            const documentChanged = !view.state.doc.eq(previousState.doc);
             const selectionTextMayNeedRefresh = !selectionChanged && !selection.empty && !view.state.doc.eq(previousState.doc);
+            if (selectionChanged || documentChanged) {
+              notifyActiveOutlineIndexChange(view);
+            }
             if (!selectionChanged && !selectionTextMayNeedRefresh) return;
             if (pointerSelectionPending) return;
             notifySelectionChange(view, {

@@ -1984,6 +1984,47 @@ describe("MarkdownFileTreeDrawer", () => {
     expect(selectOutlineItem).toHaveBeenCalledWith({ level: 2, title: "Details" }, 1);
   });
 
+  it("marks the active outline heading and scrolls it into view", () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView
+    });
+
+    try {
+      render(
+        <MarkdownFileTreeDrawer
+          activeOutlineIndex={1}
+          currentPath="/vault/Untitled.md"
+          files={markdownFiles}
+          open
+          outlineItems={[
+            { level: 1, title: "Intro" },
+            { level: 2, title: "Details" }
+          ]}
+          rootName="Obsidian Vault"
+          onOpenFile={() => {}}
+          onSelectOutlineItem={() => {}}
+        />
+      );
+
+      expect(screen.getByRole("button", { name: "Intro" })).not.toHaveAttribute("aria-current");
+      expect(screen.getByRole("button", { name: "Details" })).toHaveAttribute("aria-current", "location");
+      expect(screen.getByRole("button", { name: "Details" })).toHaveClass("bg-(--bg-active)", "text-(--text-heading)");
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: "auto",
+        block: "nearest",
+        inline: "nearest"
+      });
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView
+      });
+    }
+  });
+
   it("renders inline markdown formatting in outline titles", () => {
     render(
       <MarkdownFileTreeDrawer

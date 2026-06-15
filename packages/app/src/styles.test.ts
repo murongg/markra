@@ -8,16 +8,16 @@ describe("editor stylesheet", () => {
     expect(styles).toContain('@source "../../../packages/ui/src"');
   });
 
-  it("uses theme-aware custom text cursors for editor text surfaces", () => {
+  it("uses theme-aware custom text cursors for visual editor text surfaces", () => {
     const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
 
     expect(styles).toContain("--editor-text-cursor:");
     expect(styles).toContain(".markdown-paper .ProseMirror");
-    expect(styles).toContain(".markdown-source-input");
     expect(styles).toContain(".markdown-paper[data-editor-theme=\"solarized-dark\"]");
     expect(styles).toContain("cursor: var(--editor-text-cursor)");
     expect(styles).toContain("%231a1c1e");
     expect(styles).toContain("%23ffffff");
+    expect(styles).not.toContain(".markdown-source-input");
   });
 
   it("forces a grabbing cursor during document tab pointer drags", () => {
@@ -546,7 +546,6 @@ describe("editor stylesheet", () => {
     expect(styles).toContain("--link-color: #2f56c6;");
     expect(styles).toContain("--link-color: #b7c5ff;");
     expect(styles).toContain("--editor-link-color: var(--link-color);");
-    expect(styles).toContain(".markdown-source-token-link");
     expect(styles).toContain("color: var(--link-color);");
     expect(styles).toContain(".markdown-paper a[href]::after");
     expect(styles).toContain(".markdown-paper .markra-live-link-label::after");

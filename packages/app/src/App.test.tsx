@@ -4310,6 +4310,43 @@ describe("Markra workspace", () => {
     expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-engine", "milkdown");
   });
 
+  it("keeps raw source punctuation unchanged while editing in source mode", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+
+    replaceMarkdownSource(sourceEditor, "# Raw source\n\n**");
+    await settleEditorUpdates();
+
+    expect(readMarkdownSource(sourceEditor)).toBe("# Raw source\n\n**");
+  });
+
+  it("keeps source mode typing undoable and redoable before switching back to visual mode", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+    const originalSource = readMarkdownSource(sourceEditor);
+
+    replaceMarkdownSource(sourceEditor, "# Source draft\n\nUndo me.");
+    expect(readMarkdownSource(sourceEditor)).toBe("# Source draft\n\nUndo me.");
+
+    fireEvent.keyDown(sourceEditor, { ctrlKey: true, key: "z" });
+    await waitFor(() => {
+      expect(readMarkdownSource(sourceEditor)).toBe(originalSource);
+    });
+
+    fireEvent.keyDown(sourceEditor, { ctrlKey: true, key: "y" });
+    await waitFor(() => {
+      expect(readMarkdownSource(sourceEditor)).toBe("# Source draft\n\nUndo me.");
+    });
+  });
+
   it("keeps visual undo history after switching to source mode and back", async () => {
     const { container } = renderApp();
 

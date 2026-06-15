@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, type CSSProperties, type Ref, type UIEvent } from "react";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { Annotation, Compartment, EditorSelection, EditorState, Prec, Transaction, type Extension, type Range } from "@codemirror/state";
+import { Annotation, Compartment, EditorSelection, EditorState, Prec, Transaction, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap } from "@codemirror/view";
 import { minimalSetup } from "codemirror";
-import { parseMarkdownCalloutMarker, t, type AppLanguage, type SearchRange } from "@markra/shared";
+import { t, type AppLanguage, type SearchRange } from "@markra/shared";
 import {
   editorContentWidthPixels,
   editorCustomContentWidthMax,
@@ -39,10 +39,6 @@ export type MarkdownSourceEditorProps = {
 };
 
 const externalSourceUpdate = Annotation.define<boolean>();
-
-type FenceState = {
-  marker: "`" | "~" | null;
-};
 
 function markdownSourceContentAttributes(label: string, readOnly: boolean): Extension {
   return EditorView.contentAttributes.of({
@@ -112,137 +108,6 @@ function markdownSourceSearchExtension(matches: SearchRange[] = [], activeIndex 
   });
 }
 
-function addMarkdownSourceDecoration(
-  decorations: Range<Decoration>[],
-  from: number,
-  to: number,
-  className: string
-) {
-  if (to <= from) return;
-
-  decorations.push(Decoration.mark({ class: className }).range(from, to));
-}
-
-function markdownInlineTokenClassName(token: string) {
-  if (token.startsWith("`")) return "markdown-source-token-inline-code";
-  if (token.startsWith("!") || token.startsWith("[")) return "markdown-source-token-link";
-
-  return "markdown-source-token-emphasis";
-}
-
-function addMarkdownInlineSourceDecorations(decorations: Range<Decoration>[], text: string, from: number) {
-  const tokenPattern = /(!?\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+?\*\*|__[^_]+?__|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/gu;
-
-  for (const match of text.matchAll(tokenPattern)) {
-    const token = match[0];
-    const index = match.index ?? 0;
-    addMarkdownSourceDecoration(
-      decorations,
-      from + index,
-      from + index + token.length,
-      markdownInlineTokenClassName(token)
-    );
-  }
-}
-
-function markdownSourceSyntaxExtension(githubAlertsEnabled: boolean): Extension {
-  return EditorView.decorations.compute(["doc"], (state) => {
-    const decorations: Range<Decoration>[] = [];
-    const fenceState: FenceState = { marker: null };
-
-    for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
-      const line = state.doc.line(lineNumber);
-      const fenceMatch = /^(\s*)(`{3,}|~{3,})(.*)$/u.exec(line.text);
-      if (fenceMatch && (!fenceState.marker || fenceMatch[2]!.startsWith(fenceState.marker))) {
-        const [, indent = "", fence = "", info = ""] = fenceMatch;
-        const fenceFrom = line.from + indent.length;
-        addMarkdownSourceDecoration(decorations, line.from, fenceFrom, "markdown-source-token-muted");
-        addMarkdownSourceDecoration(decorations, fenceFrom, fenceFrom + fence.length, "markdown-source-token-code-fence");
-        addMarkdownSourceDecoration(decorations, fenceFrom + fence.length, line.to, "markdown-source-token-code-info");
-        fenceState.marker = fenceState.marker ? null : fence[0] === "~" ? "~" : "`";
-        continue;
-      }
-
-      if (fenceState.marker) {
-        addMarkdownSourceDecoration(decorations, line.from, line.to, "markdown-source-token-code");
-        continue;
-      }
-
-      const headingMatch = /^(#{1,6})(\s.*)?$/u.exec(line.text);
-      if (headingMatch) {
-        const marker = headingMatch[1] ?? "";
-        addMarkdownSourceDecoration(decorations, line.from, line.from + marker.length, "markdown-source-token-heading-marker");
-        addMarkdownSourceDecoration(decorations, line.from + marker.length, line.to, "markdown-source-token-heading");
-        continue;
-      }
-
-      const blockquoteMatch = /^(\s*>+)(\s.*)?$/u.exec(line.text);
-      if (blockquoteMatch) {
-        const quoteMarker = blockquoteMatch[1] ?? "";
-        const quoteTo = line.from + quoteMarker.length;
-        addMarkdownSourceDecoration(decorations, line.from, quoteTo, "markdown-source-token-quote-marker");
-
-        const calloutContent = blockquoteMatch[2] ?? "";
-        const calloutStart = quoteTo;
-        const calloutPrefixMatch = /^(\s*)(.*)$/u.exec(calloutContent);
-        const calloutMarker = githubAlertsEnabled ? parseMarkdownCalloutMarker(calloutPrefixMatch?.[2] ?? "") : null;
-        if (calloutMarker && calloutPrefixMatch) {
-          const [, prefix = "", content = ""] = calloutPrefixMatch;
-          const contentStart = calloutStart + prefix.length;
-          const markerIndex = content.indexOf(calloutMarker.source);
-          if (markerIndex < 0) {
-            addMarkdownInlineSourceDecorations(decorations, calloutContent, calloutStart);
-            continue;
-          }
-
-          const markerFrom = contentStart + markerIndex;
-          if (markerIndex > 0) addMarkdownInlineSourceDecorations(decorations, content.slice(0, markerIndex), contentStart);
-          addMarkdownSourceDecoration(
-            decorations,
-            markerFrom,
-            markerFrom + calloutMarker.source.length,
-            "markdown-source-token-callout"
-          );
-          addMarkdownInlineSourceDecorations(
-            decorations,
-            content.slice(markerIndex + calloutMarker.source.length),
-            markerFrom + calloutMarker.source.length
-          );
-        } else {
-          addMarkdownInlineSourceDecorations(decorations, calloutContent, calloutStart);
-        }
-
-        continue;
-      }
-
-      const listMatch = /^(\s*)([-*+]|\d+[.)])(\s+.*)?$/u.exec(line.text);
-      if (listMatch) {
-        const indent = listMatch[1] ?? "";
-        const marker = listMatch[2] ?? "";
-        const markerFrom = line.from + indent.length;
-        const markerTo = markerFrom + marker.length;
-        addMarkdownSourceDecoration(decorations, line.from, markerFrom, "markdown-source-token-muted");
-        addMarkdownSourceDecoration(decorations, markerFrom, markerTo, "markdown-source-token-list-marker");
-        addMarkdownInlineSourceDecorations(decorations, listMatch[3] ?? "", markerTo);
-        continue;
-      }
-
-      const ruleMatch = /^(\s*)([-*_])(?:\s*\2){2,}\s*$/u.exec(line.text);
-      if (ruleMatch) {
-        const indent = ruleMatch[1] ?? "";
-        const ruleFrom = line.from + indent.length;
-        addMarkdownSourceDecoration(decorations, line.from, ruleFrom, "markdown-source-token-muted");
-        addMarkdownSourceDecoration(decorations, ruleFrom, line.to, "markdown-source-token-rule");
-        continue;
-      }
-
-      addMarkdownInlineSourceDecorations(decorations, line.text, line.from);
-    }
-
-    return Decoration.set(decorations, true);
-  });
-}
-
 function markdownSourceTheme(): Extension {
   return EditorView.theme({
     "&": {
@@ -261,19 +126,19 @@ function markdownSourceTheme(): Extension {
       backgroundColor: "transparent"
     },
     ".cm-content": {
-      caretColor: "var(--accent)",
       minHeight: "calc(100vh - 176px)",
       padding: "0",
       whiteSpace: "pre-wrap",
       wordBreak: "break-word"
     },
     ".cm-cursor": {
-      borderLeftColor: "var(--accent)"
+      borderLeftColor: "currentColor"
     },
     ".cm-line": {
       padding: "0"
     },
     ".cm-scroller": {
+      cursor: "text",
       fontFamily:
         'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
       lineHeight: "inherit",
@@ -293,7 +158,6 @@ export function MarkdownSourceEditor({
   contentWidthMax = editorCustomContentWidthMax,
   contentWidthMin = editorCustomContentWidthMin,
   contentWidthPx = null,
-  extendedSyntax,
   language = "en",
   lineHeight = 1.65,
   onChange,
@@ -318,9 +182,7 @@ export function MarkdownSourceEditor({
   const contentAttributesCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
   const searchCompartmentRef = useRef(new Compartment());
-  const syntaxCompartmentRef = useRef(new Compartment());
   const resolvedContentWidth = contentWidthPx ?? editorContentWidthPixels[contentWidth];
-  const githubAlertsEnabled = extendedSyntax?.githubAlerts ?? true;
   const sourceLabel = t(language, "app.markdownSource");
   const paperStyle = {
     fontSize: `${bodyFontSize}px`,
@@ -358,7 +220,6 @@ export function MarkdownSourceEditor({
       contentAttributesCompartmentRef.current.of(markdownSourceContentAttributes(sourceLabel, readOnly)),
       editableCompartmentRef.current.of(EditorView.editable.of(!readOnly)),
       searchCompartmentRef.current.of(markdownSourceSearchExtension(searchMatches, searchActiveIndex)),
-      syntaxCompartmentRef.current.of(markdownSourceSyntaxExtension(githubAlertsEnabled)),
       EditorView.updateListener.of((update) => {
         if (!update.docChanged) return;
         if (update.transactions.some((transaction) => transaction.annotation(externalSourceUpdate))) return;
@@ -367,7 +228,7 @@ export function MarkdownSourceEditor({
       }),
       markdownSourceTheme()
     ],
-    [githubAlertsEnabled, sourceLabel]
+    [sourceLabel]
   );
 
   useEffect(() => {
@@ -445,15 +306,6 @@ export function MarkdownSourceEditor({
   }, [searchActiveIndex, searchMatches]);
 
   useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-
-    view.dispatch({
-      effects: syntaxCompartmentRef.current.reconfigure(markdownSourceSyntaxExtension(githubAlertsEnabled))
-    });
-  }, [githubAlertsEnabled]);
-
-  useEffect(() => {
     if (!autoFocus) return;
 
     viewRef.current?.focus();
@@ -467,7 +319,7 @@ export function MarkdownSourceEditor({
       ref={scrollRef}
     >
       <article
-        className={`markdown-source-paper relative mx-auto min-h-screen w-full max-w-215 px-18 pb-30 ${topInsetClassName} text-[16px] leading-[1.65] text-(--text-primary) caret-(--accent) outline-none focus:outline-none max-[900px]:px-5.25`}
+        className={`markdown-source-paper relative mx-auto min-h-screen w-full max-w-215 px-18 ${topInsetClassName} text-[16px] leading-[1.65] text-(--text-primary) outline-none focus:outline-none max-[900px]:px-5.25`}
         style={paperStyle}
         aria-label={t(language, "app.markdownEditor")}
         data-editor-engine="source"
