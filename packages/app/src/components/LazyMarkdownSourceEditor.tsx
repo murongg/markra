@@ -43,7 +43,7 @@ function MarkdownSourceEditorFallback({
       ref={scrollRef}
     >
       <article
-        className={`markdown-source-paper relative mx-auto min-h-screen w-full max-w-215 px-18 pb-30 ${markdownSourceTopInsetClassName(topInset)} text-[16px] leading-[1.65] text-(--text-primary) max-[900px]:px-5.25`}
+        className={`markdown-source-paper relative mx-auto min-h-screen w-full max-w-215 px-18 ${markdownSourceTopInsetClassName(topInset)} text-[16px] leading-[1.65] text-(--text-primary) max-[900px]:px-5.25`}
         data-editor-engine="source-loading"
         style={paperStyle}
       />

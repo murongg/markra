@@ -106,6 +106,7 @@ import {
 } from "./file-tree/outline-model";
 
 type MarkdownFileTreeDrawerProps = {
+  activeOutlineIndex?: number | null;
   currentPath: string | null;
   customTemplates?: readonly MarkdownTemplate[];
   files: NativeMarkdownFolderFile[];
@@ -208,6 +209,7 @@ function OutlineTitle({ item }: { item: MarkdownOutlineItem }) {
 }
 
 export function MarkdownFileTreeDrawer({
+  activeOutlineIndex = null,
   currentPath,
   customTemplates = emptyMarkdownTemplates,
   files,
@@ -243,6 +245,7 @@ export function MarkdownFileTreeDrawer({
 }: MarkdownFileTreeDrawerProps) {
   const resizeCleanupRef = useRef<(() => unknown) | null>(null);
   const outlineResizeCleanupRef = useRef<(() => unknown) | null>(null);
+  const activeOutlineButtonRefs = useRef(new Map<number, HTMLButtonElement>());
   const fileTreeBodyRef = useRef<HTMLDivElement | null>(null);
   const fileTreeScrollNodeRef = useRef<HTMLDivElement | null>(null);
   const fileTreeSortMenuRef = useRef<HTMLDivElement | null>(null);
@@ -415,6 +418,19 @@ export function MarkdownFileTreeDrawer({
   const folderAccessVisible = !tabbedSidebarLayout || activeSidebarPanel === "files";
   const outlineToolbarVisible = !tabbedSidebarLayout ||
     (outlinePanelOpen && (outlineItems.length > 0 || outlineExpansionAvailable));
+  useEffect(() => {
+    if (!outlinePanelOpen || !outlinePanelVisible || activeOutlineIndex === null) return;
+
+    const activeOutlineButton = activeOutlineButtonRefs.current.get(activeOutlineIndex);
+    if (typeof activeOutlineButton?.scrollIntoView !== "function") return;
+
+    activeOutlineButton.scrollIntoView({
+      behavior: "auto",
+      block: "nearest",
+      inline: "nearest"
+    });
+  }, [activeOutlineIndex, outlinePanelOpen, outlinePanelVisible, visibleOutlineItems]);
+
   useEffect(() => {
     return () => {
       resizeCleanupRef.current?.();
@@ -1334,6 +1350,10 @@ export function MarkdownFileTreeDrawer({
         {visibleOutlineItems.map(({ hasChildren, index, item, key }) => {
           const collapsed = collapsedOutlineKeys.has(key);
           const outlineIndent = (item.level - 1) * 12;
+          const active = activeOutlineIndex === index;
+          const outlineButtonClassName = active
+            ? "h-7 min-w-0 cursor-pointer truncate rounded-sm border-0 bg-(--bg-active) px-1 text-left text-[13px] leading-none font-[620] text-(--text-heading) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)"
+            : "h-7 min-w-0 cursor-pointer truncate rounded-sm border-0 bg-transparent px-1 text-left text-[13px] leading-none text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none";
 
           return (
             <li key={key}>
@@ -1361,8 +1381,16 @@ export function MarkdownFileTreeDrawer({
                   <span className="size-6 shrink-0" aria-hidden="true" />
                 )}
                 <button
-                  className="h-7 min-w-0 cursor-pointer truncate rounded-sm border-0 bg-transparent px-1 text-left text-[13px] leading-none text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none"
+                  className={outlineButtonClassName}
                   type="button"
+                  aria-current={active ? "location" : undefined}
+                  ref={(element) => {
+                    if (element) {
+                      activeOutlineButtonRefs.current.set(index, element);
+                    } else {
+                      activeOutlineButtonRefs.current.delete(index);
+                    }
+                  }}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onSelectOutlineItem(item, index)}
                 >

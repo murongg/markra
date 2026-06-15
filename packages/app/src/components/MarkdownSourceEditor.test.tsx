@@ -28,7 +28,7 @@ function replaceCodeMirrorDoc(view: EditorView, value: string) {
 }
 
 describe("MarkdownSourceEditor", () => {
-  it("renders editable markdown with CodeMirror source highlighting", () => {
+  it("renders editable markdown with lightweight CodeMirror source highlighting", async () => {
     const content = [
       "# Title",
       "",
@@ -52,39 +52,53 @@ describe("MarkdownSourceEditor", () => {
     expect(view.state.doc.toString()).toBe(content);
     expect(container.querySelector(".cm-editor")).toBeInTheDocument();
     expect(container.querySelector(".cm-content")).toHaveTextContent("const answer = 42;");
+    await waitFor(() => {
+      expect(container.querySelector(".cm-line span[class]")).toBeInTheDocument();
+    });
 
     replaceCodeMirrorDoc(view, "# Changed");
 
     expect(handleChange).toHaveBeenCalledWith("# Changed");
   });
 
-  it("applies visible Markra token classes to common Markdown syntax", async () => {
-    const content = [
-      "# Title",
-      "",
-      "```ts",
-      "const answer = 42;",
-      "```",
-      "- Item",
-      "Text with `code`, [link](https://example.test), and **strong text**."
-    ].join("\n");
-
+  it("keeps literal markdown punctuation unchanged while editing", () => {
+    const handleChange = vi.fn();
     const { container } = render(
       <MarkdownSourceEditor
-        content={content}
-        onChange={() => {}}
+        content=""
+        onChange={handleChange}
+      />
+    );
+    const view = getMarkdownSourceView(container);
+
+    replaceCodeMirrorDoc(view, "**");
+
+    expect(view.state.doc.toString()).toBe("**");
+    expect(handleChange).toHaveBeenLastCalledWith("**");
+    expect(handleChange).not.toHaveBeenCalledWith("\\*\\*");
+  });
+
+  it("updates CodeMirror when content changes outside the editor", () => {
+    const handleChange = vi.fn();
+    const { container, rerender } = render(
+      <MarkdownSourceEditor
+        content="# First"
+        onChange={handleChange}
+      />
+    );
+    const view = getMarkdownSourceView(container);
+
+    replaceCodeMirrorDoc(view, "# Local");
+    expect(view.state.doc.toString()).toBe("# Local");
+
+    rerender(
+      <MarkdownSourceEditor
+        content="# External"
+        onChange={handleChange}
       />
     );
 
-    await waitFor(() => {
-      expect(container.querySelector(".markdown-source-token-heading")).toHaveTextContent("Title");
-      expect(container.querySelector(".markdown-source-token-code-fence")).toHaveTextContent("```");
-      expect(container.querySelector(".markdown-source-token-code")).toHaveTextContent("const answer = 42;");
-      expect(container.querySelector(".markdown-source-token-list-marker")).toHaveTextContent("-");
-      expect(container.querySelector(".markdown-source-token-inline-code")).toHaveTextContent("code");
-      expect(container.querySelector(".markdown-source-token-link")).toHaveTextContent("link");
-      expect(container.querySelector(".markdown-source-token-emphasis")).toHaveTextContent("strong text");
-    });
+    expect(view.state.doc.toString()).toBe("# External");
   });
 
   it("keeps source edits undoable and redoable", () => {
@@ -132,34 +146,19 @@ describe("MarkdownSourceEditor", () => {
     expect(handleRedo).toHaveBeenCalledTimes(1);
   });
 
-  it("highlights GitHub-style alert markers in CodeMirror source mode", async () => {
+  it("keeps source mode read-only when requested", () => {
     const { container } = render(
       <MarkdownSourceEditor
-        content="> [!TIP]\n> Keep notes portable."
+        content="# Read-only"
         onChange={() => {}}
+        readOnly
       />
     );
+    getMarkdownSourceView(container);
+    const sourceEditor = screen.getByRole("textbox", { name: "Markdown source" });
 
-    await waitFor(() => {
-      expect(container.querySelector(".markdown-source-token-callout")).toHaveTextContent("[!TIP]");
-      expect(container.querySelector(".markdown-source-token-quote-marker")).toHaveTextContent(">");
-    });
-  });
-
-  it("leaves GitHub-style alert markers plain when the extension is disabled", () => {
-    const { container } = render(
-      <MarkdownSourceEditor
-        content="> [!TIP]\n> Keep notes portable."
-        extendedSyntax={{
-          githubAlerts: false,
-          highlight: true
-        }}
-        onChange={() => {}}
-      />
-    );
-
-    expect(container.querySelector(".markdown-source-token-callout")).not.toBeInTheDocument();
-    expect(container.querySelector(".markdown-source-token-quote-marker")).toHaveTextContent(">");
+    expect(sourceEditor).toHaveAttribute("aria-readonly", "true");
+    expect(sourceEditor).toHaveAttribute("contenteditable", "false");
   });
 
   it("selects exact search matches in source mode", async () => {
@@ -176,6 +175,37 @@ describe("MarkdownSourceEditor", () => {
     await waitFor(() => {
       expect(view.state.selection.main.from).toBe(5);
       expect(view.state.selection.main.to).toBe(6);
+    });
+  });
+
+  it("updates the selected source search match when active index changes", async () => {
+    const { container, rerender } = render(
+      <MarkdownSourceEditor
+        content="alpha beta gamma"
+        searchMatches={[{ from: 0, to: 5 }, { from: 11, to: 16 }]}
+        searchActiveIndex={0}
+        onChange={() => {}}
+      />
+    );
+    const view = getMarkdownSourceView(container);
+
+    await waitFor(() => {
+      expect(view.state.selection.main.from).toBe(0);
+      expect(view.state.selection.main.to).toBe(5);
+    });
+
+    rerender(
+      <MarkdownSourceEditor
+        content="alpha beta gamma"
+        searchMatches={[{ from: 0, to: 5 }, { from: 11, to: 16 }]}
+        searchActiveIndex={1}
+        onChange={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(view.state.selection.main.from).toBe(11);
+      expect(view.state.selection.main.to).toBe(16);
     });
   });
 });

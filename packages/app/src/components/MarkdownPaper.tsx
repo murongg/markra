@@ -26,6 +26,7 @@ type MarkdownPaperProps = {
   language?: AppLanguage;
   lineHeight?: number;
   markdownShortcuts?: MarkdownPaperSurfaceProps["markdownShortcuts"];
+  onActiveOutlineIndexChange?: MarkdownPaperSurfaceProps["onActiveOutlineIndexChange"];
   onEditorReady: MarkdownPaperSurfaceProps["onEditorReady"];
   onMarkdownChange: MarkdownPaperSurfaceProps["onMarkdownChange"];
   onContentWidthChange?: (width: number) => unknown;
@@ -45,12 +46,10 @@ type MarkdownPaperProps = {
   wrapCodeBlocks?: boolean;
 };
 
-const editorBottomScrollReserve = "calc(100vh - 4rem)";
-
 function editorBottomPadding(bottomOverlayInset: number) {
-  if (bottomOverlayInset <= 0) return editorBottomScrollReserve;
+  if (bottomOverlayInset <= 0) return 0;
 
-  return `calc(${editorBottomScrollReserve} + ${bottomOverlayInset}px)`;
+  return `${bottomOverlayInset}px`;
 }
 
 export function MarkdownPaper({
@@ -69,6 +68,7 @@ export function MarkdownPaper({
   language = "en",
   lineHeight = 1.65,
   markdownShortcuts,
+  onActiveOutlineIndexChange,
   onEditorReady,
   onMarkdownChange,
   onContentWidthChange,
@@ -106,7 +106,7 @@ export function MarkdownPaper({
     >
       <article
         key={editorInstanceKey}
-        className={`markdown-paper relative mx-auto min-h-screen w-full max-w-215 px-18 pb-30 ${topInsetClassName} text-[16px] leading-[1.65] text-(--text-primary) caret-(--accent) outline-none focus:outline-none max-[900px]:px-5.25`}
+        className={`markdown-paper relative mx-auto min-h-screen w-full max-w-215 px-18 ${topInsetClassName} text-[16px] leading-[1.65] text-(--text-primary) caret-(--accent) outline-none focus:outline-none max-[900px]:px-5.25`}
         style={paperStyle}
         aria-label={t(language, "app.markdownEditor")}
         data-editor-engine="milkdown"
@@ -129,6 +129,7 @@ export function MarkdownPaper({
           initialContent={initialContent}
           language={language}
           markdownShortcuts={markdownShortcuts}
+          onActiveOutlineIndexChange={onActiveOutlineIndexChange}
           onEditorReady={onEditorReady}
           onMarkdownChange={onMarkdownChange}
           onSaveClipboardImage={onSaveClipboardImage}

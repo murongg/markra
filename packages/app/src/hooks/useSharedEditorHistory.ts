@@ -12,6 +12,7 @@ type SharedEditorHistoryOptions = {
   largeMarkdownVisualBlocked: boolean;
   replaceEditorMarkdown: ReplaceEditorMarkdown;
   sourceSurfaceActive: boolean;
+  syncSourceToVisual: boolean;
   visualEditorReadySequence: number;
 };
 
@@ -21,6 +22,7 @@ export function useSharedEditorHistory({
   largeMarkdownVisualBlocked,
   replaceEditorMarkdown,
   sourceSurfaceActive,
+  syncSourceToVisual,
   visualEditorReadySequence
 }: SharedEditorHistoryOptions) {
   const pendingSourceHistoryRef = useRef(false);
@@ -36,31 +38,44 @@ export function useSharedEditorHistory({
     }
   }, [documentContent, documentRevision]);
 
-  useEffect(() => {
-    if (!sourceSurfaceActive || largeMarkdownVisualBlocked) {
-      pendingSourceHistoryRef.current = false;
-      return;
-    }
-
+  const syncSourceEditsToVisualHistory = useCallback(() => {
+    if (largeMarkdownVisualBlocked) return false;
     syncingSourceToVisualRef.current = true;
     try {
       const synced = replaceEditorMarkdown(documentContent, {
         addToHistory: pendingSourceHistoryRef.current
       });
       if (synced) pendingSourceHistoryRef.current = false;
+      return synced;
     } finally {
       syncingSourceToVisualRef.current = false;
     }
   }, [
     documentContent,
     largeMarkdownVisualBlocked,
-    replaceEditorMarkdown,
+    replaceEditorMarkdown
+  ]);
+
+  useEffect(() => {
+    if (!sourceSurfaceActive || largeMarkdownVisualBlocked) {
+      pendingSourceHistoryRef.current = false;
+      return;
+    }
+
+    if (!syncSourceToVisual) return;
+
+    syncSourceEditsToVisualHistory();
+  }, [
+    largeMarkdownVisualBlocked,
     sourceSurfaceActive,
+    syncSourceEditsToVisualHistory,
+    syncSourceToVisual,
     visualEditorReadySequence
   ]);
 
   return {
     isApplyingSourceToVisualSync,
-    markSourceEditForHistory
+    markSourceEditForHistory,
+    syncSourceEditsToVisualHistory
   };
 }
