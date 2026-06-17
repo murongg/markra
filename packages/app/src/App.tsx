@@ -3173,7 +3173,7 @@ function WorkspaceApp() {
                   return;
                 }
 
-                handleMarkdownTabChange(tab.id, content, options);
+                handleMarkdownTabChange(tab.id, content, { ...options, surface: "visual" });
               }}
               onContentWidthChange={handleEditorContentWidthChange}
               onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
