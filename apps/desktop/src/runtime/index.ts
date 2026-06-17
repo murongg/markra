@@ -7,6 +7,7 @@ import * as ai from "./tauri/native-ai";
 import * as dialog from "./tauri/dialog";
 import * as files from "./tauri/file";
 import * as menu from "./tauri/menu";
+import * as shellCommand from "./tauri/shell-command";
 import * as updater from "./tauri/updater";
 import * as webResource from "./tauri/web-resource";
 import * as windowRuntime from "./tauri/window";
@@ -107,6 +108,11 @@ export const desktopRuntime = {
   },
   settings: {
     loadStore: load
+  },
+  shellCommand: {
+    getShellCommandStatus: shellCommand.getNativeShellCommandStatus,
+    installShellCommand: shellCommand.installNativeShellCommand,
+    uninstallShellCommand: shellCommand.uninstallNativeShellCommand
   },
   updater: {
     checkAppUpdate: updater.checkNativeAppUpdate

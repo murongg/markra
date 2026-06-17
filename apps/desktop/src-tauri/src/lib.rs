@@ -11,12 +11,13 @@ mod menu_labels;
 mod network;
 mod opened_files;
 mod remote_sync;
+mod shell_command;
 mod watcher;
 mod web_http;
 mod window_state;
 mod windows;
 
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 use ai_http::{request_ai_provider_json, request_native_chat, request_native_chat_stream};
 use app_exit::handle_app_exit_requested;
@@ -42,10 +43,12 @@ use menu::{
     NativeApplicationMenuState, NativeMenuTargetState,
 };
 use opened_files::{
-    opened_markdown_paths_from_args, opened_markdown_paths_from_urls, queue_opened_markdown_paths,
-    take_opened_markdown_paths, OpenedMarkdownPathsState,
+    opened_markdown_paths_from_args, opened_markdown_paths_from_args_with_cwd,
+    opened_markdown_paths_from_urls, queue_opened_markdown_paths, take_opened_markdown_paths,
+    OpenedMarkdownPathsState,
 };
 use remote_sync::sync_webdav_markdown_folder;
+use shell_command::{get_shell_command_status, install_shell_command, uninstall_shell_command};
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 use watcher::{
@@ -59,8 +62,9 @@ use window_state::{
 };
 use windows::{
     apply_main_window_chrome, apply_webview_window_chrome, apply_window_event_chrome,
-    minimize_current_window, open_blank_editor_window, open_settings_window,
-    spawn_blank_editor_window, spawn_settings_window,
+    editor_window_url_for_folder, editor_window_url_for_path, minimize_current_window,
+    open_blank_editor_window, open_settings_window, spawn_blank_editor_window, spawn_editor_window,
+    spawn_settings_window,
 };
 
 const STARTUP_WINDOW_NATIVE_REVEAL_FALLBACK_MS: u64 = 2400;
@@ -73,6 +77,50 @@ fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+fn editor_window_urls_for_opened_markdown_paths(paths: &[String]) -> Vec<String> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            let opened_path = Path::new(path);
+            if opened_path.is_dir() {
+                return Some(editor_window_url_for_folder(path));
+            }
+
+            if opened_path.is_file() {
+                return Some(editor_window_url_for_path(path));
+            }
+
+            None
+        })
+        .collect()
+}
+
+fn reveal_or_open_markdown_paths<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    paths: Vec<String>,
+    reveal_when_empty: bool,
+) {
+    if paths.is_empty() && !reveal_when_empty {
+        return;
+    }
+
+    if app.get_webview_window("main").is_some() {
+        queue_opened_markdown_paths(app, paths);
+        focus_main_window(app);
+        return;
+    }
+
+    let urls = editor_window_urls_for_opened_markdown_paths(&paths);
+    if urls.is_empty() {
+        spawn_blank_editor_window(app.clone());
+        return;
+    }
+
+    for url in urls {
+        spawn_editor_window(app.clone(), url);
     }
 }
 
@@ -109,9 +157,12 @@ pub fn run() {
         .manage(EditorWindowRestoreState::default());
 
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-        queue_opened_markdown_paths(app, opened_markdown_paths_from_args(args));
-        focus_main_window(app);
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        reveal_or_open_markdown_paths(
+            app,
+            opened_markdown_paths_from_args_with_cwd(args, std::path::PathBuf::from(cwd)),
+            true,
+        );
     }));
 
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
@@ -134,7 +185,7 @@ pub fn run() {
                 remember_native_menu_webview_window(&window);
             }
             let paths = opened_markdown_paths_from_args(std::env::args());
-            queue_opened_markdown_paths(&app.handle(), paths);
+            reveal_or_open_markdown_paths(&app.handle(), paths, false);
             Ok(())
         })
         .on_page_load(|webview, _| {
@@ -211,6 +262,9 @@ pub fn run() {
             watch_markdown_tree,
             unwatch_markdown_tree,
             take_opened_markdown_paths,
+            get_shell_command_status,
+            install_shell_command,
+            uninstall_shell_command,
             set_editor_window_restore_state,
             list_editor_window_restore_states
         ])
@@ -307,6 +361,45 @@ mod tests {
         assert!(
             lib_source.contains(&fallback_registration),
             "Tauri setup should register a native startup reveal fallback so hidden dev windows cannot stay Dock-only"
+        );
+    }
+
+    #[test]
+    fn cli_opened_paths_can_fallback_to_editor_window_urls() {
+        let root = std::env::temp_dir().join(format!(
+            "markra-cli-window-fallback-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("test folder should be created");
+        let markdown_file = root.join("notes.md");
+        std::fs::write(&markdown_file, "# Notes").expect("markdown file should be created");
+
+        let urls = super::editor_window_urls_for_opened_markdown_paths(&[
+            root.to_string_lossy().to_string(),
+            markdown_file.to_string_lossy().to_string(),
+        ]);
+
+        assert_eq!(
+            urls,
+            vec![
+                crate::windows::editor_window_url_for_folder(&root.to_string_lossy()),
+                crate::windows::editor_window_url_for_path(&markdown_file.to_string_lossy()),
+            ]
+        );
+
+        std::fs::remove_dir_all(root).expect("test folder should be removed");
+    }
+
+    #[test]
+    fn desktop_reveals_initial_cli_opened_paths_natively() {
+        let lib_source = include_str!("lib.rs");
+
+        assert!(
+            lib_source.contains("reveal_or_open_markdown_paths(&app.handle(), paths, false);"),
+            "initial CLI-opened paths should trigger a native window reveal instead of only being queued"
         );
     }
 

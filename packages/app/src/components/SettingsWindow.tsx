@@ -44,10 +44,13 @@ export function SettingsWindow() {
     handleResetWelcomeDocument,
     handleRunBackup,
     handleRunSync,
+    handleInstallShellCommand,
     handleSaveAiSettings,
     handleTestAiProvider,
     handleChooseBackupTargetPath,
     handleDetectPandocPath,
+    handleRefreshShellCommandStatus,
+    handleUninstallShellCommand,
     handleUpdateAiSettings,
     handleUpdateBackupSettings,
     handleUpdateSyncSettings,
@@ -62,6 +65,8 @@ export function SettingsWindow() {
     setActiveCategory,
     setSelectedAiProviderId,
     settingsFocusTarget,
+    shellCommandRunning,
+    shellCommandStatus,
     syncRunning,
     syncSettings,
     clearSettingsFocusTarget,
@@ -124,9 +129,14 @@ export function SettingsWindow() {
               updatesEnabled={appFeatures.updater}
               welcomeReset={welcomeReset}
               onCheckForUpdates={updater.checkForUpdates}
+              onInstallShellCommand={handleInstallShellCommand}
+              onRefreshShellCommand={handleRefreshShellCommandStatus}
               onResetWelcomeDocument={handleResetWelcomeDocument}
               onSelectLanguage={appLanguage.selectLanguage}
+              onUninstallShellCommand={handleUninstallShellCommand}
               onUpdatePreferences={handleUpdateEditorPreferences}
+              shellCommandRunning={shellCommandRunning}
+              shellCommandStatus={shellCommandStatus}
             />
           ) : null}
           {activeSettingsCategory === "network" ? (

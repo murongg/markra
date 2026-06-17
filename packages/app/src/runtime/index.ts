@@ -58,6 +58,7 @@ import type {
   SetNativeEditorWindowRestoreStateInput
 } from "../lib/tauri/window";
 import type { NativePandocSetupAction } from "../lib/tauri/dialog";
+import type { NativeShellCommandStatus } from "../lib/tauri/shell-command";
 import type { NativeWebResourceRequest, NativeWebResourceResponse } from "../lib/tauri/web-resource";
 import type { WorkspaceSearchRequest, WorkspaceSearchResponse } from "../lib/workspace-search";
 
@@ -231,6 +232,12 @@ export type AppUpdaterRuntime = {
   checkAppUpdate: () => Promise<NativeAppUpdate | null>;
 };
 
+export type AppShellCommandRuntime = {
+  getShellCommandStatus: () => Promise<NativeShellCommandStatus>;
+  installShellCommand: () => Promise<NativeShellCommandStatus>;
+  uninstallShellCommand: () => Promise<NativeShellCommandStatus>;
+};
+
 export type AppWebResourceRuntime = {
   requestWebResource: (request: NativeWebResourceRequest) => Promise<NativeWebResourceResponse>;
 };
@@ -273,6 +280,7 @@ export type AppRuntime = {
   menu: AppMenuRuntime;
   platform: AppPlatformRuntime;
   settings: AppSettingsRuntime;
+  shellCommand: AppShellCommandRuntime;
   updater: AppUpdaterRuntime;
   webResource: AppWebResourceRuntime;
   window: AppWindowRuntime;
@@ -391,6 +399,11 @@ export function createDefaultAppRuntime(): AppRuntime {
       resolveDesktopPlatform: () => null
     },
     settings: createMemorySettingsRuntime(),
+    shellCommand: {
+      getShellCommandStatus: async () => ({ commandPath: null, targetPath: null, status: "unavailable" }),
+      installShellCommand: async () => ({ commandPath: null, targetPath: null, status: "unavailable" }),
+      uninstallShellCommand: async () => ({ commandPath: null, targetPath: null, status: "unavailable" })
+    },
     updater: {
       checkAppUpdate: async () => null
     },
@@ -514,6 +527,7 @@ export type {
 export type { NativeAiChatRequest, NativeAiHttpRequest, NativeAiHttpResponse, NativeAiStreamResponse } from "../lib/tauri/native-ai";
 export type { NativeAppUpdate, NativeAppUpdateProgress } from "../lib/tauri/updater";
 export type { NativePandocSetupAction } from "../lib/tauri/dialog";
+export type { NativeShellCommandStatus } from "../lib/tauri/shell-command";
 export type { NativeWebResourceRequest, NativeWebResourceResponse } from "../lib/tauri/web-resource";
 export type {
   NativeEditorWindowRestoreState,

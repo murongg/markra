@@ -32,4 +32,68 @@ describe("GeneralSettings", () => {
       autoUpdateEnabled: false
     });
   });
+
+  it("installs, repairs, and uninstalls the command line tool from general settings", () => {
+    const onInstallShellCommand = vi.fn();
+    const onUninstallShellCommand = vi.fn();
+    const onRefreshShellCommand = vi.fn();
+    const baseProps = {
+      appVersion: "0.0.7",
+      language: "en" as const,
+      preferences: defaultEditorPreferences,
+      translate,
+      welcomeReset: false,
+      onCheckForUpdates: vi.fn(),
+      onResetWelcomeDocument: vi.fn(),
+      onSelectLanguage: vi.fn(),
+      onUpdatePreferences: vi.fn(),
+      onInstallShellCommand,
+      onRefreshShellCommand,
+      onUninstallShellCommand
+    };
+
+    const { rerender } = render(
+      <GeneralSettings
+        {...baseProps}
+        shellCommandStatus={{
+          commandPath: "/mock-bin/markra",
+          targetPath: "/Applications/Markra.app/Contents/MacOS/markra",
+          status: "missing"
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Install markra command" }));
+    expect(onInstallShellCommand).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <GeneralSettings
+        {...baseProps}
+        shellCommandStatus={{
+          commandPath: "/mock-bin/markra",
+          targetPath: "/Applications/Markra.app/Contents/MacOS/markra",
+          status: "needsRepair"
+        }}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Repair markra command" }));
+    expect(onInstallShellCommand).toHaveBeenCalledTimes(2);
+
+    rerender(
+      <GeneralSettings
+        {...baseProps}
+        shellCommandStatus={{
+          commandPath: "/mock-bin/markra",
+          targetPath: "/Applications/Markra.app/Contents/MacOS/markra",
+          status: "installed"
+        }}
+      />
+    );
+    expect(screen.getByText(/Installed at \/mock-bin\/markra/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Uninstall markra command" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh markra command status" }));
+
+    expect(onUninstallShellCommand).toHaveBeenCalledTimes(1);
+    expect(onRefreshShellCommand).toHaveBeenCalledTimes(1);
+  });
 });

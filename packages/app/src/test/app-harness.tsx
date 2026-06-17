@@ -9,6 +9,8 @@ import {
   deleteNativeMarkdownTreeFile,
   detectNativePandocPath,
   downloadNativeWebImage,
+  getNativeShellCommandStatus,
+  installNativeShellCommand,
   closeNativeWindow,
   exitNativeApp,
   openNativeMarkdownFolder,
@@ -34,6 +36,7 @@ import {
   showNativePandocSetup,
   showNativeMarkdownFileTreeContextMenu,
   syncNativeMarkdownFolder,
+  uninstallNativeShellCommand,
   installNativeMarkdownFileDrop,
   listNativeMarkdownFilesForPath,
   takeNativeOpenedMarkdownPaths,
@@ -137,6 +140,8 @@ vi.mock("../lib/tauri", () => ({
   deleteNativeMarkdownTreeFile: vi.fn(),
   detectNativePandocPath: vi.fn(),
   downloadNativeWebImage: vi.fn(),
+  getNativeShellCommandStatus: vi.fn(),
+  installNativeShellCommand: vi.fn(),
   installNativeMarkdownFileDrop: vi.fn(),
   openNativeMarkdownFolder: vi.fn(),
   openNativeMarkdownFolderInNewWindow: vi.fn(),
@@ -164,6 +169,7 @@ vi.mock("../lib/tauri", () => ({
   showNativePandocSetup: vi.fn(),
   showNativeMarkdownFileTreeContextMenu: vi.fn(),
   syncNativeMarkdownFolder: vi.fn(),
+  uninstallNativeShellCommand: vi.fn(),
   uploadNativePicGoImage: vi.fn(),
   uploadNativeS3Image: vi.fn(),
   uploadNativeWebDavImage: vi.fn(),
@@ -623,6 +629,8 @@ export const mockedCreateNativeMarkdownTreeFolder = vi.mocked(createNativeMarkdo
 export const mockedDeleteNativeMarkdownTreeFile = vi.mocked(deleteNativeMarkdownTreeFile);
 export const mockedDetectNativePandocPath = vi.mocked(detectNativePandocPath);
 export const mockedDownloadNativeWebImage = vi.mocked(downloadNativeWebImage);
+export const mockedGetNativeShellCommandStatus = vi.mocked(getNativeShellCommandStatus);
+export const mockedInstallNativeShellCommand = vi.mocked(installNativeShellCommand);
 export const mockedOpenNativeMarkdownFileInNewWindow = vi.mocked(openNativeMarkdownFileInNewWindow);
 export const mockedOpenNativeMarkdownPath = vi.mocked(openNativeMarkdownPath);
 export const mockedListenNativeOpenedMarkdownPaths = vi.mocked(listenNativeOpenedMarkdownPaths);
@@ -641,6 +649,7 @@ export const mockedShowNativeWindow = vi.mocked(showNativeWindow);
 export const mockedShowNativePandocSetup = vi.mocked(showNativePandocSetup);
 export const mockedShowNativeMarkdownFileTreeContextMenu = vi.mocked(showNativeMarkdownFileTreeContextMenu);
 export const mockedSyncNativeMarkdownFolder = vi.mocked(syncNativeMarkdownFolder);
+export const mockedUninstallNativeShellCommand = vi.mocked(uninstallNativeShellCommand);
 export const mockedInstallNativeMarkdownFileDrop = vi.mocked(installNativeMarkdownFileDrop);
 export const mockedListNativeMarkdownFileHistory = vi.mocked(listNativeMarkdownFileHistory);
 export const mockedListNativeMarkdownFilesForPath = vi.mocked(listNativeMarkdownFilesForPath);
@@ -907,6 +916,9 @@ export function installAppTestHarness() {
     mockedChatCompletion.mockReset();
     mockedGenerateAiAgentSessionTitle.mockReset();
     mockedDownloadNativeWebImage.mockReset();
+    mockedGetNativeShellCommandStatus.mockReset();
+    mockedInstallNativeShellCommand.mockReset();
+    mockedUninstallNativeShellCommand.mockReset();
     document.documentElement.removeAttribute("data-theme");
     document.documentElement.removeAttribute("data-window");
     document.getElementById("markra-custom-theme-style")?.remove();
@@ -930,6 +942,21 @@ export function installAppTestHarness() {
     mockedDownloadNativeWebImage.mockResolvedValue(new File([new Uint8Array([1, 2, 3])], "web-image.png", {
       type: "image/png"
     }));
+    mockedGetNativeShellCommandStatus.mockResolvedValue({
+      commandPath: "/mock-bin/markra",
+      targetPath: "/mock-app/markra",
+      status: "missing"
+    });
+    mockedInstallNativeShellCommand.mockResolvedValue({
+      commandPath: "/mock-bin/markra",
+      targetPath: "/mock-app/markra",
+      status: "installed"
+    });
+    mockedUninstallNativeShellCommand.mockResolvedValue({
+      commandPath: "/mock-bin/markra",
+      targetPath: "/mock-app/markra",
+      status: "missing"
+    });
     mockedCheckNativeAppUpdate.mockResolvedValue(null);
     mockedResolveDesktopPlatform.mockReturnValue("macos");
     mockedOpenSettingsWindow.mockResolvedValue(undefined);
