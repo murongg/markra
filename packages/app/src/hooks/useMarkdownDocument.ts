@@ -520,6 +520,15 @@ export function useMarkdownDocument({
     setTabs((currentTabs) => {
       const nextTabs = currentTabs.map((tab) => {
         if (tab.id !== tabId || !tab.open || tab.content === content) return tab;
+        if (options.documentRevision !== undefined && options.documentRevision !== tab.revision) return tab;
+        if (
+          !tab.dirty &&
+          options.surface === "visual" &&
+          options.documentRevision !== undefined &&
+          !isEquivalentEditorMarkdown(tab.content, content)
+        ) {
+          return tab;
+        }
 
         return {
           ...tab,
@@ -1067,12 +1076,19 @@ export function useMarkdownDocument({
     const sourceContent = options.sourceContent ?? contents;
     const contentChangedAfterSaveStarted =
       targetDocument.content !== sourceContent && targetDocument.content !== contents;
+    const savedDocumentRefreshNeeded =
+      !contentChangedAfterSaveStarted &&
+      (targetDocument.dirty ||
+        targetDocument.content !== contents ||
+        targetDocument.path !== savedFile.path ||
+        targetDocument.name !== savedFile.name);
     const nextDocument = {
       ...targetDocument,
       path: savedFile.path,
       name: savedFile.name,
       content: contentChangedAfterSaveStarted ? targetDocument.content : contents,
-      dirty: contentChangedAfterSaveStarted ? true : false
+      dirty: contentChangedAfterSaveStarted ? true : false,
+      revision: savedDocumentRefreshNeeded ? targetDocument.revision + 1 : targetDocument.revision
     };
 
     const nextTabs = documentTabsEnabled
@@ -1206,12 +1222,19 @@ export function useMarkdownDocument({
 
       if (!savedFile) return null;
 
+      const sourceDocument = documentFromTab(tab);
+      const savedDocumentRefreshNeeded =
+        tab.dirty ||
+        tab.content !== contents ||
+        tab.path !== savedFile.path ||
+        tab.name !== savedFile.name;
       const nextDocument = {
-        ...documentFromTab(tab),
+        ...sourceDocument,
         path: savedFile.path,
         name: savedFile.name,
         content: contents,
-        dirty: false
+        dirty: false,
+        revision: savedDocumentRefreshNeeded ? sourceDocument.revision + 1 : sourceDocument.revision
       };
       const nextTabs = tabsRef.current.map((candidate) =>
         candidate.id === tabId ? createDocumentTab(nextDocument, candidate.id) : candidate
