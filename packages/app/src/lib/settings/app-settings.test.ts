@@ -1,17 +1,24 @@
 import { createSettingsStoreHarness, resetSettingsStoreRuntime, setupSettingsStoreHarness } from "../../test/settings-store";
 import {
+  darkEditorThemeOptions,
+  getStoredThemePreferences,
   appThemeOptions,
   consumeWelcomeDocumentState,
   editorThemeOptions,
   getStoredCustomThemeCss,
   getStoredLanguage,
   getStoredTheme,
+  isAppAppearanceMode,
   isAppTheme,
+  lightEditorThemeOptions,
   resetWelcomeDocumentState,
   resolveAppAppearanceTheme,
+  resolveAppThemePreferencesAppearance,
+  resolveAppThemePreferencesEditorTheme,
   saveStoredCustomThemeCss,
   saveStoredLanguage,
-  saveStoredTheme
+  saveStoredTheme,
+  saveStoredThemePreferences
 } from "./app-settings";
 
 const settingsStore = createSettingsStoreHarness();
@@ -78,6 +85,71 @@ describe("app settings", () => {
     expect(store.save).toHaveBeenCalledTimes(1);
   });
 
+  it("migrates a legacy light theme into split appearance preferences", async () => {
+    store.get.mockImplementation(async (key: string) => {
+      if (key === "theme") return "sepia";
+
+      return undefined;
+    });
+
+    await expect(getStoredThemePreferences()).resolves.toEqual({
+      appearanceMode: "light",
+      darkTheme: "dark",
+      lightTheme: "sepia"
+    });
+
+    expect(store.get).toHaveBeenCalledWith("appearanceMode");
+    expect(store.get).toHaveBeenCalledWith("lightTheme");
+    expect(store.get).toHaveBeenCalledWith("darkTheme");
+    expect(store.get).toHaveBeenCalledWith("theme");
+  });
+
+  it("loads and persists split appearance preferences", async () => {
+    store.get.mockImplementation(async (key: string) => {
+      if (key === "appearanceMode") return "system";
+      if (key === "lightTheme") return "solarized-light";
+      if (key === "darkTheme") return "night";
+
+      return undefined;
+    });
+
+    await expect(getStoredThemePreferences()).resolves.toEqual({
+      appearanceMode: "system",
+      darkTheme: "night",
+      lightTheme: "solarized-light"
+    });
+
+    await saveStoredThemePreferences({
+      appearanceMode: "dark",
+      darkTheme: "catppuccin-mocha",
+      lightTheme: "catppuccin-latte"
+    });
+
+    expect(store.set).toHaveBeenCalledWith("appearanceMode", "dark");
+    expect(store.set).toHaveBeenCalledWith("lightTheme", "catppuccin-latte");
+    expect(store.set).toHaveBeenCalledWith("darkTheme", "catppuccin-mocha");
+    expect(store.set).not.toHaveBeenCalledWith("theme", expect.any(String));
+    expect(store.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves the active editor theme from appearance mode and saved palettes", () => {
+    const preferences = {
+      appearanceMode: "system" as const,
+      darkTheme: "night" as const,
+      lightTheme: "sepia" as const
+    };
+
+    expect(isAppAppearanceMode("system")).toBe(true);
+    expect(isAppAppearanceMode("sepia")).toBe(false);
+    expect(lightEditorThemeOptions).toContain("sepia");
+    expect(lightEditorThemeOptions).not.toContain("night");
+    expect(darkEditorThemeOptions).toContain("night");
+    expect(darkEditorThemeOptions).not.toContain("sepia");
+    expect(resolveAppThemePreferencesAppearance(preferences, "dark")).toBe("dark");
+    expect(resolveAppThemePreferencesEditorTheme(preferences, "dark")).toBe("night");
+    expect(resolveAppThemePreferencesEditorTheme(preferences, "light")).toBe("sepia");
+  });
+
   it("recognizes GitHub and One theme options", () => {
     const requestedThemes = ["github-dark", "one-dark", "one-light", "one-dark-pro"];
 
@@ -94,15 +166,39 @@ describe("app settings", () => {
     expect(resolveAppAppearanceTheme("one-dark-pro" as Parameters<typeof resolveAppAppearanceTheme>[0], "light")).toBe("dark");
   });
 
-  it("loads and persists custom theme CSS", async () => {
+  it("migrates legacy custom theme CSS into separate light and dark CSS values", async () => {
     const css = ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }";
-    store.get.mockResolvedValue(css);
+    store.get.mockImplementation(async (key: string) => {
+      if (key === "customThemeCss") return css;
 
-    await expect(getStoredCustomThemeCss()).resolves.toBe(css);
-    await saveStoredCustomThemeCss(css);
+      return undefined;
+    });
 
+    await expect(getStoredCustomThemeCss()).resolves.toEqual({
+      dark: css,
+      light: css
+    });
     expect(store.get).toHaveBeenCalledWith("customThemeCss");
-    expect(store.set).toHaveBeenCalledWith("customThemeCss", css);
+    expect(store.get).toHaveBeenCalledWith("lightCustomThemeCss");
+    expect(store.get).toHaveBeenCalledWith("darkCustomThemeCss");
+  });
+
+  it("loads and persists separate custom theme CSS values", async () => {
+    const light = ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }";
+    const dark = ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }";
+    store.get.mockImplementation(async (key: string) => {
+      if (key === "lightCustomThemeCss") return light;
+      if (key === "darkCustomThemeCss") return dark;
+
+      return undefined;
+    });
+
+    await expect(getStoredCustomThemeCss()).resolves.toEqual({ dark, light });
+    await saveStoredCustomThemeCss({ dark, light });
+
+    expect(store.set).toHaveBeenCalledWith("lightCustomThemeCss", light);
+    expect(store.set).toHaveBeenCalledWith("darkCustomThemeCss", dark);
+    expect(store.set).not.toHaveBeenCalledWith("customThemeCss", expect.any(String));
     expect(store.save).toHaveBeenCalledTimes(1);
   });
 

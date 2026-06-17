@@ -231,11 +231,17 @@ export function SettingsWindow() {
           ) : null}
           {activeSettingsCategory === "appearance" ? (
             <AppearanceSettings
-              customThemeCss={appTheme.customThemeCss}
-              selectedTheme={appTheme.theme}
+              darkCustomThemeCss={appTheme.darkCustomThemeCss}
+              lightCustomThemeCss={appTheme.lightCustomThemeCss}
+              selectedAppearanceMode={appTheme.appearanceMode}
+              selectedDarkTheme={appTheme.darkTheme}
+              selectedLightTheme={appTheme.lightTheme}
               translate={translate}
-              onUpdateCustomThemeCss={appTheme.updateCustomThemeCss}
-              onSelectTheme={appTheme.selectTheme}
+              onUpdateDarkCustomThemeCss={appTheme.updateDarkCustomThemeCss}
+              onUpdateLightCustomThemeCss={appTheme.updateLightCustomThemeCss}
+              onSelectAppearanceMode={appTheme.selectAppearanceMode}
+              onSelectDarkTheme={appTheme.selectDarkTheme}
+              onSelectLightTheme={appTheme.selectLightTheme}
             />
           ) : null}
           {activeSettingsCategory === "editor" ? (

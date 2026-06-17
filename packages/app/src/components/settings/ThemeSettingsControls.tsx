@@ -1,9 +1,8 @@
 import { Download, RotateCcw, Upload } from "lucide-react";
 import { type ChangeEvent, type CSSProperties, useRef } from "react";
 import {
-  appThemeOptions,
   defaultCustomThemeCss,
-  type AppTheme
+  type EditorTheme
 } from "../../lib/settings/app-settings";
 import type { I18nKey } from "@markra/shared";
 import { mergeClassNames } from "./class-names";
@@ -11,8 +10,7 @@ import { SettingsButton, SettingsTextarea } from "./SettingsControls";
 
 type Translate = (key: I18nKey) => string;
 
-export const themeLabelKeys: Record<AppTheme, I18nKey> = {
-  system: "settings.theme.system",
+export const themeLabelKeys: Record<EditorTheme, I18nKey> = {
   light: "settings.theme.light",
   dark: "settings.theme.dark",
   github: "settings.theme.github",
@@ -54,15 +52,7 @@ type ThemePreviewStyle = CSSProperties & {
   "--theme-preview-text": string;
 };
 
-const themePreviewSwatches: Record<AppTheme, ThemePreviewSwatch> = {
-  system: {
-    accent: "#1a1c1e",
-    background: "linear-gradient(135deg, #f6f8fa 0 49%, #1f2328 50% 100%)",
-    border: "#d1d9e0",
-    muted: "#59636e",
-    panel: "#ffffff",
-    text: "#1f2328"
-  },
+const themePreviewSwatches: Record<EditorTheme, ThemePreviewSwatch> = {
   light: {
     accent: "#1a1c1e",
     background: "#ffffff",
@@ -244,22 +234,26 @@ function createThemePreviewStyle(swatch: ThemePreviewSwatch): ThemePreviewStyle 
   };
 }
 
-export function ThemePreviewGrid({
+export function ThemePreviewGrid<Theme extends EditorTheme>({
+  ariaLabel,
   onSelectTheme,
   selectedTheme,
+  themes,
   translate
 }: {
-  onSelectTheme: (theme: AppTheme) => unknown;
-  selectedTheme: AppTheme;
+  ariaLabel: string;
+  onSelectTheme: (theme: Theme) => unknown;
+  selectedTheme: Theme;
+  themes: readonly Theme[];
   translate: Translate;
 }) {
   return (
     <div
-      className="grid w-fit max-w-90 grid-cols-9 gap-1.5 max-[860px]:grid-cols-6"
+      className="grid w-fit max-w-90 grid-cols-8 gap-1.5 max-[860px]:grid-cols-6"
       role="radiogroup"
-      aria-label={translate("settings.theme.previewTitle")}
+      aria-label={ariaLabel}
     >
-      {appThemeOptions.map((theme) => {
+      {themes.map((theme) => {
         const label = translate(themeLabelKeys[theme]);
         const selected = theme === selectedTheme;
 
@@ -328,10 +322,12 @@ function exportCustomThemeCss(css: string) {
 
 export function CustomThemeCssControl({
   customThemeCss,
+  label,
   onUpdateCustomThemeCss,
   translate
 }: {
   customThemeCss: string;
+  label: string;
   onUpdateCustomThemeCss: (css: string) => unknown;
   translate: Translate;
 }) {
@@ -355,7 +351,7 @@ export function CustomThemeCssControl({
   return (
     <div className="flex w-80 max-w-full flex-col items-stretch gap-2">
       <SettingsTextarea
-        label={translate("settings.theme.customCssTitle")}
+        label={label}
         value={customThemeCss}
         onChange={onUpdateCustomThemeCss}
       />

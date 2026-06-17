@@ -139,7 +139,12 @@ const aiAgentSessionMetaKey = "meta";
 const aiAgentSessionIndexKey = "entries";
 const welcomeDocumentSeenKey = "welcomeDocumentSeen";
 const themeKey = "theme";
+const appearanceModeKey = "appearanceMode";
+const lightThemeKey = "lightTheme";
+const darkThemeKey = "darkTheme";
 const customThemeCssKey = "customThemeCss";
+const lightCustomThemeCssKey = "lightCustomThemeCss";
+const darkCustomThemeCssKey = "darkCustomThemeCss";
 const languageKey = "language";
 const aiProvidersKey = "aiProviders";
 const aiAgentPreferencesKey = "aiAgentPreferences";
@@ -154,6 +159,8 @@ const recentMarkdownFilesKey = "recentMarkdownFiles";
 const recentMarkdownFoldersKey = "recentMarkdownFolders";
 
 export type ResolvedAppTheme = "light" | "dark";
+export const appAppearanceModeOptions = ["system", "light", "dark"] as const;
+export type AppAppearanceMode = typeof appAppearanceModeOptions[number];
 export type AiSelectionDisplayMode = "command" | "toolbar";
 export type SidebarLayoutMode = "stacked" | "tabs";
 type LegacyEditorPreferences = {
@@ -186,6 +193,44 @@ export const editorThemeOptions = [
 export type EditorTheme = typeof editorThemeOptions[number];
 export const appThemeOptions = ["system", ...editorThemeOptions] as const;
 export type AppTheme = typeof appThemeOptions[number];
+export const lightEditorThemeOptions = [
+  "light",
+  "github",
+  "one-light",
+  "gothic",
+  "newsprint",
+  "pixyll",
+  "whitey",
+  "sepia",
+  "solarized-light",
+  "catppuccin-latte",
+  "academic",
+  "minimal",
+  "custom"
+] as const;
+export type LightEditorTheme = typeof lightEditorThemeOptions[number];
+export const darkEditorThemeOptions = [
+  "dark",
+  "github-dark",
+  "one-dark",
+  "one-dark-pro",
+  "night",
+  "solarized-dark",
+  "nord",
+  "catppuccin-mocha",
+  "custom"
+] as const;
+export type DarkEditorTheme = typeof darkEditorThemeOptions[number];
+export type AppThemePreferences = {
+  appearanceMode: AppAppearanceMode;
+  darkTheme: DarkEditorTheme;
+  lightTheme: LightEditorTheme;
+};
+export const defaultAppThemePreferences: AppThemePreferences = {
+  appearanceMode: "system",
+  darkTheme: "dark",
+  lightTheme: "light"
+};
 export type TitlebarActionId = "aiAgent" | "sourceMode" | "splitMode" | "history" | "save" | "theme";
 export type TitlebarActionPreference = {
   id: TitlebarActionId;
@@ -284,6 +329,14 @@ export const defaultCustomThemeCss = `:root[data-theme="custom"] {
   --editor-code-bg: var(--bg-code);
   --editor-code-line-bg: var(--bg-secondary);
 }`;
+export type CustomThemeCssValues = {
+  dark: string;
+  light: string;
+};
+export const defaultCustomThemeCssValues: CustomThemeCssValues = {
+  dark: defaultCustomThemeCss,
+  light: defaultCustomThemeCss
+};
 
 export const defaultTitlebarActions: readonly TitlebarActionPreference[] = [
   { id: "aiAgent", visible: true },
@@ -387,24 +440,62 @@ export function isEditorTheme(value: unknown): value is EditorTheme {
   return editorThemeOptions.includes(value as EditorTheme);
 }
 
+export function isAppAppearanceMode(value: unknown): value is AppAppearanceMode {
+  return appAppearanceModeOptions.includes(value as AppAppearanceMode);
+}
+
+export function isLightEditorTheme(value: unknown): value is LightEditorTheme {
+  return lightEditorThemeOptions.includes(value as LightEditorTheme);
+}
+
+export function isDarkEditorTheme(value: unknown): value is DarkEditorTheme {
+  return darkEditorThemeOptions.includes(value as DarkEditorTheme);
+}
+
 export function normalizeCustomThemeCss(value: unknown) {
   if (typeof value !== "string") return defaultCustomThemeCss;
 
   return value.slice(0, customThemeCssMaxLength);
 }
 
+export function normalizeCustomThemeCssValues(value: unknown): CustomThemeCssValues {
+  if (typeof value !== "object" || value === null) {
+    const css = normalizeCustomThemeCss(value);
+
+    return {
+      dark: css,
+      light: css
+    };
+  }
+
+  const css = value as Partial<Record<keyof CustomThemeCssValues, unknown>>;
+
+  return {
+    dark: normalizeCustomThemeCss(css.dark),
+    light: normalizeCustomThemeCss(css.light)
+  };
+}
+
+export function normalizeAppThemePreferences(
+  value: unknown,
+  fallback: AppThemePreferences = defaultAppThemePreferences
+): AppThemePreferences {
+  if (typeof value !== "object" || value === null) return fallback;
+
+  const preferences = value as Partial<Record<keyof AppThemePreferences, unknown>>;
+
+  return {
+    appearanceMode: isAppAppearanceMode(preferences.appearanceMode)
+      ? preferences.appearanceMode
+      : fallback.appearanceMode,
+    darkTheme: isDarkEditorTheme(preferences.darkTheme) ? preferences.darkTheme : fallback.darkTheme,
+    lightTheme: isLightEditorTheme(preferences.lightTheme) ? preferences.lightTheme : fallback.lightTheme
+  };
+}
+
 export function resolveAppAppearanceTheme(theme: AppTheme, systemTheme: ResolvedAppTheme): ResolvedAppTheme {
   if (theme === "system") return systemTheme;
-  if (
-    theme === "dark" ||
-    theme === "github-dark" ||
-    theme === "night" ||
-    theme === "one-dark" ||
-    theme === "one-dark-pro" ||
-    theme === "solarized-dark" ||
-    theme === "nord" ||
-    theme === "catppuccin-mocha"
-  ) return "dark";
+  if (isDarkEditorTheme(theme) && theme !== "custom") return "dark";
 
   return "light";
 }
@@ -413,6 +504,42 @@ export function resolveAppEditorTheme(theme: AppTheme, systemTheme: ResolvedAppT
   if (theme === "system") return systemTheme;
 
   return theme;
+}
+
+export function createThemePreferencesFromLegacyTheme(theme: AppTheme): AppThemePreferences {
+  if (theme === "system") return defaultAppThemePreferences;
+  if (isDarkEditorTheme(theme) && theme !== "custom") {
+    return {
+      ...defaultAppThemePreferences,
+      appearanceMode: "dark",
+      darkTheme: theme
+    };
+  }
+  if (isLightEditorTheme(theme)) {
+    return {
+      ...defaultAppThemePreferences,
+      appearanceMode: "light",
+      lightTheme: theme
+    };
+  }
+
+  return defaultAppThemePreferences;
+}
+
+export function resolveAppThemePreferencesAppearance(
+  preferences: AppThemePreferences,
+  systemTheme: ResolvedAppTheme
+): ResolvedAppTheme {
+  return preferences.appearanceMode === "system" ? systemTheme : preferences.appearanceMode;
+}
+
+export function resolveAppThemePreferencesEditorTheme(
+  preferences: AppThemePreferences,
+  systemTheme: ResolvedAppTheme
+): EditorTheme {
+  return resolveAppThemePreferencesAppearance(preferences, systemTheme) === "dark"
+    ? preferences.darkTheme
+    : preferences.lightTheme;
 }
 
 export async function consumeWelcomeDocumentState() {
@@ -441,17 +568,52 @@ export async function saveStoredTheme(theme: AppTheme) {
   await store.save();
 }
 
-export async function getStoredCustomThemeCss() {
+export async function getStoredThemePreferences(): Promise<AppThemePreferences> {
   const store = await loadSettingsStore();
-  const css = await store.get<string>(customThemeCssKey);
+  const appearanceMode = await store.get<AppAppearanceMode>(appearanceModeKey);
+  const lightTheme = await store.get<LightEditorTheme>(lightThemeKey);
+  const darkTheme = await store.get<DarkEditorTheme>(darkThemeKey);
+  const legacyTheme = await store.get<AppTheme>(themeKey);
+  const legacyPreferences = isAppTheme(legacyTheme)
+    ? createThemePreferencesFromLegacyTheme(legacyTheme)
+    : defaultAppThemePreferences;
 
-  return normalizeCustomThemeCss(css);
+  return {
+    appearanceMode: isAppAppearanceMode(appearanceMode) ? appearanceMode : legacyPreferences.appearanceMode,
+    darkTheme: isDarkEditorTheme(darkTheme) ? darkTheme : legacyPreferences.darkTheme,
+    lightTheme: isLightEditorTheme(lightTheme) ? lightTheme : legacyPreferences.lightTheme
+  };
 }
 
-export async function saveStoredCustomThemeCss(css: string) {
+export async function saveStoredThemePreferences(preferences: AppThemePreferences) {
   const store = await loadSettingsStore();
+  const normalizedPreferences = normalizeAppThemePreferences(preferences);
 
-  await store.set(customThemeCssKey, normalizeCustomThemeCss(css));
+  await store.set(appearanceModeKey, normalizedPreferences.appearanceMode);
+  await store.set(lightThemeKey, normalizedPreferences.lightTheme);
+  await store.set(darkThemeKey, normalizedPreferences.darkTheme);
+  await store.save();
+}
+
+export async function getStoredCustomThemeCss() {
+  const store = await loadSettingsStore();
+  const lightCss = await store.get<string>(lightCustomThemeCssKey);
+  const darkCss = await store.get<string>(darkCustomThemeCssKey);
+  const legacyCss = await store.get<string>(customThemeCssKey);
+  const fallbackCss = normalizeCustomThemeCss(legacyCss);
+
+  return {
+    dark: typeof darkCss === "string" ? normalizeCustomThemeCss(darkCss) : fallbackCss,
+    light: typeof lightCss === "string" ? normalizeCustomThemeCss(lightCss) : fallbackCss
+  };
+}
+
+export async function saveStoredCustomThemeCss(css: CustomThemeCssValues) {
+  const store = await loadSettingsStore();
+  const normalizedCss = normalizeCustomThemeCssValues(css);
+
+  await store.set(lightCustomThemeCssKey, normalizedCss.light);
+  await store.set(darkCustomThemeCssKey, normalizedCss.dark);
   await store.save();
 }
 

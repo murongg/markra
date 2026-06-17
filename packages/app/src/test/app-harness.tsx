@@ -73,6 +73,7 @@ import {
   getStoredRecentMarkdownFiles,
   getStoredRecentMarkdownFolders,
   getStoredTheme,
+  getStoredThemePreferences,
   getStoredWebSearchSettings,
   getStoredWorkspaceState,
   initializeStoredAiAgentSession,
@@ -94,6 +95,7 @@ import {
   saveStoredRecentMarkdownFile,
   saveStoredRecentMarkdownFolder,
   saveStoredTheme,
+  saveStoredThemePreferences,
   saveStoredWorkspaceState,
   setStoredAiAgentSessionArchived,
   normalizeBackupSettings,
@@ -317,6 +319,7 @@ vi.mock("../lib/settings/app-settings", () => ({
     "minimal",
     "custom"
   ],
+  appAppearanceModeOptions: ["system", "light", "dark"],
   editorThemeOptions: [
     "light",
     "dark",
@@ -340,6 +343,77 @@ vi.mock("../lib/settings/app-settings", () => ({
     "minimal",
     "custom"
   ],
+  lightEditorThemeOptions: [
+    "light",
+    "github",
+    "one-light",
+    "gothic",
+    "newsprint",
+    "pixyll",
+    "whitey",
+    "sepia",
+    "solarized-light",
+    "catppuccin-latte",
+    "academic",
+    "minimal",
+    "custom"
+  ],
+  darkEditorThemeOptions: [
+    "dark",
+    "github-dark",
+    "one-dark",
+    "one-dark-pro",
+    "night",
+    "solarized-dark",
+    "nord",
+    "catppuccin-mocha",
+    "custom"
+  ],
+  defaultAppThemePreferences: {
+    appearanceMode: "system",
+    darkTheme: "dark",
+    lightTheme: "light"
+  },
+  normalizeAppThemePreferences: vi.fn((preferences) => {
+    const value = typeof preferences === "object" && preferences !== null
+      ? preferences as Record<string, unknown>
+      : {};
+    const appearanceMode = ["system", "light", "dark"].includes(String(value.appearanceMode))
+      ? value.appearanceMode
+      : "system";
+    const lightTheme = [
+      "light",
+      "github",
+      "one-light",
+      "gothic",
+      "newsprint",
+      "pixyll",
+      "whitey",
+      "sepia",
+      "solarized-light",
+      "catppuccin-latte",
+      "academic",
+      "minimal",
+      "custom"
+    ].includes(String(value.lightTheme)) ? value.lightTheme : "light";
+    const darkTheme = [
+      "dark",
+      "github-dark",
+      "one-dark",
+      "one-dark-pro",
+      "night",
+      "solarized-dark",
+      "nord",
+      "catppuccin-mocha",
+      "custom"
+    ].includes(String(value.darkTheme)) ? value.darkTheme : "dark";
+
+    return {
+      appearanceMode,
+      darkTheme,
+      lightTheme
+    };
+  }),
   resolveAppAppearanceTheme: vi.fn((theme, systemTheme) => {
     const resolvedTheme = theme === "system" ? systemTheme : theme;
     return [
@@ -354,6 +428,14 @@ vi.mock("../lib/settings/app-settings", () => ({
     ].includes(resolvedTheme) ? "dark" : "light";
   }),
   resolveAppEditorTheme: vi.fn((theme, systemTheme) => theme === "system" ? systemTheme : theme),
+  resolveAppThemePreferencesAppearance: vi.fn((preferences, systemTheme) =>
+    preferences.appearanceMode === "system" ? systemTheme : preferences.appearanceMode
+  ),
+  resolveAppThemePreferencesEditorTheme: vi.fn((preferences, systemTheme) => {
+    const appearance = preferences.appearanceMode === "system" ? systemTheme : preferences.appearanceMode;
+
+    return appearance === "dark" ? preferences.darkTheme : preferences.lightTheme;
+  }),
   defaultTitlebarActions: [
     { id: "aiAgent", visible: true },
     { id: "sourceMode", visible: true },
@@ -388,6 +470,10 @@ vi.mock("../lib/settings/app-settings", () => ({
     pdfWidthMm: 210
   },
   defaultCustomThemeCss: ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }",
+  defaultCustomThemeCssValues: {
+    dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+    light: ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"
+  },
   getStoredAiAgentSession: vi.fn(),
   getStoredAiAgentSessionSummary: vi.fn(),
   getStoredAiAgentPreferences: vi.fn(),
@@ -402,6 +488,7 @@ vi.mock("../lib/settings/app-settings", () => ({
   getStoredRecentMarkdownFiles: vi.fn(),
   getStoredRecentMarkdownFolders: vi.fn(),
   getStoredTheme: vi.fn(),
+  getStoredThemePreferences: vi.fn(),
   getStoredWebSearchSettings: vi.fn(),
   getStoredWorkspaceState: vi.fn(),
   initializeStoredAiAgentSession: vi.fn(),
@@ -557,6 +644,23 @@ vi.mock("../lib/settings/app-settings", () => ({
     };
   }),
   normalizeCustomThemeCss: vi.fn((css) => typeof css === "string" ? css.slice(0, 50000) : ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"),
+  normalizeCustomThemeCssValues: vi.fn((css) => {
+    if (typeof css === "object" && css !== null) {
+      const value = css as Record<string, unknown>;
+
+      return {
+        dark: typeof value.dark === "string" ? value.dark.slice(0, 50000) : ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+        light: typeof value.light === "string" ? value.light.slice(0, 50000) : ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"
+      };
+    }
+
+    const value = typeof css === "string" ? css.slice(0, 50000) : ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }";
+
+    return {
+      dark: value,
+      light: value
+    };
+  }),
   prependRecentMarkdownFile: vi.fn((files: RecentMarkdownFile[], file: RecentMarkdownFile) => [
     file,
     ...files.filter((item) => item.path !== file.path)
@@ -578,6 +682,7 @@ vi.mock("../lib/settings/app-settings", () => ({
   saveStoredRecentMarkdownFile: vi.fn(),
   saveStoredRecentMarkdownFolder: vi.fn(),
   saveStoredTheme: vi.fn(),
+  saveStoredThemePreferences: vi.fn(),
   saveStoredWorkspaceState: vi.fn(),
   setStoredAiAgentSessionArchived: vi.fn(),
   clearStoredRecentMarkdownFiles: vi.fn()
@@ -691,6 +796,7 @@ export const mockedGetStoredNetworkSettings = vi.mocked(getStoredNetworkSettings
 export const mockedGetStoredRecentMarkdownFiles = vi.mocked(getStoredRecentMarkdownFiles);
 export const mockedGetStoredRecentMarkdownFolders = vi.mocked(getStoredRecentMarkdownFolders);
 export const mockedGetStoredTheme = vi.mocked(getStoredTheme);
+export const mockedGetStoredThemePreferences = vi.mocked(getStoredThemePreferences);
 export const mockedGetStoredWebSearchSettings = vi.mocked(getStoredWebSearchSettings);
 export const mockedGetStoredWorkspaceState = vi.mocked(getStoredWorkspaceState);
 export const mockedInitializeStoredAiAgentSession = vi.mocked(initializeStoredAiAgentSession);
@@ -713,6 +819,7 @@ export const mockedSaveStoredNetworkSettings = vi.mocked(saveStoredNetworkSettin
 export const mockedSaveStoredRecentMarkdownFile = vi.mocked(saveStoredRecentMarkdownFile);
 export const mockedSaveStoredRecentMarkdownFolder = vi.mocked(saveStoredRecentMarkdownFolder);
 export const mockedSaveStoredTheme = vi.mocked(saveStoredTheme);
+export const mockedSaveStoredThemePreferences = vi.mocked(saveStoredThemePreferences);
 export const mockedSaveStoredWorkspaceState = vi.mocked(saveStoredWorkspaceState);
 export const mockedSetStoredAiAgentSessionArchived = vi.mocked(setStoredAiAgentSessionArchived);
 export const mockedNormalizeBackupSettings = vi.mocked(normalizeBackupSettings);
@@ -875,6 +982,7 @@ export function installAppTestHarness() {
     mockedGetStoredExportSettings.mockReset();
     mockedGetStoredNetworkSettings.mockReset();
     mockedGetStoredTheme.mockReset();
+    mockedGetStoredThemePreferences.mockReset();
     mockedGetStoredWorkspaceState.mockReset();
     mockedInitializeStoredAiAgentSession.mockReset();
     mockedListStoredAiAgentSessions.mockReset();
@@ -899,6 +1007,7 @@ export function installAppTestHarness() {
     mockedSaveStoredRecentMarkdownFile.mockReset();
     mockedSaveStoredRecentMarkdownFolder.mockReset();
     mockedSaveStoredTheme.mockReset();
+    mockedSaveStoredThemePreferences.mockReset();
     mockedSaveStoredWorkspaceState.mockReset();
     mockedSetStoredAiAgentSessionArchived.mockReset();
     mockedListenAppAiSettingsChanged.mockReset();
@@ -1190,8 +1299,16 @@ export function installAppTestHarness() {
       provider: "webdav",
       remotePath: "markra"
     });
-    mockedGetStoredCustomThemeCss.mockResolvedValue(":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }");
+    mockedGetStoredCustomThemeCss.mockResolvedValue({
+      dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+      light: ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"
+    });
     mockedGetStoredTheme.mockResolvedValue("light");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "light",
+      darkTheme: "dark",
+      lightTheme: "light"
+    });
     mockedGetStoredWorkspaceState.mockResolvedValue({
       aiAgentSessionId: "session-app",
       filePath: null,
@@ -1251,6 +1368,7 @@ export function installAppTestHarness() {
     mockedSaveStoredRecentMarkdownFile.mockResolvedValue([]);
     mockedSaveStoredRecentMarkdownFolder.mockResolvedValue([]);
     mockedSaveStoredTheme.mockResolvedValue(undefined);
+    mockedSaveStoredThemePreferences.mockResolvedValue(undefined);
     mockedSaveStoredWorkspaceState.mockResolvedValue(undefined);
     mockedSetStoredAiAgentSessionArchived.mockResolvedValue(undefined);
     mockedListenAppLanguageChanged.mockResolvedValue(() => {});

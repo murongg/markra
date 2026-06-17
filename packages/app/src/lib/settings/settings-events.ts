@@ -1,15 +1,19 @@
 import { normalizeAiSettings } from "@markra/providers";
 import {
   isAppTheme,
+  normalizeAppThemePreferences,
   normalizeBackupSettings,
   normalizeCustomThemeCss,
+  normalizeCustomThemeCssValues,
   normalizeEditorPreferences,
   normalizeExportSettings,
   normalizeSyncSettings,
   normalizeWebSearchSettings,
   type AiProviderSettings,
-  type AppTheme,
+  createThemePreferencesFromLegacyTheme,
+  type AppThemePreferences,
   type BackupSettings,
+  type CustomThemeCssValues,
   type EditorPreferences,
   type ExportSettings,
   type SyncSettings,
@@ -29,11 +33,13 @@ const syncSettingsChangedEvent = "markra://sync-settings-changed";
 const aiSettingsChangedEvent = "markra://ai-settings-changed";
 
 type ThemeChangedPayload = {
-  theme: AppTheme;
+  preferences?: AppThemePreferences;
+  theme?: unknown;
 };
 
 type CustomThemeCssChangedPayload = {
-  css: string;
+  css?: unknown;
+  customThemeCss?: CustomThemeCssValues;
 };
 
 type LanguageChangedPayload = {
@@ -79,34 +85,48 @@ function isEditorPreferencesPayload(value: unknown) {
   );
 }
 
-export async function notifyAppThemeChanged(theme: AppTheme) {
+export async function notifyAppThemeChanged(preferences: AppThemePreferences) {
   if (!getAppRuntime().events.isAvailable()) return;
 
-  await getAppRuntime().events.emit(themeChangedEvent, { theme });
+  await getAppRuntime().events.emit(themeChangedEvent, { preferences: normalizeAppThemePreferences(preferences) });
 }
 
-export async function listenAppThemeChanged(onThemeChanged: (theme: AppTheme) => unknown) {
+export async function listenAppThemeChanged(onThemeChanged: (preferences: AppThemePreferences) => unknown) {
   if (!getAppRuntime().events.isAvailable()) return () => {};
 
   return getAppRuntime().events.listen<ThemeChangedPayload>(themeChangedEvent, (event) => {
+    if (event.payload.preferences) {
+      onThemeChanged(normalizeAppThemePreferences(event.payload.preferences));
+      return;
+    }
+
     if (isAppTheme(event.payload.theme)) {
-      onThemeChanged(event.payload.theme);
+      onThemeChanged(createThemePreferencesFromLegacyTheme(event.payload.theme));
     }
   });
 }
 
-export async function notifyAppCustomThemeCssChanged(css: string) {
+export async function notifyAppCustomThemeCssChanged(customThemeCss: CustomThemeCssValues) {
   if (!getAppRuntime().events.isAvailable()) return;
 
-  await getAppRuntime().events.emit(customThemeCssChangedEvent, { css: normalizeCustomThemeCss(css) });
+  await getAppRuntime().events.emit(customThemeCssChangedEvent, {
+    customThemeCss: normalizeCustomThemeCssValues(customThemeCss)
+  });
 }
 
-export async function listenAppCustomThemeCssChanged(onCustomThemeCssChanged: (css: string) => unknown) {
+export async function listenAppCustomThemeCssChanged(onCustomThemeCssChanged: (css: CustomThemeCssValues) => unknown) {
   if (!getAppRuntime().events.isAvailable()) return () => {};
 
   return getAppRuntime().events.listen<CustomThemeCssChangedPayload>(customThemeCssChangedEvent, (event) => {
+    if (event.payload.customThemeCss) {
+      onCustomThemeCssChanged(normalizeCustomThemeCssValues(event.payload.customThemeCss));
+      return;
+    }
+
     if (typeof event.payload.css === "string") {
-      onCustomThemeCssChanged(normalizeCustomThemeCss(event.payload.css));
+      const css = normalizeCustomThemeCss(event.payload.css);
+
+      onCustomThemeCssChanged({ dark: css, light: css });
     }
   });
 }

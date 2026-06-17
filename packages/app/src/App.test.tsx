@@ -32,7 +32,7 @@ import {
   mockedGetStoredRecentMarkdownFolders,
   mockedGetStoredBackupSettings,
   mockedGetStoredSyncSettings,
-  mockedGetStoredTheme,
+  mockedGetStoredThemePreferences,
   mockedGetStoredWorkspaceState,
   mockedInstallNativeApplicationMenu,
   mockedInstallNativeEditorContextMenu,
@@ -77,7 +77,7 @@ import {
   mockedSaveStoredLanguage,
   mockedSaveStoredRecentMarkdownFile,
   mockedSaveStoredRecentMarkdownFolder,
-  mockedSaveStoredTheme,
+  mockedSaveStoredThemePreferences,
   mockedSaveStoredWorkspaceState,
   mockedShowNativeMarkdownFileTreeContextMenu,
   mockedTakeNativeOpenedMarkdownPaths,
@@ -870,7 +870,11 @@ describe("Markra workspace", () => {
 
   it("loads and persists the app color theme", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
-    mockedGetStoredTheme.mockResolvedValue("dark");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "dark",
+      darkTheme: "dark",
+      lightTheme: "light"
+    });
 
     renderApp();
 
@@ -879,14 +883,26 @@ describe("Markra workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch to light theme" }));
 
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
-    await waitFor(() => expect(mockedSaveStoredTheme).toHaveBeenCalledWith("light"));
-    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenCalledWith("light"));
+    await waitFor(() => expect(mockedSaveStoredThemePreferences).toHaveBeenCalledWith({
+      appearanceMode: "light",
+      darkTheme: "dark",
+      lightTheme: "light"
+    }));
+    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenCalledWith({
+      appearanceMode: "light",
+      darkTheme: "dark",
+      lightTheme: "light"
+    }));
     expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeInTheDocument();
   });
 
   it("keeps a manually selected global theme fixed across system color changes", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
-    mockedGetStoredTheme.mockResolvedValue("catppuccin-latte");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "light",
+      darkTheme: "catppuccin-mocha",
+      lightTheme: "catppuccin-latte"
+    });
     const systemColorScheme = mockSystemColorScheme(true);
 
     const { container } = renderApp();
@@ -900,11 +916,54 @@ describe("Markra workspace", () => {
 
     expect(document.documentElement).toHaveAttribute("data-theme", "catppuccin-latte");
     expect(container.querySelector(".markdown-paper")).toHaveAttribute("data-editor-theme", "catppuccin-latte");
-    expect(mockedSaveStoredTheme).not.toHaveBeenCalled();
+    expect(mockedSaveStoredThemePreferences).not.toHaveBeenCalled();
+  });
+
+  it("restores the selected light palette after toggling to dark mode and back", async () => {
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "light",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    });
+
+    const { container } = renderApp();
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "sepia"));
+    expect(container.querySelector(".markdown-paper")).toHaveAttribute("data-editor-theme", "sepia");
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to dark theme" }));
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "night"));
+    expect(container.querySelector(".markdown-paper")).toHaveAttribute("data-editor-theme", "night");
+    await waitFor(() => expect(mockedSaveStoredThemePreferences).toHaveBeenCalledWith({
+      appearanceMode: "dark",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to light theme" }));
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "sepia"));
+    expect(container.querySelector(".markdown-paper")).toHaveAttribute("data-editor-theme", "sepia");
+    await waitFor(() => expect(mockedSaveStoredThemePreferences).toHaveBeenLastCalledWith({
+      appearanceMode: "light",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    }));
+    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenLastCalledWith({
+      appearanceMode: "light",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    }));
   });
 
   it("updates the editor window when another window changes the theme", async () => {
-    let onThemeChanged: ((theme: "light" | "dark" | "system" | "night" | "custom") => unknown) | null = null;
+    let onThemeChanged: ((preferences: {
+      appearanceMode: "light" | "dark" | "system";
+      darkTheme: "dark" | "night";
+      lightTheme: "light" | "sepia";
+    }) => unknown) | null = null;
     mockedListenAppThemeChanged.mockImplementation(async (listener) => {
       onThemeChanged = listener;
       return () => {};
@@ -914,7 +973,11 @@ describe("Markra workspace", () => {
 
     await waitFor(() => expect(mockedListenAppThemeChanged).toHaveBeenCalledTimes(1));
     act(() => {
-      onThemeChanged?.("night");
+      onThemeChanged?.({
+        appearanceMode: "dark",
+        darkTheme: "night",
+        lightTheme: "sepia"
+      });
     });
 
     expect(document.documentElement).toHaveAttribute("data-theme", "night");
@@ -922,10 +985,17 @@ describe("Markra workspace", () => {
     expect(screen.getByRole("button", { name: "Switch to light theme" })).toBeInTheDocument();
   });
 
-  it("applies custom theme CSS only while the custom theme is selected", async () => {
+  it("applies the custom theme CSS for the active appearance mode", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
-    mockedGetStoredTheme.mockResolvedValue("custom");
-    mockedGetStoredCustomThemeCss.mockResolvedValue(":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "light",
+      darkTheme: "custom",
+      lightTheme: "custom"
+    });
+    mockedGetStoredCustomThemeCss.mockResolvedValue({
+      dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+      light: ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"
+    });
 
     const { container } = renderApp();
 
@@ -935,27 +1005,31 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to dark theme" }));
 
-    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-    expect(document.getElementById("markra-custom-theme-style")).not.toBeInTheDocument();
+    expect(document.documentElement).toHaveAttribute("data-theme", "custom");
+    expect(document.getElementById("markra-custom-theme-style")).toHaveTextContent("--bg-primary: #0d1117");
   });
 
   it("follows the system color scheme when the stored theme preference is system", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
-    mockedGetStoredTheme.mockResolvedValue("system");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "system",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    });
     const systemColorScheme = mockSystemColorScheme(true);
 
     renderApp();
 
-    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "dark"));
-    await waitFor(() => expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-theme", "dark"));
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "night"));
+    await waitFor(() => expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-theme", "night"));
 
     act(() => {
       systemColorScheme.setSystemDark(false);
     });
 
-    expect(document.documentElement).toHaveAttribute("data-theme", "light");
-    expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-theme", "light");
-    expect(mockedSaveStoredTheme).not.toHaveBeenCalled();
+    expect(document.documentElement).toHaveAttribute("data-theme", "sepia");
+    expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-theme", "sepia");
+    expect(mockedSaveStoredThemePreferences).not.toHaveBeenCalled();
   });
 
   it("reinstalls native menus when another window changes the language", async () => {
@@ -1063,16 +1137,29 @@ describe("Markra workspace", () => {
     const appearanceCategoryButton = screen.getByRole("button", { name: "Apparence" });
     fireEvent.click(appearanceCategoryButton);
     expect(appearanceCategoryButton).toHaveAttribute("aria-current", "page");
-    const themeSelect = screen.getByRole("combobox");
-    expect(themeSelect).toHaveValue("light");
-    expect(screen.getByRole("option", { name: "Night" })).toBeInTheDocument();
-    fireEvent.change(themeSelect, { target: { value: "night" } });
+    const appearanceMode = screen.getByRole("radiogroup", { name: "Mode d’apparence" });
+    const darkPalette = screen.getByRole("radiogroup", { name: "Palette sombre" });
+    const lightPalette = screen.getByRole("radiogroup", { name: "Palette claire" });
+
+    expect(within(appearanceMode).getByRole("radio", { name: "Clair" })).toHaveAttribute("aria-checked", "true");
+    expect(within(darkPalette).getByRole("radio", { name: "Night" })).toBeInTheDocument();
+    fireEvent.click(within(appearanceMode).getByRole("radio", { name: "Sombre" }));
+    fireEvent.click(within(darkPalette).getByRole("radio", { name: "Night" }));
 
     expect(document.documentElement).toHaveAttribute("data-theme", "night");
-    await waitFor(() => expect(mockedSaveStoredTheme).toHaveBeenCalledWith("night"));
-    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenCalledWith("night"));
+    await waitFor(() => expect(mockedSaveStoredThemePreferences).toHaveBeenCalledWith({
+      appearanceMode: "dark",
+      darkTheme: "night",
+      lightTheme: "light"
+    }));
+    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenCalledWith({
+      appearanceMode: "dark",
+      darkTheme: "night",
+      lightTheme: "light"
+    }));
 
-    fireEvent.change(themeSelect, { target: { value: "custom" } });
+    fireEvent.click(within(lightPalette).getByRole("radio", { name: "Personnalisé" }));
+    fireEvent.click(within(appearanceMode).getByRole("radio", { name: "Clair" }));
     const customCss = await screen.findByRole("textbox");
     fireEvent.change(customCss, {
       target: { value: ":root[data-theme=\"custom\"] { --accent: #0969da; }" }
@@ -1080,8 +1167,14 @@ describe("Markra workspace", () => {
 
     expect(document.documentElement).toHaveAttribute("data-theme", "custom");
     expect(document.getElementById("markra-custom-theme-style")).toHaveTextContent("--accent: #0969da");
-    await waitFor(() => expect(mockedSaveStoredCustomThemeCss).toHaveBeenCalledWith(":root[data-theme=\"custom\"] { --accent: #0969da; }"));
-    await waitFor(() => expect(mockedNotifyAppCustomThemeCssChanged).toHaveBeenCalledWith(":root[data-theme=\"custom\"] { --accent: #0969da; }"));
+    await waitFor(() => expect(mockedSaveStoredCustomThemeCss).toHaveBeenCalledWith({
+      dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+      light: ":root[data-theme=\"custom\"] { --accent: #0969da; }"
+    }));
+    await waitFor(() => expect(mockedNotifyAppCustomThemeCssChanged).toHaveBeenCalledWith({
+      dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+      light: ":root[data-theme=\"custom\"] { --accent: #0969da; }"
+    }));
 
     const templatesCategoryButton = screen.getByRole("button", { name: "Modèles" });
     fireEvent.click(templatesCategoryButton);

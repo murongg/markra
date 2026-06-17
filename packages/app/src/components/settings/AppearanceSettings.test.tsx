@@ -4,126 +4,164 @@ import { defaultCustomThemeCss } from "../../lib/settings/app-settings";
 import { AppearanceSettings } from "./AppearanceSettings";
 
 describe("AppearanceSettings", () => {
-  it("updates the global theme from appearance settings", () => {
-    const onSelectTheme = vi.fn();
+  it("updates the appearance mode and separate light and dark palettes", () => {
+    const onSelectAppearanceMode = vi.fn();
+    const onSelectLightTheme = vi.fn();
+    const onSelectDarkTheme = vi.fn();
 
     render(
       <AppearanceSettings
-        customThemeCss=""
-        selectedTheme="system"
+        darkCustomThemeCss=""
+        lightCustomThemeCss=""
+        selectedAppearanceMode="system"
+        selectedDarkTheme="night"
+        selectedLightTheme="sepia"
         translate={translate}
-        onUpdateCustomThemeCss={vi.fn()}
-        onSelectTheme={onSelectTheme}
+        onSelectAppearanceMode={onSelectAppearanceMode}
+        onSelectDarkTheme={onSelectDarkTheme}
+        onSelectLightTheme={onSelectLightTheme}
+        onUpdateDarkCustomThemeCss={vi.fn()}
+        onUpdateLightCustomThemeCss={vi.fn()}
       />
     );
 
-    const themeSelect = screen.getByRole("combobox", { name: "Color theme" });
+    const appearanceMode = screen.getByRole("radiogroup", { name: "Appearance mode" });
+    const lightPalette = screen.getByRole("radiogroup", { name: "Light palette" });
+    const darkPalette = screen.getByRole("radiogroup", { name: "Dark palette" });
 
-    expect(themeSelect).toHaveValue("system");
-    expect(screen.getByRole("option", { name: "System" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Dark" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Github" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "GitHub Dark" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "One Dark" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "One Light" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "One Dark Pro" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Sepia" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Solarized Light" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Solarized Dark" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Nord" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Catppuccin Latte" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Catppuccin Mocha" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Academic" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Minimal" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Night" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Pixyll" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Custom" })).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "Custom theme CSS" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Color theme" })).not.toBeInTheDocument();
+    expect(within(appearanceMode).getByRole("radio", { name: "System" })).toHaveAttribute("aria-checked", "true");
+    expect(within(appearanceMode).getByRole("radio", { name: "Light" })).toHaveAttribute("aria-checked", "false");
+    expect(within(appearanceMode).getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "false");
+    expect(within(lightPalette).getByRole("radio", { name: "Sepia" })).toHaveAttribute("aria-checked", "true");
+    expect(within(lightPalette).getByRole("radio", { name: "Solarized Light" })).toBeInTheDocument();
+    expect(within(lightPalette).queryByRole("radio", { name: "Night" })).not.toBeInTheDocument();
+    expect(within(darkPalette).getByRole("radio", { name: "Night" })).toHaveAttribute("aria-checked", "true");
+    expect(within(darkPalette).getByRole("radio", { name: "Solarized Dark" })).toBeInTheDocument();
+    expect(within(darkPalette).queryByRole("radio", { name: "Sepia" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Light custom theme CSS" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Dark custom theme CSS" })).not.toBeInTheDocument();
 
-    fireEvent.change(themeSelect, { target: { value: "newsprint" } });
+    fireEvent.click(within(appearanceMode).getByRole("radio", { name: "Dark" }));
+    fireEvent.click(within(lightPalette).getByRole("radio", { name: "Solarized Light" }));
+    fireEvent.click(within(darkPalette).getByRole("radio", { name: "Solarized Dark" }));
 
-    expect(onSelectTheme).toHaveBeenCalledWith("newsprint");
+    expect(onSelectAppearanceMode).toHaveBeenCalledWith("dark");
+    expect(onSelectLightTheme).toHaveBeenCalledWith("solarized-light");
+    expect(onSelectDarkTheme).toHaveBeenCalledWith("solarized-dark");
   });
 
-  it("edits custom theme CSS when the custom theme is selected", () => {
-    const onUpdateCustomThemeCss = vi.fn();
-    const css = ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }";
+  it("edits light and dark custom theme CSS independently", () => {
+    const onUpdateLightCustomThemeCss = vi.fn();
+    const onUpdateDarkCustomThemeCss = vi.fn();
+    const lightCss = ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }";
+    const darkCss = ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }";
 
     render(
       <AppearanceSettings
-        customThemeCss={css}
-        selectedTheme="custom"
+        darkCustomThemeCss={darkCss}
+        lightCustomThemeCss={lightCss}
+        selectedAppearanceMode="light"
+        selectedDarkTheme="custom"
+        selectedLightTheme="custom"
         translate={translate}
-        onUpdateCustomThemeCss={onUpdateCustomThemeCss}
-        onSelectTheme={vi.fn()}
+        onSelectAppearanceMode={vi.fn()}
+        onSelectDarkTheme={vi.fn()}
+        onSelectLightTheme={vi.fn()}
+        onUpdateDarkCustomThemeCss={onUpdateDarkCustomThemeCss}
+        onUpdateLightCustomThemeCss={onUpdateLightCustomThemeCss}
       />
     );
 
-    const customCss = screen.getByRole("textbox", { name: "Custom theme CSS" });
+    const lightCustomCss = screen.getByRole("textbox", { name: "Light custom theme CSS" });
+    const darkCustomCss = screen.getByRole("textbox", { name: "Dark custom theme CSS" });
 
-    expect(customCss).toHaveValue(css);
+    expect(lightCustomCss).toHaveValue(lightCss);
+    expect(darkCustomCss).toHaveValue(darkCss);
 
-    fireEvent.change(customCss, {
+    fireEvent.change(lightCustomCss, {
       target: { value: ":root[data-theme=\"custom\"] { --accent: #0969da; }" }
     });
+    fireEvent.change(darkCustomCss, {
+      target: { value: ":root[data-theme=\"custom\"] { --accent: #58a6ff; }" }
+    });
 
-    expect(onUpdateCustomThemeCss).toHaveBeenCalledWith(":root[data-theme=\"custom\"] { --accent: #0969da; }");
+    expect(onUpdateLightCustomThemeCss).toHaveBeenCalledWith(":root[data-theme=\"custom\"] { --accent: #0969da; }");
+    expect(onUpdateDarkCustomThemeCss).toHaveBeenCalledWith(":root[data-theme=\"custom\"] { --accent: #58a6ff; }");
   });
 
-  it("selects a theme from preview swatches", () => {
-    const onSelectTheme = vi.fn();
+  it("marks selected themes in each preview group", () => {
+    const onSelectLightTheme = vi.fn();
 
     render(
       <AppearanceSettings
-        customThemeCss=""
-        selectedTheme="system"
+        darkCustomThemeCss=""
+        lightCustomThemeCss=""
+        selectedAppearanceMode="system"
+        selectedDarkTheme="dark"
+        selectedLightTheme="light"
         translate={translate}
-        onUpdateCustomThemeCss={vi.fn()}
-        onSelectTheme={onSelectTheme}
+        onSelectAppearanceMode={vi.fn()}
+        onSelectDarkTheme={vi.fn()}
+        onSelectLightTheme={onSelectLightTheme}
+        onUpdateDarkCustomThemeCss={vi.fn()}
+        onUpdateLightCustomThemeCss={vi.fn()}
       />
     );
 
-    const themePreviews = screen.getByRole("radiogroup", { name: "Theme previews" });
-    const systemPreview = within(themePreviews).getByRole("radio", { name: "System" });
-    const sepiaPreview = within(themePreviews).getByRole("radio", { name: "Sepia" });
+    const lightPalette = screen.getByRole("radiogroup", { name: "Light palette" });
+    const lightPreview = within(lightPalette).getByRole("radio", { name: "Light" });
+    const sepiaPreview = within(lightPalette).getByRole("radio", { name: "Sepia" });
 
-    expect(systemPreview).toHaveAttribute("aria-checked", "true");
+    expect(lightPreview).toHaveAttribute("aria-checked", "true");
     expect(sepiaPreview).toHaveAttribute("aria-checked", "false");
 
     fireEvent.click(sepiaPreview);
 
-    expect(onSelectTheme).toHaveBeenCalledWith("sepia");
+    expect(onSelectLightTheme).toHaveBeenCalledWith("sepia");
   });
 
   it("resets the custom theme CSS to the default template", () => {
-    const onUpdateCustomThemeCss = vi.fn();
+    const onUpdateLightCustomThemeCss = vi.fn();
 
     render(
       <AppearanceSettings
-        customThemeCss={":root[data-theme=\"custom\"] { --accent: #b91c1c; }"}
-        selectedTheme="custom"
+        darkCustomThemeCss=""
+        lightCustomThemeCss={":root[data-theme=\"custom\"] { --accent: #b91c1c; }"}
+        selectedAppearanceMode="light"
+        selectedDarkTheme="dark"
+        selectedLightTheme="custom"
         translate={translate}
-        onUpdateCustomThemeCss={onUpdateCustomThemeCss}
-        onSelectTheme={vi.fn()}
+        onSelectAppearanceMode={vi.fn()}
+        onSelectDarkTheme={vi.fn()}
+        onSelectLightTheme={vi.fn()}
+        onUpdateDarkCustomThemeCss={vi.fn()}
+        onUpdateLightCustomThemeCss={onUpdateLightCustomThemeCss}
       />
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Reset template" }));
 
-    expect(onUpdateCustomThemeCss).toHaveBeenCalledWith(defaultCustomThemeCss);
+    expect(onUpdateLightCustomThemeCss).toHaveBeenCalledWith(defaultCustomThemeCss);
   });
 
   it("imports custom theme CSS from a stylesheet file", async () => {
-    const onUpdateCustomThemeCss = vi.fn();
+    const onUpdateDarkCustomThemeCss = vi.fn();
     const importedCss = ":root[data-theme=\"custom\"] { --accent: #2aa198; }";
 
     render(
       <AppearanceSettings
-        customThemeCss=""
-        selectedTheme="custom"
+        darkCustomThemeCss=""
+        lightCustomThemeCss=""
+        selectedAppearanceMode="dark"
+        selectedDarkTheme="custom"
+        selectedLightTheme="light"
         translate={translate}
-        onUpdateCustomThemeCss={onUpdateCustomThemeCss}
-        onSelectTheme={vi.fn()}
+        onSelectAppearanceMode={vi.fn()}
+        onSelectDarkTheme={vi.fn()}
+        onSelectLightTheme={vi.fn()}
+        onUpdateDarkCustomThemeCss={onUpdateDarkCustomThemeCss}
+        onUpdateLightCustomThemeCss={vi.fn()}
       />
     );
 
@@ -135,7 +173,7 @@ describe("AppearanceSettings", () => {
     fireEvent.change(fileInput, { target: { files: [cssFile] } });
 
     await waitFor(() => {
-      expect(onUpdateCustomThemeCss).toHaveBeenCalledWith(importedCss);
+      expect(onUpdateDarkCustomThemeCss).toHaveBeenCalledWith(importedCss);
     });
   });
 
@@ -148,11 +186,17 @@ describe("AppearanceSettings", () => {
 
     render(
       <AppearanceSettings
-        customThemeCss={css}
-        selectedTheme="custom"
+        darkCustomThemeCss={css}
+        lightCustomThemeCss=""
+        selectedAppearanceMode="dark"
+        selectedDarkTheme="custom"
+        selectedLightTheme="light"
         translate={translate}
-        onUpdateCustomThemeCss={vi.fn()}
-        onSelectTheme={vi.fn()}
+        onSelectAppearanceMode={vi.fn()}
+        onSelectDarkTheme={vi.fn()}
+        onSelectLightTheme={vi.fn()}
+        onUpdateDarkCustomThemeCss={vi.fn()}
+        onUpdateLightCustomThemeCss={vi.fn()}
       />
     );
 
