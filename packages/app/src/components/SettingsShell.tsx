@@ -15,7 +15,7 @@ import {
   X,
   type LucideIcon
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import type { SettingsCategory } from "../hooks/useSettingsWindowState";
 import type { DesktopPlatform } from "../lib/platform";
 import type { I18nKey } from "@markra/shared";
@@ -193,9 +193,17 @@ export function SettingsContent({
   platform?: DesktopPlatform;
   translate: Translate;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const contentSurfaceClassName = platform === "windows"
     ? "border-t border-l border-(--border-default) rounded-tl-md"
     : "";
+
+  useLayoutEffect(() => {
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) return;
+
+    scrollElement.scrollTop = 0;
+  }, [activeCategory]);
 
   return (
     <section className={`settings-content flex min-h-0 min-w-0 flex-col bg-(--bg-primary) ${contentSurfaceClassName}`}>
@@ -219,6 +227,7 @@ export function SettingsContent({
       </header>
 
       <div
+        ref={scrollRef}
         className={
           activeCategory === "providers"
             ? "settings-scroll min-h-0 flex-1 overflow-hidden overscroll-none p-0"

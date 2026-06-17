@@ -189,4 +189,22 @@ describe("SettingsShell", () => {
 
     expect(screen.getByRole("heading", { name: "Providers" })).toBeInTheDocument();
   });
+
+  it("resets the content scroll position when switching settings categories", () => {
+    const { container, rerender } = render(
+      <SettingsContent activeCategory="ai" translate={translate}>
+        <div />
+      </SettingsContent>
+    );
+    const settingsScroll = container.querySelector(".settings-scroll") as HTMLElement;
+    settingsScroll.scrollTop = 48;
+
+    rerender(
+      <SettingsContent activeCategory="providers" translate={translate}>
+        <div />
+      </SettingsContent>
+    );
+
+    expect(settingsScroll.scrollTop).toBe(0);
+  });
 });
