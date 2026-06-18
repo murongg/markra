@@ -938,6 +938,51 @@ describe("useMarkdownDocument", () => {
     expect(result.current.document.name).toBe("notes.md");
   });
 
+  it("keeps a visual editor tab available after opening a folder with document tabs disabled", async () => {
+    mockedReadNativeMarkdownFile.mockResolvedValue({
+      content: "# Guide\n\nSynthetic content",
+      name: "guide.md",
+      path: "/mock-files/vault/docs/guide.md"
+    });
+    const { result } = renderHook(() =>
+      useMarkdownDocument({
+        documentTabsEnabled: false,
+        getCurrentMarkdown: (fallbackContent) => fallbackContent,
+        onTreeRootFromFilePath: vi.fn(),
+        onTreeRootFromFolderPath: vi.fn(),
+        preferencesReady: false,
+        restoreWorkspaceOnStartup: false
+      })
+    );
+
+    act(() => {
+      result.current.clearOpenDocument({ persistWorkspace: false });
+    });
+
+    await act(async () => {
+      await result.current.openTreeMarkdownFile({
+        name: "guide.md",
+        path: "/mock-files/vault/docs/guide.md",
+        relativePath: "docs/guide.md"
+      });
+    });
+
+    expect(result.current.document).toMatchObject({
+      content: "# Guide\n\nSynthetic content",
+      name: "guide.md",
+      path: "/mock-files/vault/docs/guide.md"
+    });
+    expect(result.current.activeTabId).toBe("file:/mock-files/vault/docs/guide.md");
+    expect(result.current.tabs).toEqual([
+      expect.objectContaining({
+        content: "# Guide\n\nSynthetic content",
+        id: "file:/mock-files/vault/docs/guide.md",
+        name: "guide.md",
+        path: "/mock-files/vault/docs/guide.md"
+      })
+    ]);
+  });
+
   it("asks before closing a dirty tab", async () => {
     const confirmDiscardUnsavedChanges = vi.fn(() => false);
     mockedReadNativeMarkdownFile.mockResolvedValue({

@@ -383,13 +383,21 @@ export function useMarkdownDocument({
     documentRef.current = nextDocument;
     setDocument(nextDocument);
 
-    const currentActiveTabId = activeTabIdRef.current;
+    const fallbackActiveTabId = nextDocument.open
+      ? nextDocument.path ? fileTabId(nextDocument.path) : "untitled:0"
+      : null;
+    const currentActiveTabId = activeTabIdRef.current ?? fallbackActiveTabId;
     if (!currentActiveTabId) return;
 
+    activeTabIdRef.current = currentActiveTabId;
+    setActiveTabId(currentActiveTabId);
+
     setTabs((currentTabs) => {
-      const nextTabs = currentTabs.map((tab) =>
-        tab.id === currentActiveTabId ? createDocumentTab(nextDocument, tab.id) : tab
-      );
+      const nextTab = createDocumentTab(nextDocument, currentActiveTabId);
+      const tabExists = currentTabs.some((tab) => tab.id === currentActiveTabId);
+      const nextTabs = tabExists
+        ? currentTabs.map((tab) => tab.id === currentActiveTabId ? nextTab : tab)
+        : [...currentTabs, nextTab];
       tabsRef.current = nextTabs;
       return nextTabs;
     });
