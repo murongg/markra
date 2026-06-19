@@ -1255,7 +1255,7 @@ export function MarkdownFileTreeDrawer({
           <input
             aria-label={label("app.newMarkdownFileName")}
             autoFocus
-            className="h-6 min-w-0 rounded-md border border-(--accent) bg-(--bg-primary) px-1.5 text-[13px] leading-none text-(--text-primary) outline-none"
+            className="h-6 min-w-0 rounded-md border border-(--accent) bg-(--bg-primary) px-1.5 text-[13px] leading-5 text-(--text-primary) outline-none"
             type="text"
             value={newFileName}
             placeholder="Untitled.md"
@@ -1296,7 +1296,7 @@ export function MarkdownFileTreeDrawer({
         <input
           aria-label={label("app.newMarkdownFolderName")}
           autoFocus
-          className="h-6 min-w-0 rounded-md border border-(--accent) bg-(--bg-primary) px-1.5 text-[13px] leading-none text-(--text-primary) outline-none"
+          className="h-6 min-w-0 rounded-md border border-(--accent) bg-(--bg-primary) px-1.5 text-[13px] leading-5 text-(--text-primary) outline-none"
           type="text"
           value={newFolderName}
           placeholder={label("app.newMarkdownFolder")}
@@ -1373,7 +1373,7 @@ export function MarkdownFileTreeDrawer({
         <input
           aria-label={folder ? label("app.renameMarkdownFolder") : label("app.renameMarkdownFile")}
           autoFocus
-          className="h-6 min-w-0 rounded-md border border-(--accent) bg-(--bg-primary) px-1.5 text-[13px] leading-none text-(--text-primary) outline-none"
+          className="h-6 min-w-0 rounded-md border border-(--accent) bg-(--bg-primary) px-1.5 text-[13px] leading-5 text-(--text-primary) outline-none"
           type="text"
           value={renameFileName}
           onChange={(event) => setRenameFileName(event.target.value)}
@@ -1446,7 +1446,7 @@ export function MarkdownFileTreeDrawer({
                   <ChevronRight aria-hidden="true" className="shrink-0" size={13} />
                 )}
                 <Folder aria-hidden="true" className="shrink-0" size={16} />
-                <span className="min-w-0 truncate">{node.name}</span>
+                <span className="min-w-0 truncate leading-5">{node.name}</span>
               </button>
             )}
           </FileTreeDragSource>
@@ -1486,7 +1486,7 @@ export function MarkdownFileTreeDrawer({
             {...dragSource.listeners}
           >
             <FileIcon aria-hidden="true" className="shrink-0" size={15} />
-            <span className="min-w-0 truncate">{node.name}</span>
+            <span className="min-w-0 truncate leading-5">{node.name}</span>
           </button>
         )}
       </FileTreeDragSource>
@@ -1587,8 +1587,8 @@ export function MarkdownFileTreeDrawer({
           const outlineIndent = (item.level - 1) * 12;
           const active = activeOutlineIndex === index;
           const outlineButtonClassName = active
-            ? "h-7 min-w-0 cursor-pointer truncate rounded-sm border-0 bg-(--bg-active) px-1 text-left text-[13px] leading-none font-[620] text-(--text-heading) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)"
-            : "h-7 min-w-0 cursor-pointer truncate rounded-sm border-0 bg-transparent px-1 text-left text-[13px] leading-none text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none";
+            ? "h-7 min-w-0 cursor-pointer truncate rounded-sm border-0 bg-(--bg-active) px-1 text-left text-[13px] leading-5 font-[620] text-(--text-heading) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent)"
+            : "h-7 min-w-0 cursor-pointer truncate rounded-sm border-0 bg-transparent px-1 text-left text-[13px] leading-5 text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none";
 
           return (
             <li key={key}>
@@ -1718,7 +1718,7 @@ export function MarkdownFileTreeDrawer({
             aria-label={label("app.recentMarkdownFolders")}
           >
             <div className="flex h-8 items-center gap-1 px-3 pr-2 text-[12px] text-(--text-secondary)">
-              <h3 className="m-0 min-w-0 flex-1 truncate text-[12px] leading-none font-[560] tracking-normal text-(--text-secondary)">
+              <h3 className="m-0 min-w-0 flex-1 truncate text-[12px] leading-5 font-[560] tracking-normal text-(--text-secondary)">
                 {label("app.recentMarkdownFolders")}
               </h3>
               <IconButton
@@ -1766,9 +1766,9 @@ export function MarkdownFileTreeDrawer({
                       >
                         <RecentFolderIcon aria-hidden="true" className="shrink-0" size={14} />
                         <span className="flex min-w-0 flex-col gap-0.5">
-                          <span className="min-w-0 truncate">{folder.name}</span>
+                          <span className="min-w-0 truncate leading-4">{folder.name}</span>
                           {duplicateName ? (
-                            <span className="min-w-0 truncate text-[10px] leading-none text-(--text-tertiary)">
+                            <span className="min-w-0 truncate text-[10px] leading-4 text-(--text-tertiary)">
                               {folderPathLabel}
                             </span>
                           ) : null}
@@ -1897,7 +1897,7 @@ export function MarkdownFileTreeDrawer({
         ) : null}
         {!tabbedSidebarLayout ? (
           <div className="grid h-10 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center border-b border-(--border-default) px-3">
-            <h2 className="m-0 truncate text-[14px] font-[560] tracking-normal text-(--text-heading)">
+            <h2 className="m-0 truncate text-[14px] leading-5 font-[560] tracking-normal text-(--text-heading)">
               {label("app.files")}
             </h2>
             <div className="markdown-file-tree-header-actions flex items-center gap-0.5">
@@ -1955,7 +1955,7 @@ export function MarkdownFileTreeDrawer({
                         onContextMenu={(event) => openContextMenu(event)}
                       >
                         <Folder aria-hidden="true" size={16} />
-                        <span className="min-w-0 truncate">{rootName}</span>
+                        <span className="min-w-0 truncate leading-5">{rootName}</span>
                       </div>
                     )}
                   </FileTreeDropTarget>
@@ -2163,7 +2163,7 @@ export function MarkdownFileTreeDrawer({
                   {!tabbedSidebarLayout ? (
                     <>
                       <TableOfContents aria-hidden="true" size={16} />
-                      <h3 className="m-0 min-w-0 flex-1 truncate text-[13px] leading-none font-[560] tracking-normal text-(--text-secondary)">
+                      <h3 className="m-0 min-w-0 flex-1 truncate text-[13px] leading-5 font-[560] tracking-normal text-(--text-secondary)">
                         {label("app.outline")}
                       </h3>
                     </>

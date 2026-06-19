@@ -642,7 +642,7 @@ export function NativeTitleBar({
           style={{ transform: titleTransform }}
         >
           <TitleIcon aria-hidden="true" size={15} />
-          <span className="min-w-0 truncate" data-tauri-drag-region={nativeWindowChrome ? true : undefined}>
+          <span className="min-w-0 truncate leading-5" data-tauri-drag-region={nativeWindowChrome ? true : undefined}>
             {documentName}
           </span>
           {dirty ? (

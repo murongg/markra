@@ -197,7 +197,7 @@ export function FileTreeDragOverlay({
       data-testid="file-tree-drag-overlay"
     >
       <FileIcon aria-hidden="true" className="shrink-0" size={15} />
-      <span className="min-w-0 truncate">{file.relativePath}</span>
+      <span className="min-w-0 truncate leading-5">{file.relativePath}</span>
     </div>
   );
 }
