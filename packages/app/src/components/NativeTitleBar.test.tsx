@@ -88,14 +88,74 @@ describe("NativeTitleBar", () => {
     expect(screen.getByRole("tab", { name: "Draft.md" }).closest("[data-tauri-drag-region]")).toBeNull();
     expect(container.querySelector(".native-titlebar")).toHaveClass("bg-(--bg-primary)");
     expect(container.querySelector(".native-titlebar")).not.toHaveClass("border-b");
-    expect(container.querySelector(".native-titlebar")).toHaveStyle({
-      background: "linear-gradient(to right, var(--bg-secondary) 0 220px, var(--bg-primary) 220px 100%)"
-    });
-    expect(container.querySelector(".native-titlebar-sidebar-divider")).toHaveStyle({ left: "219px" });
+    const sidebarSurface = container.querySelector<HTMLElement>(".native-titlebar-sidebar-surface");
+    const sidebarDivider = container.querySelector<HTMLElement>(".native-titlebar-sidebar-divider");
+    expect(sidebarSurface).toHaveStyle({ width: "220px" });
+    expect(sidebarSurface).toContainElement(sidebarDivider);
+    expect(sidebarDivider).toHaveClass("right-0", "opacity-100");
     expect(container.querySelector(".native-title-slot")).toHaveStyle({
       marginLeft: "56px"
     });
     expect(container.querySelector(".native-title-slot")).not.toHaveStyle({ transform: "translateX(110px)" });
+  });
+
+  it("keeps the titlebar sidebar surface mounted so it animates with the workspace columns", () => {
+    const { container, rerender } = render(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen
+        markdownFilesWidth={288}
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    const surface = container.querySelector<HTMLElement>(".native-titlebar-sidebar-surface");
+    const divider = container.querySelector<HTMLElement>(".native-titlebar-sidebar-divider");
+
+    expect(surface).toBeInTheDocument();
+    expect(surface).toHaveClass("transition-[width]", "duration-200", "ease-[cubic-bezier(0.22,1,0.36,1)]");
+    expect(surface).toHaveStyle({ width: "288px" });
+    expect(divider).toBeInTheDocument();
+    expect(surface).toContainElement(divider);
+    expect(divider).toHaveClass("right-0", "opacity-100");
+    expect(divider).not.toHaveClass("transition-[left]");
+    expect(divider).not.toHaveStyle({ left: "287px" });
+
+    rerender(
+      <NativeTitleBar
+        aiAgentOpen={false}
+        dirty={false}
+        documentName="Draft.md"
+        markdownFilesOpen={false}
+        markdownFilesWidth={288}
+        theme="light"
+        titleContent={(
+          <div role="tablist" aria-label="Open documents">
+            <button type="button" role="tab" aria-selected="true">Draft.md</button>
+          </div>
+        )}
+        onToggleAiAgent={() => {}}
+        onOpenMarkdown={() => {}}
+        onSaveMarkdown={() => {}}
+        onToggleMarkdownFiles={() => {}}
+        onToggleTheme={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".native-titlebar-sidebar-surface")).toHaveStyle({ width: "0px" });
+    expect(container.querySelector(".native-titlebar-sidebar-divider")).not.toHaveStyle({ left: "0px" });
   });
 
   it("keeps the shifted titlebar sidebar gap draggable when tabs are visible", () => {

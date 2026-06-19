@@ -51,12 +51,61 @@ describe("MarkdownFileTreeDrawer", () => {
     expect(screen.queryByRole("button", { name: "Toggle file list" })).not.toBeInTheDocument();
     expect(settings).toHaveClass("fixed", "bottom-3", "left-3");
     expect(settings).toContainElement(container.querySelector(".lucide-settings"));
-    expect(container.querySelector(".markdown-file-tree")).toHaveClass("opacity-0", "-translate-x-4");
+    expect(container.querySelector(".markdown-file-tree")).toHaveStyle({
+      maxWidth: "0px",
+      minWidth: "0px",
+      width: "0px"
+    });
     expect(container.querySelector(".markdown-file-tree")).toHaveAttribute("aria-hidden", "true");
 
     fireEvent.click(settings);
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("collapses its own width so the drawer contents clip with the workspace animation", () => {
+    const { container, rerender } = render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        open
+        outlineItems={[]}
+        rootName="Obsidian Vault"
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    const drawer = container.querySelector(".markdown-file-tree");
+
+    expect(drawer).toHaveClass("transition-[width,min-width,max-width]");
+    expect(drawer).not.toHaveClass("opacity-100", "opacity-0");
+    expect(container.querySelector(".markdown-file-tree-content")).toHaveClass("transition-opacity", "opacity-100");
+    expect(drawer).toHaveStyle({
+      maxWidth: "288px",
+      minWidth: "288px",
+      width: "288px"
+    });
+
+    rerender(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        open={false}
+        outlineItems={[]}
+        rootName="Obsidian Vault"
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    expect(container.querySelector(".markdown-file-tree")).toHaveStyle({
+      maxWidth: "0px",
+      minWidth: "0px",
+      width: "0px"
+    });
+    expect(container.querySelector(".markdown-file-tree")).not.toHaveClass("opacity-0");
+    expect(container.querySelector(".markdown-file-tree-content")).toHaveClass("opacity-0");
   });
 
   it("shows file and outline panels together", () => {
@@ -586,7 +635,9 @@ describe("MarkdownFileTreeDrawer", () => {
 
     expect(sidebar).toBeInTheDocument();
     expect(sidebar).not.toHaveClass("fixed");
-    expect(sidebar).toHaveClass("transition-[transform,opacity]", "translate-x-0", "opacity-100");
+    expect(sidebar).toHaveClass("transition-[width,min-width,max-width]");
+    expect(sidebar).not.toHaveClass("opacity-100", "opacity-0");
+    expect(container.querySelector(".markdown-file-tree-content")).toHaveClass("transition-opacity", "opacity-100");
     expect(sidebar).toHaveClass("bg-(--bg-secondary)");
     expect(screen.getByText("Files")).toBeInTheDocument();
     expect(screen.getByText("Obsidian Vault")).toBeInTheDocument();

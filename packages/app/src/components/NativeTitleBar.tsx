@@ -621,16 +621,14 @@ export function NativeTitleBar({
   const titlebarSurfaceClassName = "bg-(--bg-primary)";
   const windowsAppChromeSurfaceClassName = "bg-(--bg-chrome)";
   const windowsTitlebarSurfaceClassName = titlebarSurfaceClassName;
-  const titlebarSurfaceStyle: CSSProperties | undefined = nativeWindowChrome && markdownFilesOpen
-    ? {
-      background: `linear-gradient(to right, var(--bg-secondary) 0 ${markdownFilesWidth}px, var(--bg-primary) ${markdownFilesWidth}px 100%)`
-    }
-    : undefined;
+  const titlebarSidebarWidth = nativeWindowChrome && markdownFilesOpen ? markdownFilesWidth : 0;
+  const titlebarSidebarWidthTransitionClassName = markdownFilesResizing
+    ? "transition-none"
+    : "transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
   const windowsTitlebarActionsTransitionClassName = aiAgentResizing
     ? "transition-none"
     : "transition-[opacity,background-color,color,transform] duration-150 ease-out";
   const titlebarGridStyle: CSSProperties = {
-    ...(titlebarSurfaceStyle ?? {}),
     ...(!nativeWindowChrome && markdownFilesOpen ? { left: markdownFilesWidth + 1 } : {}),
     gridTemplateColumns: nativeWindowChrome
       ? `${titlebarSideSlotWidth}px minmax(0,1fr) ${titlebarSideSlotWidth}px`
@@ -642,12 +640,17 @@ export function NativeTitleBar({
       {titleContent}
     </div>
   );
-  const renderMarkdownFilesDivider = () => nativeWindowChrome && markdownFilesOpen ? (
+  const renderTitlebarSidebarSurface = () => nativeWindowChrome ? (
     <span
       aria-hidden="true"
-      className="native-titlebar-sidebar-divider pointer-events-none absolute top-0 bottom-0 z-30 w-px bg-(--border-default)"
-      style={{ left: Math.max(0, markdownFilesWidth - 1) }}
-    />
+      className={`native-titlebar-sidebar-surface pointer-events-none absolute top-0 bottom-0 left-0 z-0 bg-(--bg-secondary) ${titlebarSidebarWidthTransitionClassName}`}
+      style={{ width: titlebarSidebarWidth }}
+    >
+      <span
+        aria-hidden="true"
+        className="native-titlebar-sidebar-divider pointer-events-none absolute top-0 right-0 bottom-0 w-px bg-(--border-default) opacity-100"
+      />
+    </span>
   ) : null;
   const renderTitlebarSidebarDragFill = () => {
     if (!nativeWindowChrome || !markdownFilesOpen || !titleContent) return null;
@@ -880,7 +883,7 @@ export function NativeTitleBar({
       aria-label={label("app.windowDragRegion")}
       data-tauri-drag-region={nativeWindowChrome && !titleContent ? true : undefined}
     >
-      {renderMarkdownFilesDivider()}
+      {renderTitlebarSidebarSurface()}
       {renderTitlebarSidebarDragFill()}
       <div
         className={`titlebar-spacer relative z-20 flex h-10 items-center gap-1 ${titlebarLeftPaddingClassName}`}
