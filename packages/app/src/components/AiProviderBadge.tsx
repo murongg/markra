@@ -67,7 +67,7 @@ export function AiProviderBadge({ provider, translate }: { provider: AiProviderC
   const logo = providerLogoById[provider.id] ?? providerLogoByType[provider.type];
 
   return (
-    <span className="inline-flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-(--border-default) bg-[oklch(0.985_0.004_255)] leading-none font-[750] text-(--accent)">
+    <span className="inline-flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-(--border-default) bg-[oklch(0.985_0.004_255)] leading-4 font-[750] text-(--accent)">
       {logo ? (
         <img
           className="size-5 object-contain"

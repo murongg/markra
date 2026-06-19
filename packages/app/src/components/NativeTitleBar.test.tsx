@@ -45,6 +45,7 @@ describe("NativeTitleBar", () => {
 
     expect(screen.getByLabelText("Window drag region")).toHaveAttribute("data-tauri-drag-region");
     expect(screen.getByRole("heading", { name: "Draft.md" })).toBeInTheDocument();
+    expect(screen.getByText("Draft.md")).toHaveClass("truncate", "leading-5");
     expect(screen.getByRole("button", { name: "Open Markdown or Folder" }).closest(".titlebar-spacer")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Markdown" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeInTheDocument();
@@ -481,6 +482,7 @@ describe("NativeTitleBar", () => {
     expect(workspaceContext?.closest(".windows-app-chrome-center")).toBeInTheDocument();
     expect(workspaceContext?.closest(".windows-app-chrome-center")).toHaveClass("absolute", "left-1/2", "-translate-x-1/2");
     expect(workspaceContext).toHaveTextContent("Desktop");
+    expect(within(workspaceContext as HTMLElement).getByText("Desktop")).toHaveClass("truncate", "leading-4");
     expect(screen.queryByRole("heading", { name: "Desktop" })).not.toBeInTheDocument();
   });
 
@@ -507,7 +509,9 @@ describe("NativeTitleBar", () => {
 
     expect(workspaceContext).toBeInTheDocument();
     expect(workspaceContext).toHaveTextContent("Desktop");
+    expect(within(workspaceContext as HTMLElement).getByText("Desktop")).toHaveClass("truncate", "leading-4");
     expect(screen.getByRole("heading", { name: "Draft.md" })).toBeInTheDocument();
+    expect(screen.getByText("Draft.md")).toHaveClass("truncate", "leading-5");
   });
 
   it("opens self-drawn Windows app menu dropdowns from the top chrome", () => {

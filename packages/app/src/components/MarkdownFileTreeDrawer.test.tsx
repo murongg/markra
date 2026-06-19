@@ -135,6 +135,44 @@ describe("MarkdownFileTreeDrawer", () => {
     expect(container.querySelector(".markdown-file-tree-outline")).toContainElement(container.querySelector(".lucide-table-of-contents"));
   });
 
+  it("uses safe line height for truncated compact labels", () => {
+    render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        open
+        outlineItems={[
+          { level: 1, title: "plugin gap" }
+        ]}
+        recentFolders={[
+          { name: "docs", path: "/mock-workspaces/alpha/docs" },
+          { name: "docs", path: "/mock-workspaces/beta/docs" }
+        ]}
+        rootName="Obsidian Vault"
+        onOpenFile={() => {}}
+        onOpenRecentFolder={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    const fileButton = screen.getByRole("button", { name: "Untitled.md" });
+    const folderButton = screen.getByRole("button", { name: "deploy" });
+    const outlineButton = screen.getByRole("button", { name: "plugin gap" });
+    const recentSection = screen.getByRole("region", { name: "Recently used directories" });
+    const recentHeader = within(recentSection).getByRole("heading", { name: "Recently used directories" });
+    const recentFolder = within(recentSection).getByRole("button", {
+      name: "docs /mock-workspaces/alpha/docs"
+    });
+
+    expect(within(fileButton).getByText("Untitled.md")).toHaveClass("truncate", "leading-5");
+    expect(within(folderButton).getByText("deploy")).toHaveClass("truncate", "leading-5");
+    expect(outlineButton).toHaveClass("truncate", "leading-5");
+    expect(outlineButton).not.toHaveClass("leading-none");
+    expect(recentHeader).toHaveClass("truncate", "leading-5");
+    expect(within(recentFolder).getByText("docs")).toHaveClass("truncate", "leading-4");
+    expect(within(recentFolder).getByText("/mock-workspaces/alpha/docs")).toHaveClass("truncate", "leading-4");
+  });
+
   it("switches file and outline panels in the tabbed sidebar layout", () => {
     const { container } = render(
       <MarkdownFileTreeDrawer
@@ -1798,7 +1836,10 @@ describe("MarkdownFileTreeDrawer", () => {
     fireEvent.mouseMove(document, { buttons: 1, clientX: 24, clientY: 42 });
     fireEvent.mouseMove(document, { buttons: 1, clientX: 24, clientY: 16 });
 
-    expect(screen.getByTestId("file-tree-drag-overlay")).toHaveTextContent("AWS.md");
+    const dragOverlay = screen.getByTestId("file-tree-drag-overlay");
+
+    expect(dragOverlay).toHaveTextContent("AWS.md");
+    expect(within(dragOverlay).getByText("AWS.md")).toHaveClass("truncate", "leading-5");
     expect(deployFolder).toHaveClass("bg-(--bg-active)");
 
     fireEvent.mouseUp(document, { clientX: 24, clientY: 16 });

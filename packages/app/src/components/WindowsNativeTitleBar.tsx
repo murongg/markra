@@ -290,7 +290,7 @@ export function WindowsNativeTitleBar({
       title={windowsWorkspaceName}
     >
       <FolderOpen aria-hidden="true" className="shrink-0 text-(--text-secondary)" size={13} />
-      <span className="min-w-0 truncate" data-tauri-drag-region={nativeWindowChrome ? true : undefined}>
+      <span className="min-w-0 truncate leading-4" data-tauri-drag-region={nativeWindowChrome ? true : undefined}>
         {windowsWorkspaceName}
       </span>
     </span>
@@ -449,7 +449,7 @@ export function WindowsNativeTitleBar({
             style={{ transform: windowsTitleTransform }}
           >
             <TitleIcon aria-hidden="true" size={15} />
-            <span className="min-w-0 truncate" data-tauri-drag-region={nativeWindowChrome ? true : undefined}>
+            <span className="min-w-0 truncate leading-5" data-tauri-drag-region={nativeWindowChrome ? true : undefined}>
               {documentName}
             </span>
             {dirty ? (
