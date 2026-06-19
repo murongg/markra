@@ -124,6 +124,7 @@ type MarkdownFileTreeDrawerProps = {
   outlineItems: MarkdownOutlineItem[];
   platform?: DesktopPlatform;
   recentFolders?: readonly RecentMarkdownFolder[];
+  recentFoldersOpen?: boolean;
   rootPath?: string | null;
   rootName: string;
   sidebarLayoutMode?: SidebarLayoutMode;
@@ -137,6 +138,7 @@ type MarkdownFileTreeDrawerProps = {
   onOpenFolder?: () => unknown | Promise<unknown>;
   onOpenRecentFolder?: (folder: RecentMarkdownFolder) => unknown | Promise<unknown>;
   onOpenSettings?: () => unknown | Promise<unknown>;
+  onRecentFoldersOpenChange?: (open: boolean) => unknown;
   onRemoveRecentFolder?: (folder: RecentMarkdownFolder) => unknown | Promise<unknown>;
   onMoveFile?: (file: NativeMarkdownFolderFile, targetParentPath: string | null) => unknown | Promise<unknown>;
   onRenameFile?: (file: NativeMarkdownFolderFile, fileName: string) => unknown | Promise<unknown>;
@@ -330,6 +332,7 @@ export function MarkdownFileTreeDrawer({
   outlineItems,
   platform = resolveDesktopPlatform(),
   recentFolders = [],
+  recentFoldersOpen: controlledRecentFoldersOpen,
   rootPath = null,
   rootName,
   sidebarLayoutMode = "stacked",
@@ -343,6 +346,7 @@ export function MarkdownFileTreeDrawer({
   onOpenFolder,
   onOpenRecentFolder,
   onOpenSettings = () => {},
+  onRecentFoldersOpenChange,
   onRemoveRecentFolder,
   onMoveFile,
   onRenameFile,
@@ -369,7 +373,7 @@ export function MarkdownFileTreeDrawer({
   const [focusedRecentFolderActionPath, setFocusedRecentFolderActionPath] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [recentFoldersOpen, setRecentFoldersOpen] = useState(true);
+  const [localRecentFoldersOpen, setLocalRecentFoldersOpen] = useState(true);
   const [outlineOpen, setOutlineOpen] = useState(true);
   const [outlineHeightPercent, setOutlineHeightPercent] = useState(defaultOutlineHeightPercent);
   const [creatingFile, setCreatingFile] = useState(false);
@@ -408,6 +412,14 @@ export function MarkdownFileTreeDrawer({
   );
   const fullTree = useMemo(() => buildMarkdownFileTree(files, rootPath, fileTreeSort), [files, rootPath, fileTreeSort]);
   const tree = useMemo(() => filterMarkdownFileTree(fullTree, searchQuery), [fullTree, searchQuery]);
+  const recentFoldersOpen = controlledRecentFoldersOpen ?? localRecentFoldersOpen;
+  const setRecentFoldersExpanded = useCallback((openRecentFolders: boolean) => {
+    if (controlledRecentFoldersOpen === undefined) {
+      setLocalRecentFoldersOpen(openRecentFolders);
+    }
+
+    onRecentFoldersOpenChange?.(openRecentFolders);
+  }, [controlledRecentFoldersOpen, onRecentFoldersOpenChange]);
   const visibleFileTreeRows = useMemo(
     () => buildVisibleFileTreeRows(
       tree,
@@ -1661,7 +1673,7 @@ export function MarkdownFileTreeDrawer({
                 className="rounded-md"
                 label={recentFoldersOpen ? label("app.hideRecentMarkdownFolders") : label("app.showRecentMarkdownFolders")}
                 pressed={recentFoldersOpen}
-                onClick={() => setRecentFoldersOpen((open) => !open)}
+                onClick={() => setRecentFoldersExpanded(!recentFoldersOpen)}
               >
                 {recentFoldersOpen ? (
                   <ChevronDown aria-hidden="true" size={14} />

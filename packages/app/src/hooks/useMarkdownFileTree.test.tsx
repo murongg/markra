@@ -12,6 +12,7 @@ import {
 import {
   createAiAgentSessionId,
   getStoredRecentMarkdownFolders,
+  getStoredWorkspaceState,
   removeStoredRecentMarkdownFolder,
   saveStoredRecentMarkdownFolder,
   saveStoredWorkspaceState,
@@ -33,6 +34,7 @@ vi.mock("../lib/tauri", () => ({
 vi.mock("../lib/settings/app-settings", () => ({
   createAiAgentSessionId: vi.fn(),
   getStoredRecentMarkdownFolders: vi.fn(),
+  getStoredWorkspaceState: vi.fn(),
   prependRecentMarkdownFolder: vi.fn((folders: RecentMarkdownFolder[], folder: RecentMarkdownFolder) => [
     folder,
     ...folders.filter((item) => item.path !== folder.path)
@@ -52,9 +54,25 @@ const mockedRenameNativeMarkdownTreeFile = vi.mocked(renameNativeMarkdownTreeFil
 const mockedWatchNativeMarkdownTree = vi.mocked(watchNativeMarkdownTree);
 const mockedCreateAiAgentSessionId = vi.mocked(createAiAgentSessionId);
 const mockedGetStoredRecentMarkdownFolders = vi.mocked(getStoredRecentMarkdownFolders);
+const mockedGetStoredWorkspaceState = vi.mocked(getStoredWorkspaceState);
 const mockedRemoveStoredRecentMarkdownFolder = vi.mocked(removeStoredRecentMarkdownFolder);
 const mockedSaveStoredRecentMarkdownFolder = vi.mocked(saveStoredRecentMarkdownFolder);
 const mockedSaveStoredWorkspaceState = vi.mocked(saveStoredWorkspaceState);
+
+function mockWorkspaceState(
+  patch: Partial<Awaited<ReturnType<typeof getStoredWorkspaceState>>> = {}
+): Awaited<ReturnType<typeof getStoredWorkspaceState>> {
+  return {
+    aiAgentSessionId: null,
+    filePath: null,
+    fileTreeOpen: false,
+    folderName: null,
+    folderPath: null,
+    openFilePaths: [],
+    openWindows: [],
+    ...patch
+  };
+}
 
 function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) {
   const tree = useMarkdownFileTree();
@@ -65,6 +83,7 @@ function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) 
       <p data-testid="open-state">{tree.open ? "open" : "closed"}</p>
       <p data-testid="tree-width">{tree.width}</p>
       <p data-testid="tree-resizing">{tree.resizing ? "resizing" : "idle"}</p>
+      <p data-testid="recent-folders-open-state">{tree.recentFoldersOpen ? "open" : "closed"}</p>
       <p data-testid="layout-class">{tree.workspaceLayoutClassName}</p>
       <p data-testid="layout-columns">{tree.workspaceLayoutStyle.gridTemplateColumns}</p>
       <button type="button" onClick={() => tree.openMarkdownFolder()}>
@@ -105,6 +124,12 @@ function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) 
       </button>
       <button type="button" onClick={tree.endResize}>
         End resize
+      </button>
+      <button type="button" onClick={() => tree.setRecentFoldersOpen?.(false)}>
+        Collapse recent folders
+      </button>
+      <button type="button" onClick={() => tree.setRecentFoldersOpen?.(true)}>
+        Expand recent folders
       </button>
       <button type="button" onClick={() => tree.createFile("Daily note")}>
         Create
@@ -166,11 +191,15 @@ describe("useMarkdownFileTree", () => {
     mockedWatchNativeMarkdownTree.mockReset();
     mockedCreateAiAgentSessionId.mockReset();
     mockedGetStoredRecentMarkdownFolders.mockReset();
+    mockedGetStoredWorkspaceState.mockReset();
     mockedRemoveStoredRecentMarkdownFolder.mockReset();
     mockedSaveStoredRecentMarkdownFolder.mockReset();
     mockedSaveStoredWorkspaceState.mockReset();
     mockedCreateAiAgentSessionId.mockReturnValue("session-folder");
     mockedGetStoredRecentMarkdownFolders.mockResolvedValue([]);
+    mockedGetStoredWorkspaceState.mockResolvedValue(mockWorkspaceState({
+      recentFoldersOpen: true
+    }));
     mockedRemoveStoredRecentMarkdownFolder.mockResolvedValue([]);
     mockedSaveStoredRecentMarkdownFolder.mockResolvedValue([]);
     mockedCreateNativeMarkdownTreeFile.mockResolvedValue({
@@ -293,6 +322,30 @@ describe("useMarkdownFileTree", () => {
 
     expect(await screen.findByText("/recent/notes")).toBeInTheDocument();
     expect(mockedGetStoredRecentMarkdownFolders).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores and persists the recent folder section expansion state", async () => {
+    mockedGetStoredWorkspaceState.mockResolvedValue(mockWorkspaceState({
+      recentFoldersOpen: false
+    }));
+
+    render(<FileTreeProbe />);
+
+    await waitFor(() => expect(screen.getByTestId("recent-folders-open-state")).toHaveTextContent("closed"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand recent folders" }));
+
+    expect(screen.getByTestId("recent-folders-open-state")).toHaveTextContent("open");
+    expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({
+      recentFoldersOpen: true
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse recent folders" }));
+
+    expect(screen.getByTestId("recent-folders-open-state")).toHaveTextContent("closed");
+    expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({
+      recentFoldersOpen: false
+    });
   });
 
   it("opens a remembered markdown folder without showing the native picker", async () => {

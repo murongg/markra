@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import {
   createAiAgentSessionId,
   getStoredRecentMarkdownFolders,
+  getStoredWorkspaceState,
   prependRecentMarkdownFolder,
   removeStoredRecentMarkdownFolder,
   saveStoredRecentMarkdownFolder,
@@ -49,6 +50,7 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [recentFolders, setRecentFolders] = useState<RecentMarkdownFolder[]>([]);
+  const [recentFoldersOpen, setRecentFoldersOpenState] = useState(true);
   const [width, setWidth] = useState(markdownFileTreeDefaultWidth);
   const [resizing, setResizing] = useState(false);
   const loadedSourcePathRef = useRef<string | null>(null);
@@ -172,6 +174,11 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     forgetRecentFolder(folder.path);
   }, [forgetRecentFolder]);
 
+  const setRecentFoldersOpen = useCallback((openRecentFolders: boolean) => {
+    setRecentFoldersOpenState(openRecentFolders);
+    persistWorkspaceState({ recentFoldersOpen: openRecentFolders });
+  }, []);
+
   const createFile = useCallback(async (fileName: string, parentPath: string | null = null, contents?: string) => {
     if (!sourcePath) return null;
 
@@ -259,6 +266,18 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
   useEffect(() => {
     let active = true;
 
+    getStoredWorkspaceState().then((workspace) => {
+      if (active) setRecentFoldersOpenState(workspace.recentFoldersOpen ?? true);
+    }).catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
     if (!sourcePath) {
       loadedSourcePathRef.current = null;
       setFiles([]);
@@ -319,6 +338,7 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     deleteFile,
     files,
     recentFolders,
+    recentFoldersOpen,
     resizing,
     width,
     maxWidth: markdownFileTreeMaxWidth,
@@ -327,6 +347,7 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     openFolderPath,
     openRecentFolder,
     removeRecentFolder,
+    setRecentFoldersOpen,
     moveFile,
     rootNameForDocument,
     refresh,

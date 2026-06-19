@@ -10,6 +10,7 @@ export type StoredWorkspaceState = {
   folderPath: string | null;
   openFilePaths: string[];
   openWindows?: StoredWorkspaceWindow[];
+  recentFoldersOpen?: boolean;
   sideBySideGroup?: StoredWorkspaceSideBySideGroup | null;
 };
 
@@ -71,6 +72,7 @@ export function normalizeWorkspaceState(value: unknown): StoredWorkspaceState {
     folderPath: normalizeNullableString(workspace.folderPath),
     openFilePaths,
     openWindows: normalizeWorkspaceWindows(workspace.openWindows),
+    ...(typeof workspace.recentFoldersOpen === "boolean" ? { recentFoldersOpen: workspace.recentFoldersOpen } : {}),
     ...(persistedSideBySideGroup ? { sideBySideGroup: persistedSideBySideGroup } : {})
   };
 }

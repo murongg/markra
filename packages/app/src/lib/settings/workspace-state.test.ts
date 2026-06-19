@@ -225,6 +225,60 @@ describe("workspace state settings", () => {
     });
   });
 
+  it("persists recent folder collapse state for only the targeted window", async () => {
+    store.get.mockResolvedValue({
+      openWindows: [],
+      windowStates: {
+        main: {
+          aiAgentSessionId: "session-main",
+          filePath: "/mock-files/main.md",
+          fileTreeOpen: true,
+          folderName: "mock-files",
+          folderPath: "/mock-files",
+          openFilePaths: ["/mock-files/main.md"],
+          recentFoldersOpen: true
+        },
+        "markra-editor-1": {
+          aiAgentSessionId: "session-secondary",
+          filePath: "/mock-files/secondary.md",
+          fileTreeOpen: true,
+          folderName: "mock-files",
+          folderPath: "/mock-files",
+          openFilePaths: ["/mock-files/secondary.md"],
+          recentFoldersOpen: true
+        }
+      }
+    });
+
+    await saveStoredWorkspaceState({
+      recentFoldersOpen: false
+    }, { windowLabel: "markra-editor-1" });
+
+    expect(store.set).toHaveBeenCalledWith("workspace", {
+      openWindows: [],
+      windowStates: {
+        main: {
+          aiAgentSessionId: "session-main",
+          filePath: "/mock-files/main.md",
+          fileTreeOpen: true,
+          folderName: "mock-files",
+          folderPath: "/mock-files",
+          openFilePaths: ["/mock-files/main.md"],
+          recentFoldersOpen: true
+        },
+        "markra-editor-1": {
+          aiAgentSessionId: "session-secondary",
+          filePath: "/mock-files/secondary.md",
+          fileTreeOpen: true,
+          folderName: "mock-files",
+          folderPath: "/mock-files",
+          openFilePaths: ["/mock-files/secondary.md"],
+          recentFoldersOpen: false
+        }
+      }
+    });
+  });
+
   it("loads workspace state for the targeted window", async () => {
     store.get.mockResolvedValue({
       openWindows: [

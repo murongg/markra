@@ -437,6 +437,7 @@ function WorkspaceApp() {
     openRecentFolder,
     removeRecentFolder,
     renameFile: renameMarkdownTreeFile,
+    recentFoldersOpen: recentMarkdownFoldersOpen,
     recentFolders: recentMarkdownFolders,
     refresh: refreshMarkdownFileTree,
     resizing: fileTreeResizing,
@@ -445,6 +446,7 @@ function WorkspaceApp() {
     sourcePath: fileTreeSourcePath,
     rootNameForDocument,
     setRootFromMarkdownFilePath,
+    setRecentFoldersOpen: setRecentMarkdownFoldersOpen,
     startResize: startFileTreeResize,
     toggle: toggleFileTree,
     width: fileTreeWidth,
@@ -3274,6 +3276,7 @@ function WorkspaceApp() {
               open={fileTreeOpen}
               outlineItems={outlineItems}
               recentFolders={recentMarkdownFolders}
+              recentFoldersOpen={recentMarkdownFoldersOpen}
               rootPath={fileTree.sourcePath}
               rootName={fileTreeRootName}
               sidebarLayoutMode={editorPreferences.preferences.sidebarLayoutMode}
@@ -3292,6 +3295,7 @@ function WorkspaceApp() {
               onOpenFolder={handleOpenMarkdownFolder}
               onOpenRecentFolder={handleOpenRecentMarkdownFolder}
               onOpenSettings={handleOpenSettings}
+              onRecentFoldersOpenChange={setRecentMarkdownFoldersOpen}
               onRemoveRecentFolder={removeRecentFolder}
               onRenameFile={handleRenameMarkdownTreeFile}
               onResize={resizeFileTree}
