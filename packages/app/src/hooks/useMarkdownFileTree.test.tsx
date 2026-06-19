@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   createNativeMarkdownTreeFile,
   createNativeMarkdownTreeFolder,
@@ -78,6 +78,12 @@ function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) 
         onClick={() => tree.openRecentFolder?.({ name: "notes", path: "/recent/notes" })}
       >
         Open recent folder
+      </button>
+      <button
+        type="button"
+        onClick={() => tree.openRecentFolder?.({ name: "docs", path: "/mock-workspaces/beta/docs" })}
+      >
+        Open second docs folder
       </button>
       <button
         type="button"
@@ -311,6 +317,38 @@ describe("useMarkdownFileTree", () => {
     expect(mockedSaveStoredRecentMarkdownFolder).toHaveBeenCalledWith({
       name: "notes",
       path: "/recent/notes"
+    });
+  });
+
+  it("moves an opened recent folder to the top of the recent list", async () => {
+    mockedGetStoredRecentMarkdownFolders.mockResolvedValue([
+      { name: "docs", path: "/mock-workspaces/alpha/docs" },
+      { name: "docs", path: "/mock-workspaces/beta/docs" }
+    ]);
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { path: "/mock-workspaces/beta/docs/index.md", name: "index.md", relativePath: "index.md" }
+    ]);
+
+    render(<FileTreeProbe />);
+
+    const recentList = await screen.findByRole("list", { name: "Recent folders" });
+    expect(within(recentList).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "/mock-workspaces/alpha/docs",
+      "/mock-workspaces/beta/docs"
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open second docs folder" }));
+
+    expect(await screen.findByText("index.md")).toBeInTheDocument();
+    expect(screen.getByTestId("root-name")).toHaveTextContent("docs");
+    expect(within(recentList).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "/mock-workspaces/beta/docs",
+      "/mock-workspaces/alpha/docs"
+    ]);
+    expect(mockedListNativeMarkdownFilesForPath).toHaveBeenCalledWith("/mock-workspaces/beta/docs");
+    expect(mockedSaveStoredRecentMarkdownFolder).toHaveBeenCalledWith({
+      name: "docs",
+      path: "/mock-workspaces/beta/docs"
     });
   });
 

@@ -159,6 +159,7 @@ const minOutlineHeightPercent = 24;
 const maxOutlineHeightPercent = 72;
 const outlineResizeKeyboardStepPercent = 5;
 const outlineResizeFallbackHeight = 320;
+const recentFolderPathDisplayMaxLength = 48;
 const fileTreeContextRowSelectionClassName = "select-none [-webkit-user-select:none]";
 const fileTreeDropTargetClassName = "bg-(--bg-active) text-(--text-heading)";
 const fileTreeDropListTargetClassName = "rounded-sm bg-(--bg-active)";
@@ -198,6 +199,42 @@ const outlineTitleMarkdownComponents = {
 
 function sidebarPanelTabClassName(selected: boolean) {
   return `${sidebarPanelTabBaseClassName} ${selected ? sidebarPanelTabActiveClassName : sidebarPanelTabInactiveClassName}`;
+}
+
+function recentFolderNameKey(folder: RecentMarkdownFolder) {
+  return folder.name.trim().toLocaleLowerCase();
+}
+
+function duplicateRecentFolderNameKeys(folders: readonly RecentMarkdownFolder[]) {
+  const counts = new Map<string, number>();
+
+  folders.forEach((folder) => {
+    const key = recentFolderNameKey(folder);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  });
+
+  return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([key]) => key));
+}
+
+function compactRecentFolderPath(path: string, maxLength = recentFolderPathDisplayMaxLength) {
+  if (path.length <= maxLength) return path;
+
+  const separator = path.includes("\\") && !path.includes("/") ? "\\" : "/";
+  const hasLeadingSeparator = path.startsWith("/") || path.startsWith("\\");
+  const segments = path.split(/[\\/]/u).filter(Boolean);
+
+  if (segments.length >= 4) {
+    const leadingPath = segments.slice(0, 2).join(separator);
+    const trailingPath = segments.slice(-2).join(separator);
+    const candidate = `${hasLeadingSeparator ? separator : ""}${leadingPath}${separator}...${separator}${trailingPath}`;
+    if (candidate.length <= maxLength) return candidate;
+  }
+
+  const remainingLength = Math.max(2, maxLength - 3);
+  const leadingLength = Math.ceil(remainingLength / 2);
+  const trailingLength = Math.floor(remainingLength / 2);
+
+  return `${path.slice(0, leadingLength)}...${path.slice(-trailingLength)}`;
 }
 
 function OutlineTitle({ item }: { item: MarkdownOutlineItem }) {
@@ -510,7 +547,11 @@ export function MarkdownFileTreeDrawer({
     return null;
   }, [currentPath, normalizeTreeCreateParentPath, rootPath]);
   const activeCreateParentPath = selectedCreateParentPath ?? currentDocumentCreateParentPath;
-  const recentFolderChoices = recentFolders.slice(0, 5);
+  const recentFolderChoices = useMemo(() => recentFolders.slice(0, 5), [recentFolders]);
+  const duplicateRecentFolderNames = useMemo(
+    () => duplicateRecentFolderNameKeys(recentFolderChoices),
+    [recentFolderChoices]
+  );
   const recentFolderAreaVisible = recentFolderChoices.length > 0 && Boolean(onOpenRecentFolder);
   const tabbedSidebarLayout = sidebarLayoutMode === "tabs";
   const filePanelAvailable = folderOpen || (open && fileCreationAvailable);
@@ -1672,49 +1713,69 @@ export function MarkdownFileTreeDrawer({
             </div>
             {recentFoldersOpen ? (
               <div className="space-y-0.5 px-2 pb-1">
-                {recentFolderChoices.map((folder) => (
-                  <div
-                    className="markdown-file-tree-recent-folder grid h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-1"
-                    key={folder.path}
-                    onMouseEnter={() => setHoveredRecentFolderPath(folder.path)}
-                    onMouseLeave={() => {
-                      setHoveredRecentFolderPath((path) => (path === folder.path ? null : path));
-                      setFocusedRecentFolderActionPath((path) => (path === folder.path ? null : path));
-                    }}
-                  >
-                    <button
-                      className="flex h-7 min-w-0 cursor-pointer items-center gap-2 rounded-sm border-0 bg-transparent px-2 text-left text-[12px] leading-none text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none"
-                      type="button"
-                      title={folder.path}
-                      onClick={() => onOpenRecentFolder(folder)}
-                    >
-                      <Folder aria-hidden="true" className="shrink-0" size={14} />
-                      <span className="min-w-0 truncate">{folder.name}</span>
-                    </button>
-                    {onRemoveRecentFolder ? (
-                      (() => {
-                        const actionVisible =
-                          hoveredRecentFolderPath === folder.path || focusedRecentFolderActionPath === folder.path;
+                {recentFolderChoices.map((folder) => {
+                  const duplicateName = duplicateRecentFolderNames.has(recentFolderNameKey(folder));
+                  const currentRecentFolder = Boolean(rootPath && sameNativePath(folder.path, rootPath));
+                  const folderActionLabel = duplicateName ? `${folder.name} ${folder.path}` : folder.name;
+                  const folderPathLabel = compactRecentFolderPath(folder.path);
+                  const RecentFolderIcon = currentRecentFolder ? FolderOpen : Folder;
+                  const recentFolderButtonStateClassName = currentRecentFolder
+                    ? "bg-(--bg-active) text-(--text-heading) hover:bg-(--bg-active) focus-visible:bg-(--bg-active)"
+                    : "bg-transparent text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading)";
 
-                        return (
-                          <IconButton
-                            className="rounded-md transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]"
-                            label={`${label("app.removeRecentMarkdownFolder")}: ${folder.name}`}
-                            style={{
-                              opacity: actionVisible ? 1 : 0,
-                              pointerEvents: actionVisible ? "auto" : "none"
-                            }}
-                            onBlur={() => setFocusedRecentFolderActionPath((path) => (path === folder.path ? null : path))}
-                            onFocus={() => setFocusedRecentFolderActionPath(folder.path)}
-                            onClick={() => onRemoveRecentFolder(folder)}
-                          >
-                            <X aria-hidden="true" size={13} />
-                          </IconButton>
-                        );
-                      })()
-                    ) : null}
-                  </div>
-                ))}
+                  return (
+                    <div
+                      className={`markdown-file-tree-recent-folder grid ${duplicateName ? "h-10" : "h-7"} grid-cols-[minmax(0,1fr)_auto] items-center gap-1`}
+                      key={folder.path}
+                      onMouseEnter={() => setHoveredRecentFolderPath(folder.path)}
+                      onMouseLeave={() => {
+                        setHoveredRecentFolderPath((path) => (path === folder.path ? null : path));
+                        setFocusedRecentFolderActionPath((path) => (path === folder.path ? null : path));
+                      }}
+                    >
+                      <button
+                        aria-label={folderActionLabel}
+                        aria-current={currentRecentFolder ? "page" : undefined}
+                        className={`flex ${duplicateName ? "h-10 items-center" : "h-7 items-center"} min-w-0 cursor-pointer gap-2 rounded-sm border-0 px-2 text-left text-[12px] leading-none focus-visible:outline-none ${recentFolderButtonStateClassName}`}
+                        type="button"
+                        title={folder.path}
+                        onClick={() => onOpenRecentFolder(folder)}
+                      >
+                        <RecentFolderIcon aria-hidden="true" className="shrink-0" size={14} />
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <span className="min-w-0 truncate">{folder.name}</span>
+                          {duplicateName ? (
+                            <span className="min-w-0 truncate text-[10px] leading-none text-(--text-tertiary)">
+                              {folderPathLabel}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                      {onRemoveRecentFolder ? (
+                        (() => {
+                          const actionVisible =
+                            hoveredRecentFolderPath === folder.path || focusedRecentFolderActionPath === folder.path;
+
+                          return (
+                            <IconButton
+                              className="rounded-md transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                              label={`${label("app.removeRecentMarkdownFolder")}: ${folderActionLabel}`}
+                              style={{
+                                opacity: actionVisible ? 1 : 0,
+                                pointerEvents: actionVisible ? "auto" : "none"
+                              }}
+                              onBlur={() => setFocusedRecentFolderActionPath((path) => (path === folder.path ? null : path))}
+                              onFocus={() => setFocusedRecentFolderActionPath(folder.path)}
+                              onClick={() => onRemoveRecentFolder(folder)}
+                            >
+                              <X aria-hidden="true" size={13} />
+                            </IconButton>
+                          );
+                        })()
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
           </section>

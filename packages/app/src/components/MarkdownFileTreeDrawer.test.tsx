@@ -196,6 +196,86 @@ describe("MarkdownFileTreeDrawer", () => {
     expect(removeRecentFolder).not.toHaveBeenCalled();
   });
 
+  it("disambiguates recent folders with the same name by path", () => {
+    const openRecentFolder = vi.fn();
+
+    render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        open
+        outlineItems={[]}
+        recentFolders={[
+          { name: "docs", path: "/mock-workspaces/alpha/docs" },
+          { name: "docs", path: "/mock-workspaces/beta/docs" }
+        ]}
+        rootPath="/mock-workspaces/beta/docs"
+        rootName="Obsidian Vault"
+        onOpenFile={() => {}}
+        onOpenRecentFolder={openRecentFolder}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    const recentSection = screen.getByRole("region", { name: "Recently used directories" });
+    const alphaDocs = within(recentSection).getByRole("button", {
+      name: "docs /mock-workspaces/alpha/docs"
+    });
+    const betaDocs = within(recentSection).getByRole("button", {
+      name: "docs /mock-workspaces/beta/docs"
+    });
+
+    expect(alphaDocs).toHaveTextContent("/mock-workspaces/alpha/docs");
+    expect(betaDocs).toHaveTextContent("/mock-workspaces/beta/docs");
+    expect(alphaDocs).not.toHaveAttribute("aria-current");
+    expect(betaDocs).toHaveAttribute("aria-current", "page");
+    expect(betaDocs.querySelector(".lucide-folder-open")).toBeInTheDocument();
+
+    fireEvent.click(betaDocs);
+
+    expect(openRecentFolder).toHaveBeenCalledWith({
+      name: "docs",
+      path: "/mock-workspaces/beta/docs"
+    });
+  });
+
+  it("middle-truncates long duplicate recent folder paths while keeping the full path label", () => {
+    const alphaPath = "/mock-workspaces/team-alpha/projects/handbook/content/docs";
+    const betaPath = "/mock-workspaces/team-beta/projects/handbook/content/docs";
+
+    render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        open
+        outlineItems={[]}
+        recentFolders={[
+          { name: "docs", path: alphaPath },
+          { name: "docs", path: betaPath }
+        ]}
+        rootName="Obsidian Vault"
+        onOpenFile={() => {}}
+        onOpenRecentFolder={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    const recentSection = screen.getByRole("region", { name: "Recently used directories" });
+    const alphaDocs = within(recentSection).getByRole("button", {
+      name: `docs ${alphaPath}`
+    });
+    const betaDocs = within(recentSection).getByRole("button", {
+      name: `docs ${betaPath}`
+    });
+
+    expect(alphaDocs).toHaveAttribute("title", alphaPath);
+    expect(betaDocs).toHaveAttribute("title", betaPath);
+    expect(within(alphaDocs).getByText("/mock-workspaces/team-alpha/.../content/docs")).toBeInTheDocument();
+    expect(within(betaDocs).getByText("/mock-workspaces/team-beta/.../content/docs")).toBeInTheDocument();
+    expect(alphaDocs).not.toHaveTextContent(alphaPath);
+    expect(betaDocs).not.toHaveTextContent(betaPath);
+  });
+
   it("collapses recent folders and removes a recent folder without opening it", () => {
     const openRecentFolder = vi.fn();
     const removeRecentFolder = vi.fn();
