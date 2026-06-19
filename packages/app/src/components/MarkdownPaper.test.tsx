@@ -2774,7 +2774,7 @@ describe("MarkdownPaper editing", () => {
     restoreLayout();
   });
 
-  it("only ignores horizontal rule margin clicks close to the divider", async () => {
+  it("ignores horizontal rule surrounding clicks", async () => {
     const { container, view } = await renderEditor("First\n\n---\n\nSecond");
     const restoreLayout = mockThinHorizontalRuleBlockDragLayout(view, container);
     const surface = container.querySelector<HTMLElement>(".ProseMirror");
@@ -2785,15 +2785,15 @@ describe("MarkdownPaper editing", () => {
     const upperWhitespaceResult = fireEvent.mouseDown(surface!, {
       button: 0,
       clientX: 200,
-      clientY: 134
+      clientY: 130
     });
-    expect(upperWhitespaceResult).toBe(true);
+    expect(upperWhitespaceResult).toBe(false);
     expect(view.state.selection.from).toBe(secondCursor);
 
     const topGapResult = fireEvent.mouseDown(surface!, {
       button: 0,
       clientX: 200,
-      clientY: 138
+      clientY: 134
     });
     expect(topGapResult).toBe(false);
     expect(view.state.selection.from).toBe(secondCursor);
@@ -2803,7 +2803,7 @@ describe("MarkdownPaper editing", () => {
     const bottomGapResult = fireEvent.mouseDown(surface!, {
       button: 0,
       clientX: 200,
-      clientY: 143
+      clientY: 147
     });
     expect(bottomGapResult).toBe(false);
     expect(view.state.selection.from).toBe(firstCursor);
@@ -2811,10 +2811,43 @@ describe("MarkdownPaper editing", () => {
     const lowerWhitespaceResult = fireEvent.mouseDown(surface!, {
       button: 0,
       clientX: 200,
-      clientY: 147
+      clientY: 153
     });
-    expect(lowerWhitespaceResult).toBe(true);
+    expect(lowerWhitespaceResult).toBe(false);
     expect(view.state.selection.from).toBe(firstCursor);
+
+    restoreLayout();
+  });
+
+  it("ignores clicks above the visual line inside a horizontal rule hit target", async () => {
+    const { container, view } = await renderEditor("First\n\n---\n\nSecond");
+    const restoreLayout = mockThinHorizontalRuleBlockDragLayout(view, container);
+    const surface = container.querySelector<HTMLElement>(".ProseMirror");
+    const rule = surface?.querySelector<HTMLElement>("hr");
+    expect(rule).toBeInTheDocument();
+
+    rule!.getBoundingClientRect = vi.fn(() => ({
+      bottom: 146,
+      height: 12,
+      left: 160,
+      right: 640,
+      top: 134,
+      width: 480,
+      x: 160,
+      y: 134,
+      toJSON: () => ({})
+    } as DOMRect));
+
+    const secondCursor = findTextPosition(view, "Second");
+    moveCursor(view, secondCursor);
+    const upperHitTargetResult = fireEvent.mouseDown(rule!, {
+      button: 0,
+      clientX: 200,
+      clientY: 136
+    });
+
+    expect(upperHitTargetResult).toBe(false);
+    expect(view.state.selection.from).toBe(secondCursor);
 
     restoreLayout();
   });

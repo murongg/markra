@@ -3,7 +3,7 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 
 const gapGuardedBlockNames = new Set(["hr"]);
-const maximumGuardedGapPadding = 4;
+const fallbackGuardedGapPadding = 20;
 
 function isPlainLeftMouseDown(event: MouseEvent) {
   return event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
@@ -20,17 +20,17 @@ function pixelValue(value: string) {
 
 function guardedGapExtent(value: string) {
   const pixels = pixelValue(value);
-  if (!pixels) return maximumGuardedGapPadding;
+  if (!pixels) return fallbackGuardedGapPadding;
 
-  return Math.min(pixels, maximumGuardedGapPadding);
+  return pixels;
 }
 
 function blockGapExtents(element: Element) {
   const ownerWindow = element.ownerDocument.defaultView;
   if (!ownerWindow) {
     return {
-      bottom: maximumGuardedGapPadding,
-      top: maximumGuardedGapPadding
+      bottom: fallbackGuardedGapPadding,
+      top: fallbackGuardedGapPadding
     };
   }
 
@@ -52,8 +52,17 @@ function verticalPointIsInsideBlockGap(top: number, rect: DOMRect, gap: { bottom
   return false;
 }
 
-function eventTargetsEditorSurface(view: EditorView, target: EventTarget | null) {
-  return eventTargetElement(target) === view.dom;
+function verticalPointIsInsideBlockHitTarget(top: number, rect: DOMRect) {
+  return top >= rect.top && top <= rect.bottom;
+}
+
+function verticalPointIsInsideGuardedBlockZone(top: number, rect: DOMRect, gap: { bottom: number; top: number }) {
+  return verticalPointIsInsideBlockGap(top, rect, gap) || verticalPointIsInsideBlockHitTarget(top, rect);
+}
+
+function eventTargetsEditorContent(view: EditorView, target: EventTarget | null) {
+  const element = eventTargetElement(target);
+  return Boolean(element && (element === view.dom || view.dom.contains(element)));
 }
 
 function pointIsInGuardedBlockGap(view: EditorView, left: number, top: number) {
@@ -68,7 +77,7 @@ function pointIsInGuardedBlockGap(view: EditorView, left: number, top: number) {
     if (!element || !rect || !horizontalPointIsInsideRect(left, rect)) return false;
 
     const gap = blockGapExtents(element);
-    if (verticalPointIsInsideBlockGap(top, rect, gap)) {
+    if (verticalPointIsInsideGuardedBlockZone(top, rect, gap)) {
       isInGap = true;
       return false;
     }
@@ -85,7 +94,7 @@ export function createBlockGapPlugin() {
       handleDOMEvents: {
         mousedown(view, event) {
           if (!view.editable || !isPlainLeftMouseDown(event)) return false;
-          if (!eventTargetsEditorSurface(view, event.target)) return false;
+          if (!eventTargetsEditorContent(view, event.target)) return false;
           if (!pointIsInGuardedBlockGap(view, event.clientX, event.clientY)) return false;
 
           event.preventDefault();
