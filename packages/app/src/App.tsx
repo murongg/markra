@@ -297,6 +297,7 @@ function WorkspaceApp() {
     sizeBytes: null as number | null
   });
   const largeMarkdownVisualBlockedRef = useRef(false);
+  const mainDocumentPaneRef = useRef<HTMLDivElement | null>(null);
   const sourceScrollRef = useRef<HTMLElement | null>(null);
   const visualScrollRef = useRef<HTMLElement | null>(null);
   const mainVisualEditorsRef = useRef(new Map<string, MilkdownEditor>());
@@ -304,6 +305,7 @@ function WorkspaceApp() {
   const pendingEditorModeScrollRef = useRef<PendingEditorModeScroll | null>(null);
   const splitSurfaceRef = useRef<HTMLDivElement | null>(null);
   const sideDocumentSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const titlebarTabFocusTimerRef = useRef<number | null>(null);
   const splitScrollSyncTargetRef = useRef<EditorSurface | null>(null);
   const splitScrollSyncFrameRef = useRef<number | null>(null);
   const splitPaneResizeCleanupRef = useRef<(() => unknown) | null>(null);
@@ -3063,6 +3065,42 @@ function WorkspaceApp() {
     updateActiveAiSelection
   ]);
 
+  const focusEditorInDocumentPane = useCallback((target: "main" | "side") => {
+    if (titlebarTabFocusTimerRef.current !== null) {
+      window.clearTimeout(titlebarTabFocusTimerRef.current);
+      titlebarTabFocusTimerRef.current = null;
+    }
+
+    titlebarTabFocusTimerRef.current = window.setTimeout(() => {
+      titlebarTabFocusTimerRef.current = null;
+
+      const pane =
+        target === "side"
+          ? sideDocumentSurfaceRef.current?.querySelector<HTMLElement>(".side-document-pane") ?? null
+          : mainDocumentPaneRef.current;
+      if (!pane) return;
+
+      const sourceEditorSelector = ".markdown-source-editor [role='textbox']";
+      const visualEditorSelector = ".markdown-paper [role='textbox']";
+      const preferredSelector =
+        target === "side"
+          ? sourceMode ? sourceEditorSelector : visualEditorSelector
+          : sourceMode || (splitMode && activeEditorSurface === "source") ? sourceEditorSelector : visualEditorSelector;
+      const editor =
+        pane.querySelector<HTMLElement>(preferredSelector) ??
+        pane.querySelector<HTMLElement>("[role='textbox']");
+
+      editor?.focus({ preventScroll: true });
+    }, 0);
+  }, [activeEditorSurface, sourceMode, splitMode]);
+
+  useEffect(() => () => {
+    if (titlebarTabFocusTimerRef.current !== null) {
+      window.clearTimeout(titlebarTabFocusTimerRef.current);
+      titlebarTabFocusTimerRef.current = null;
+    }
+  }, []);
+
   const handleSelectTitlebarTab = useCallback((tabId: string) => {
     captureActiveDocumentViewState();
     setDocumentOperationTarget("main");
@@ -3086,6 +3124,11 @@ function WorkspaceApp() {
     selectMarkdownTab,
     updateActiveAiSelection
   ]);
+  const handleFocusTitlebarTab = useCallback((tabId: string) => {
+    const target = sideDocumentGroup?.sideTabId === tabId ? "side" : "main";
+    setDocumentOperationTarget(target);
+    focusEditorInDocumentPane(target);
+  }, [focusEditorInDocumentPane, sideDocumentGroup?.sideTabId]);
   const handleRenameTitlebarTab = useCallback(async (tab: MarkdownTabsBarDocumentItem, fileName: string) => {
     const file = documentTabAsFolderFile(tab);
     if (!file) return;
@@ -3101,12 +3144,14 @@ function WorkspaceApp() {
   const titlebarDocumentTabs = documentTabsVisible ? (
     <MarkdownTabsBar
       activeTabId={activeTitlebarTabId}
+      focusedTabId={focusedSideDocumentTabId ?? activeTitlebarTabId}
       items={titlebarItems}
       language={appLanguage.language}
       nativeDragRegionEnabled={nativeWindowChromeEnabled}
       placement="titlebar"
       onCancelSideBySide={handleCancelTitlebarSideBySide}
       onCloseTab={handleCloseTitlebarTab}
+      onFocusTab={handleFocusTitlebarTab}
       onNewTab={() => {
         captureActiveDocumentViewState();
         setActiveImageFile(null);
@@ -3437,7 +3482,11 @@ function WorkspaceApp() {
                   ref={sideDocumentOpen ? sideDocumentSurfaceRef : undefined}
                   style={sideDocumentOpen ? sideDocumentSurfaceStyle : undefined}
                 >
-                  <div className="relative h-full min-h-0 overflow-hidden" onFocusCapture={handleMainDocumentPaneFocus}>
+                  <div
+                    className="relative h-full min-h-0 overflow-hidden"
+                    ref={mainDocumentPaneRef}
+                    onFocusCapture={handleMainDocumentPaneFocus}
+                  >
                     {splitMode ? (
                     <div
                       className="editor-split-surface grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] divide-y divide-(--border-default) min-[900px]:grid-cols-[minmax(0,var(--split-visual-pane))_8px_minmax(0,var(--split-source-pane))] min-[900px]:grid-rows-[minmax(0,1fr)] min-[900px]:divide-y-0"

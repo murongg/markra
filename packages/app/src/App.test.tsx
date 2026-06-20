@@ -3098,6 +3098,14 @@ describe("Markra workspace", () => {
     mockedSaveStoredWorkspaceState.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    const groupedTabs = container.querySelector(".document-tabs-side-by-side-group") as HTMLElement;
+    const mainPaneTab = within(groupedTabs).getByRole("tab", { name: /1\.md/ });
+    const sidePaneTab = within(groupedTabs).getByRole("tab", { name: /2\.md/ });
+    expect(mainPaneTab).toHaveAttribute("aria-selected", "true");
+    expect(sidePaneTab).toHaveAttribute("aria-selected", "false");
+    expect(mainPaneTab).toHaveAttribute("data-document-tab-pane-focus", "true");
+    expect(sidePaneTab).not.toHaveAttribute("data-document-tab-pane-focus");
+
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
     const sideSource = await within(sidePane).findByRole("textbox", { name: "Markdown source" });
     const mainSource = (await screen.findAllByRole("textbox", { name: "Markdown source" })).find((editor) =>
@@ -3105,13 +3113,26 @@ describe("Markra workspace", () => {
     ) as HTMLElement;
 
     fireEvent.focus(sideSource);
-    replaceMarkdownSource(sideSource, "# Second\n\nFocused side edit");
+    await waitFor(() => expect(sidePaneTab).toHaveAttribute("aria-selected", "true"));
+    expect(mainPaneTab).toHaveAttribute("aria-selected", "false");
+
+    fireEvent.focus(mainSource);
+    await waitFor(() => expect(mainPaneTab).toHaveAttribute("aria-selected", "true"));
+    expect(sidePaneTab).toHaveAttribute("aria-selected", "false");
+
+    fireEvent.click(sidePaneTab);
+    await waitFor(() => expect(sidePaneTab).toHaveAttribute("aria-selected", "true"));
+    expect(mainPaneTab).toHaveAttribute("aria-selected", "false");
+    expect(sidePaneTab).toHaveAttribute("data-document-tab-pane-focus", "true");
+    expect(mainPaneTab).not.toHaveAttribute("data-document-tab-pane-focus");
+    await waitFor(() => expect(document.activeElement).toBe(sideSource));
+    replaceMarkdownSource(sideSource, "# Second\n\nClicked side tab edit");
     fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
 
     await waitFor(() =>
       expect(mockedSaveNativeMarkdownFile).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          contents: "# Second\n\nFocused side edit",
+          contents: "# Second\n\nClicked side tab edit",
           path: secondPath,
           suggestedName: "2.md"
         })
@@ -3140,7 +3161,12 @@ describe("Markra workspace", () => {
       })
     );
 
-    fireEvent.focus(mainSource);
+    fireEvent.click(mainPaneTab);
+    await waitFor(() => expect(mainPaneTab).toHaveAttribute("aria-selected", "true"));
+    expect(sidePaneTab).toHaveAttribute("aria-selected", "false");
+    expect(mainPaneTab).toHaveAttribute("data-document-tab-pane-focus", "true");
+    expect(sidePaneTab).not.toHaveAttribute("data-document-tab-pane-focus");
+    await waitFor(() => expect(document.activeElement).toBe(mainSource));
     replaceMarkdownSource(mainSource, "# First\n\nFocused main edit");
     fireEvent.keyDown(window, { key: "s", metaKey: true, shiftKey: true });
 
@@ -3237,7 +3263,7 @@ describe("Markra workspace", () => {
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).not.toBeInTheDocument());
 
     const inactiveGroup = container.querySelector(".document-tabs-side-by-side-group") as HTMLElement;
-    fireEvent.click(within(inactiveGroup).getByRole("tab", { name: /2\.md/ }));
+    fireEvent.click(within(inactiveGroup).getByRole("tab", { name: /1\.md/ }));
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
