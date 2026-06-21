@@ -560,6 +560,65 @@ function moveBackToImageFromEmptyParagraph(view: EditorView, paragraph: NodeType
   return true;
 }
 
+function emptyTopLevelParagraphAdjacentToHorizontalRule(
+  view: EditorView,
+  paragraph: NodeType,
+  direction: "backward" | "forward"
+) {
+  const { selection } = view.state;
+  if (!(selection instanceof TextSelection) || !selection.empty) return null;
+
+  const { $from } = selection;
+  if ($from.depth !== 1) return null;
+  if ($from.parent.type !== paragraph || $from.parent.content.size > 0 || $from.parentOffset !== 0) return null;
+
+  const index = $from.index(0);
+  const paragraphFrom = $from.before(1);
+  const paragraphTo = $from.after(1);
+
+  if (direction === "backward") {
+    if (index <= 0) return null;
+
+    const previousNode = view.state.doc.child(index - 1);
+    if (previousNode.type.name !== "hr") return null;
+
+    return {
+      blockPosition: paragraphFrom - previousNode.nodeSize,
+      paragraphFrom,
+      paragraphTo
+    };
+  }
+
+  if (index >= view.state.doc.childCount - 1) return null;
+
+  const nextNode = view.state.doc.child(index + 1);
+  if (nextNode.type.name !== "hr") return null;
+
+  return {
+    blockPosition: paragraphTo,
+    paragraphFrom,
+    paragraphTo
+  };
+}
+
+function moveToHorizontalRuleFromEmptyParagraph(
+  view: EditorView,
+  paragraph: NodeType,
+  direction: "backward" | "forward"
+) {
+  const target = emptyTopLevelParagraphAdjacentToHorizontalRule(view, paragraph, direction);
+  if (!target) return false;
+
+  const transaction = view.state.tr.delete(target.paragraphFrom, target.paragraphTo);
+  view.dispatch(
+    transaction
+      .setSelection(NodeSelection.create(transaction.doc, transaction.mapping.map(target.blockPosition, -1)))
+      .scrollIntoView()
+  );
+  view.focus();
+  return true;
+}
+
 const plainTextIndentation = "  ";
 
 function insertPlainTextIndentation(view: EditorView) {
@@ -659,10 +718,12 @@ export const markraMarkdownShortcuts = (configuredShortcuts: MarkdownShortcutMap
 
           event.preventDefault();
           return true;
-        } else if (event.key === "Backspace" && !hasModifier) {
-          const handled =
-            moveBackIntoTableFromEmptyParagraph(view, paragraph) ||
-            moveBackToImageFromEmptyParagraph(view, paragraph);
+        } else if ((event.key === "Backspace" || event.key === "Delete") && !hasModifier) {
+          const handled = event.key === "Backspace"
+            ? moveBackIntoTableFromEmptyParagraph(view, paragraph) ||
+              moveBackToImageFromEmptyParagraph(view, paragraph) ||
+              moveToHorizontalRuleFromEmptyParagraph(view, paragraph, "backward")
+            : moveToHorizontalRuleFromEmptyParagraph(view, paragraph, "forward");
           if (!handled) return false;
 
           event.preventDefault();

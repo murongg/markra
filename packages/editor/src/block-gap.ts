@@ -1,9 +1,15 @@
-import { Plugin } from "@milkdown/kit/prose/state";
+import { NodeSelection, Plugin } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 
 const gapGuardedBlockNames = new Set(["hr"]);
 const fallbackGuardedGapPadding = 20;
+const guardedBlockVisualLineHeight = 2;
+
+type GuardedBlockTarget = {
+  kind: "guard" | "line";
+  position: number;
+};
 
 function isPlainLeftMouseDown(event: MouseEvent) {
   return event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
@@ -56,6 +62,13 @@ function verticalPointIsInsideBlockHitTarget(top: number, rect: DOMRect) {
   return top >= rect.top && top <= rect.bottom;
 }
 
+function verticalPointIsInsideBlockVisualLine(top: number, rect: DOMRect) {
+  const center = rect.top + rect.height / 2;
+  const halfHeight = Math.min(Math.max(guardedBlockVisualLineHeight / 2, 0.5), Math.max(rect.height / 2, 0.5));
+
+  return top >= center - halfHeight && top <= center + halfHeight;
+}
+
 function verticalPointIsInsideGuardedBlockZone(top: number, rect: DOMRect, gap: { bottom: number; top: number }) {
   return verticalPointIsInsideBlockGap(top, rect, gap) || verticalPointIsInsideBlockHitTarget(top, rect);
 }
@@ -65,8 +78,27 @@ function eventTargetsEditorContent(view: EditorView, target: EventTarget | null)
   return Boolean(element && (element === view.dom || view.dom.contains(element)));
 }
 
-function pointIsInGuardedBlockGap(view: EditorView, left: number, top: number) {
-  let isInGap = false;
+function guardedBlockElementTarget(view: EditorView, target: EventTarget | null): GuardedBlockTarget | null {
+  const element = eventTargetElement(target)?.closest("hr");
+  if (!element || !view.dom.contains(element)) return null;
+
+  let blockTarget: GuardedBlockTarget | null = null;
+  view.state.doc.descendants((node, position) => {
+    if (!gapGuardedBlockNames.has(node.type.name)) return true;
+    if (view.nodeDOM(position) !== element) return true;
+
+    blockTarget = {
+      kind: "line",
+      position
+    };
+    return false;
+  });
+
+  return blockTarget;
+}
+
+function guardedBlockTargetAtPoint(view: EditorView, left: number, top: number): GuardedBlockTarget | null {
+  let target: GuardedBlockTarget | null = null;
 
   view.state.doc.descendants((node, position) => {
     if (!gapGuardedBlockNames.has(node.type.name)) return true;
@@ -74,18 +106,44 @@ function pointIsInGuardedBlockGap(view: EditorView, left: number, top: number) {
     const dom = view.nodeDOM(position);
     const element = eventTargetElement(dom);
     const rect = element?.getBoundingClientRect();
-    if (!element || !rect || !horizontalPointIsInsideRect(left, rect)) return false;
+    if (!element || !rect || !horizontalPointIsInsideRect(left, rect)) return true;
 
     const gap = blockGapExtents(element);
-    if (verticalPointIsInsideGuardedBlockZone(top, rect, gap)) {
-      isInGap = true;
+    if (verticalPointIsInsideBlockHitTarget(top, rect) && verticalPointIsInsideBlockVisualLine(top, rect)) {
+      target = {
+        kind: "line",
+        position
+      };
       return false;
     }
 
-    return false;
+    if (verticalPointIsInsideGuardedBlockZone(top, rect, gap)) {
+      target = {
+        kind: "guard",
+        position
+      };
+    }
+
+    return true;
   });
 
-  return isInGap;
+  return target;
+}
+
+function guardedBlockTargetFromEvent(view: EditorView, event: MouseEvent): GuardedBlockTarget | null {
+  const elementTarget = guardedBlockElementTarget(view, event.target);
+  if (!elementTarget) return guardedBlockTargetAtPoint(view, event.clientX, event.clientY);
+
+  return elementTarget;
+}
+
+function selectGuardedBlock(view: EditorView, position: number) {
+  view.dispatch(
+    view.state.tr
+      .setSelection(NodeSelection.create(view.state.doc, position))
+      .scrollIntoView()
+  );
+  view.focus();
 }
 
 export function createBlockGapPlugin() {
@@ -95,10 +153,12 @@ export function createBlockGapPlugin() {
         mousedown(view, event) {
           if (!view.editable || !isPlainLeftMouseDown(event)) return false;
           if (!eventTargetsEditorContent(view, event.target)) return false;
-          if (!pointIsInGuardedBlockGap(view, event.clientX, event.clientY)) return false;
+          const target = guardedBlockTargetFromEvent(view, event);
+          if (!target) return false;
 
           event.preventDefault();
           event.stopPropagation();
+          if (target.kind === "line") selectGuardedBlock(view, target.position);
           return true;
         }
       }

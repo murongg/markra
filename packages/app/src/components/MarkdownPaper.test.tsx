@@ -274,6 +274,23 @@ function findNodeStartPosition(view: EditorView, typeName: string) {
   return position;
 }
 
+function findTopLevelEmptyParagraphPosition(view: EditorView) {
+  let position: number | null = null;
+
+  view.state.doc.forEach((node, offset) => {
+    if (position !== null) return;
+    if (node.type.name !== "paragraph" || node.content.size > 0) return;
+
+    position = offset;
+  });
+
+  if (position === null) {
+    throw new Error("Could not find top-level empty paragraph in editor.");
+  }
+
+  return position;
+}
+
 function pressEnter(view: EditorView) {
   const event = new KeyboardEvent("keydown", {
     key: "Enter",
@@ -3011,7 +3028,82 @@ describe("MarkdownPaper editing", () => {
     restoreLayout();
   });
 
-  it("ignores clicks above the visual line inside a horizontal rule hit target", async () => {
+  it("selects a horizontal rule from a line click", async () => {
+    const { container, view } = await renderEditor("First\n\n---\n\nSecond");
+    const restoreLayout = mockThinHorizontalRuleBlockDragLayout(view, container);
+    const surface = container.querySelector<HTMLElement>(".ProseMirror");
+    const rule = surface?.querySelector<HTMLElement>("hr");
+    expect(rule).toBeInTheDocument();
+
+    moveCursor(view, findTextPosition(view, "Second"));
+    const lineResult = fireEvent.mouseDown(rule!, {
+      button: 0,
+      clientX: 200,
+      clientY: 140
+    });
+
+    expect(lineResult).toBe(false);
+    expect(view.state.selection).toBeInstanceOf(NodeSelection);
+    expect(view.state.selection.from).toBe(findNodeStartPosition(view, "hr"));
+    restoreLayout();
+  });
+
+  it("selects a horizontal rule between an image and another horizontal rule", async () => {
+    const markdown = [
+      "![First](assets/first.png)",
+      "",
+      "***",
+      "",
+      "![Second](assets/second.png)",
+      "",
+      "***",
+      "",
+      "***"
+    ].join("\n");
+    const { container, view } = await renderEditor(markdown);
+    const rules = Array.from(container.querySelectorAll<HTMLElement>(".ProseMirror hr"));
+    const rulePositions = nodePositionsByType(view, "hr");
+
+    expect(rules).toHaveLength(3);
+    expect(rulePositions).toHaveLength(3);
+    moveCursor(view, findNodeStartPosition(view, "image"));
+
+    fireEvent.mouseDown(rules[1]);
+
+    await waitFor(() => expect(view.state.selection).toBeInstanceOf(NodeSelection));
+    expect(view.state.selection.from).toBe(rulePositions[1]);
+  });
+
+  it("selects a horizontal rule below an image from its forgiving hit target", async () => {
+    const { container, view } = await renderEditor("![Screenshot](assets/image.png)\n\n---\n\nSecond");
+    const surface = container.querySelector<HTMLElement>(".ProseMirror");
+    const rule = surface?.querySelector<HTMLElement>("hr");
+    expect(rule).toBeInTheDocument();
+
+    rule!.getBoundingClientRect = vi.fn(() => ({
+      bottom: 146,
+      height: 12,
+      left: 160,
+      right: 640,
+      top: 134,
+      width: 480,
+      x: 160,
+      y: 134,
+      toJSON: () => ({})
+    } as DOMRect));
+
+    moveCursor(view, findTextPosition(view, "Second"));
+    fireEvent.mouseDown(rule!, {
+      button: 0,
+      clientX: 200,
+      clientY: 136
+    });
+
+    expect(view.state.selection).toBeInstanceOf(NodeSelection);
+    expect(view.state.selection.from).toBe(findNodeStartPosition(view, "hr"));
+  });
+
+  it("ignores clicks above the visual line outside a horizontal rule element", async () => {
     const { container, view } = await renderEditor("First\n\n---\n\nSecond");
     const restoreLayout = mockThinHorizontalRuleBlockDragLayout(view, container);
     const surface = container.querySelector<HTMLElement>(".ProseMirror");
@@ -3032,7 +3124,7 @@ describe("MarkdownPaper editing", () => {
 
     const secondCursor = findTextPosition(view, "Second");
     moveCursor(view, secondCursor);
-    const upperHitTargetResult = fireEvent.mouseDown(rule!, {
+    const upperHitTargetResult = fireEvent.mouseDown(surface!, {
       button: 0,
       clientX: 200,
       clientY: 136
@@ -3057,6 +3149,36 @@ describe("MarkdownPaper editing", () => {
     expect(editedDocument.child(0).type.name).toBe("paragraph");
     expect(editedDocument.child(0).textContent).toContain("Inserted");
     expect(editedDocument.child(1).type.name).toBe("hr");
+  });
+
+  it("removes an empty paragraph below a horizontal rule on Backspace", async () => {
+    const { editor, view } = await renderEditor("First\n\n---\n\n\n\nSecond");
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    const emptyParagraphPosition = findTopLevelEmptyParagraphPosition(view);
+
+    expect(view.state.doc.child(2).type.name).toBe("paragraph");
+    expect(view.state.doc.child(2).content.size).toBe(0);
+    moveCursor(view, emptyParagraphPosition + 1);
+
+    expect(pressBackspace(view)).toBe(true);
+    expect(view.state.selection).toBeInstanceOf(NodeSelection);
+    expect(view.state.selection.from).toBe(findNodeStartPosition(view, "hr"));
+    expect(serializeMarkdown(view.state.doc)).toBe("First\n\n***\n\nSecond\n");
+  });
+
+  it("removes an empty paragraph above a horizontal rule on Delete", async () => {
+    const { editor, view } = await renderEditor("First\n\n\n\n---\n\nSecond");
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    const emptyParagraphPosition = findTopLevelEmptyParagraphPosition(view);
+
+    expect(view.state.doc.child(1).type.name).toBe("paragraph");
+    expect(view.state.doc.child(1).content.size).toBe(0);
+    moveCursor(view, emptyParagraphPosition + 1);
+
+    expect(pressShortcut(view, "Delete")).toBe(true);
+    expect(view.state.selection).toBeInstanceOf(NodeSelection);
+    expect(view.state.selection.from).toBe(findNodeStartPosition(view, "hr"));
+    expect(serializeMarkdown(view.state.doc)).toBe("First\n\n***\n\nSecond\n");
   });
 
   it("reorders blocks below a table drop target", async () => {
