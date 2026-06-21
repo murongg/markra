@@ -85,6 +85,7 @@ export function SettingsWindow() {
   const activeSettingsCategory = hiddenCategories.includes(activeCategory) ? "general" : activeCategory;
   const platform = resolveDesktopPlatform();
   const showWindowsWindowChrome = platform === "windows" && appFeatures.nativeWindowChrome;
+  const showMacosWindowChrome = platform === "macos" && appFeatures.nativeWindowChrome;
   const settingsLayoutClassName = showWindowsWindowChrome
     ? "settings-layout absolute inset-x-0 top-10 bottom-0 grid grid-cols-[180px_minmax(0,1fr)]"
     : "settings-layout grid h-screen grid-cols-[180px_minmax(0,1fr)]";
@@ -102,14 +103,14 @@ export function SettingsWindow() {
       aria-label={translate("settings.aria.main")}
     >
       <AppToaster language={appLanguage.language} />
-      {platform === "windows" ? null : (
+      {showMacosWindowChrome ? (
         <div
           className="settings-drag-region fixed inset-x-0 top-0 z-10 h-9.5 select-none [-webkit-user-select:none]"
           aria-label={translate("settings.aria.dragRegion")}
           data-tauri-drag-region
         />
-      )}
-      {platform === "macos" ? (
+      ) : null}
+      {showMacosWindowChrome ? (
         <MacWindowControls className="fixed top-0 left-0 z-20 h-9.5" />
       ) : null}
       {showWindowsWindowChrome ? (

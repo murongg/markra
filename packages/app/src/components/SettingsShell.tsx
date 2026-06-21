@@ -197,6 +197,7 @@ export function SettingsContent({
   const contentSurfaceClassName = platform === "windows"
     ? "border-t border-l border-(--border-default) rounded-tl-md"
     : "";
+  const contentHeaderDragRegion = platform === "linux" ? undefined : true;
 
   useLayoutEffect(() => {
     const scrollElement = scrollRef.current;
@@ -209,7 +210,7 @@ export function SettingsContent({
     <section className={`settings-content flex min-h-0 min-w-0 flex-col bg-(--bg-primary) ${contentSurfaceClassName}`}>
       <header
         className="settings-content-header relative z-20 flex h-14 shrink-0 items-center border-b border-(--border-default) px-7"
-        data-tauri-drag-region
+        data-tauri-drag-region={contentHeaderDragRegion}
       >
         <h2 className="settings-panel-title m-0 text-[16px] leading-6 font-bold tracking-normal text-(--text-heading)">
           {categoryLabel(activeCategory, translate)}

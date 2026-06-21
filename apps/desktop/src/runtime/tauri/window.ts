@@ -176,7 +176,9 @@ export async function showNativeWindow() {
   const currentWindow = await getCurrentNativeWindow();
   if (!currentWindow) return;
 
-  await currentWindow.show();
+  if (!(await currentWindow.isVisible())) {
+    await currentWindow.show();
+  }
   try {
     await currentWindow.setFocus();
   } catch {

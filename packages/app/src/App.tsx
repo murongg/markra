@@ -234,7 +234,7 @@ function WorkspaceApp() {
   const appFeatures = getAppRuntime().features;
   const aiFeatureEnabled = appFeatures.ai;
   const exportFeatureEnabled = appFeatures.export;
-  const nativeWindowChromeEnabled = appFeatures.nativeWindowChrome;
+  const nativeWindowChromeEnabled = appFeatures.nativeWindowChrome && desktopPlatform !== "linux";
   const windowsSelfDrawnChromeEnabled = nativeWindowChromeEnabled && desktopPlatform === "windows";
   const pandocFeatureEnabled = appFeatures.pandoc;
   const s3ImageUploadFeatureEnabled = appFeatures.s3ImageUpload;

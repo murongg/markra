@@ -70,6 +70,12 @@ describe("SettingsShell", () => {
     expect(content).toHaveClass("border-t", "border-l", "rounded-tl-md");
   });
 
+  it("does not mark the Linux settings header as a native drag region", () => {
+    const content = renderSettingsContent("linux");
+
+    expect(content?.querySelector(".settings-content-header")).not.toHaveAttribute("data-tauri-drag-region");
+  });
+
   it("shows storage as its own settings category", () => {
     const onCategoryChange = renderSettingsSidebar();
 
