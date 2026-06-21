@@ -117,13 +117,28 @@ describe("native window actions", () => {
   });
 
   it("shows the current Tauri window", async () => {
+    const isVisible = vi.fn().mockResolvedValue(false);
     const show = vi.fn().mockResolvedValue(undefined);
     const setFocus = vi.fn().mockResolvedValue(undefined);
-    mockedGetCurrentWindow.mockReturnValue({ show, setFocus } as unknown as ReturnType<typeof getCurrentWindow>);
+    mockedGetCurrentWindow.mockReturnValue({ isVisible, show, setFocus } as unknown as ReturnType<typeof getCurrentWindow>);
 
     await showNativeWindow();
 
+    expect(isVisible).toHaveBeenCalledTimes(1);
     expect(show).toHaveBeenCalledTimes(1);
+    expect(setFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show an already visible Tauri window again", async () => {
+    const isVisible = vi.fn().mockResolvedValue(true);
+    const show = vi.fn().mockResolvedValue(undefined);
+    const setFocus = vi.fn().mockResolvedValue(undefined);
+    mockedGetCurrentWindow.mockReturnValue({ isVisible, show, setFocus } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await showNativeWindow();
+
+    expect(isVisible).toHaveBeenCalledTimes(1);
+    expect(show).not.toHaveBeenCalled();
     expect(setFocus).toHaveBeenCalledTimes(1);
   });
 
@@ -134,9 +149,10 @@ describe("native window actions", () => {
   });
 
   it("keeps the window show action successful when focusing fails", async () => {
+    const isVisible = vi.fn().mockResolvedValue(false);
     const show = vi.fn().mockResolvedValue(undefined);
     const setFocus = vi.fn().mockRejectedValue(new Error("focus denied"));
-    mockedGetCurrentWindow.mockReturnValue({ show, setFocus } as unknown as ReturnType<typeof getCurrentWindow>);
+    mockedGetCurrentWindow.mockReturnValue({ isVisible, show, setFocus } as unknown as ReturnType<typeof getCurrentWindow>);
 
     await expect(showNativeWindow()).resolves.toBeUndefined();
 

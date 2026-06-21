@@ -1312,7 +1312,11 @@ describe("Markra workspace", () => {
     mockedResolveDesktopPlatform.mockReturnValue("linux");
     window.history.pushState({}, "", "/?settings=1");
 
-    renderApp();
+    const { container } = renderApp();
+
+    await waitFor(() => expect(container.querySelector(".settings-window")).toBeInTheDocument());
+    expect(container.querySelector(".settings-drag-region")).not.toBeInTheDocument();
+    expect(container.querySelector(".settings-content-header")).not.toHaveAttribute("data-tauri-drag-region");
 
     fireEvent.click(await screen.findByRole("button", { name: /close window/i }));
 

@@ -614,6 +614,30 @@ mod tests {
     }
 
     #[test]
+    fn base_main_window_config_is_linux_safe() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("base Tauri config should be valid JSON");
+        let window = config
+            .pointer("/app/windows/0")
+            .expect("base config should declare a main window");
+        let decorations = window
+            .pointer("/decorations")
+            .and_then(serde_json::Value::as_bool);
+        let transparent = window
+            .pointer("/transparent")
+            .and_then(serde_json::Value::as_bool);
+        let visible = window
+            .pointer("/visible")
+            .and_then(serde_json::Value::as_bool);
+
+        assert_eq!(decorations, Some(true));
+        assert_eq!(transparent, Some(false));
+        assert_eq!(visible, Some(true));
+        assert!(window.pointer("/titleBarStyle").is_none());
+        assert!(window.pointer("/hiddenTitle").is_none());
+    }
+
+    #[test]
     fn main_capability_allows_self_drawn_window_controls() {
         let capability: serde_json::Value =
             serde_json::from_str(include_str!("../capabilities/main.json"))
@@ -626,6 +650,7 @@ mod tests {
         for permission in [
             "core:window:allow-close",
             "core:window:allow-destroy",
+            "core:window:allow-is-visible",
             "core:window:allow-minimize",
             "core:window:allow-set-fullscreen",
             "core:window:allow-toggle-maximize",
@@ -662,8 +687,12 @@ mod tests {
         let transparent = config
             .pointer("/app/windows/0/transparent")
             .and_then(serde_json::Value::as_bool);
+        let visible = config
+            .pointer("/app/windows/0/visible")
+            .and_then(serde_json::Value::as_bool);
 
         assert_eq!(transparent, Some(false));
+        assert_eq!(visible, Some(true));
     }
 
     #[test]
