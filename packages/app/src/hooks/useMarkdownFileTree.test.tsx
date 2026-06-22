@@ -95,6 +95,7 @@ function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) 
       <p data-testid="tree-width">{tree.width}</p>
       <p data-testid="tree-resizing">{tree.resizing ? "resizing" : "idle"}</p>
       <p data-testid="recent-folders-open-state">{tree.recentFoldersOpen ? "open" : "closed"}</p>
+      <p data-testid="assets-visible-state">{tree.fileTreeAssetsVisible ? "visible" : "hidden"}</p>
       <p data-testid="file-tree-sort">{`${tree.fileTreeSort.key}:${tree.fileTreeSort.direction}`}</p>
       <p data-testid="layout-class">{tree.workspaceLayoutClassName}</p>
       <p data-testid="layout-columns">{tree.workspaceLayoutStyle.gridTemplateColumns}</p>
@@ -151,6 +152,9 @@ function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) 
       </button>
       <button type="button" onClick={() => tree.setRecentFoldersOpen?.(true)}>
         Expand recent folders
+      </button>
+      <button type="button" onClick={() => tree.setFileTreeAssetsVisible?.(!tree.fileTreeAssetsVisible)}>
+        Toggle image assets
       </button>
       <button
         type="button"
@@ -376,6 +380,23 @@ describe("useMarkdownFileTree", () => {
     expect(screen.getByTestId("recent-folders-open-state")).toHaveTextContent("closed");
     expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({
       recentFoldersOpen: false
+    });
+  });
+
+  it("restores and persists file tree image asset visibility", async () => {
+    mockedGetStoredWorkspaceState.mockResolvedValue(mockWorkspaceState({
+      fileTreeAssetsVisible: false
+    }));
+
+    render(<FileTreeProbe />);
+
+    await waitFor(() => expect(screen.getByTestId("assets-visible-state")).toHaveTextContent("hidden"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle image assets" }));
+
+    expect(screen.getByTestId("assets-visible-state")).toHaveTextContent("visible");
+    expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({
+      fileTreeAssetsVisible: true
     });
   });
 

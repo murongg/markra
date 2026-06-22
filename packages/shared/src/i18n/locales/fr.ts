@@ -284,6 +284,8 @@ const messages: LocaleMessages = {
   "app.sortMarkdownFilesByCreatedTime": "Date de création",
   "app.sortMarkdownFilesAscending": "Croissant",
   "app.sortMarkdownFilesDescending": "Décroissant",
+  "app.hideImageAssets": "Masquer les ressources d'image",
+  "app.showImageAssets": "Afficher les ressources d'image",
   "app.expandMarkdownFolders": "Développer tous les dossiers",
   "app.collapseMarkdownFolders": "Réduire tous les dossiers",
   "app.expandOutlineHeading": "Développer le titre",

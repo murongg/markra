@@ -505,6 +505,8 @@ export type I18nKey =
   | "app.sortMarkdownFilesByCreatedTime"
   | "app.sortMarkdownFilesAscending"
   | "app.sortMarkdownFilesDescending"
+  | "app.hideImageAssets"
+  | "app.showImageAssets"
   | "app.expandMarkdownFolders"
   | "app.collapseMarkdownFolders"
   | "app.expandOutlineHeading"

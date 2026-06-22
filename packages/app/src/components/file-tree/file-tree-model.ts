@@ -203,6 +203,35 @@ export function filterMarkdownFileTree(nodes: TreeNode[], query: string): TreeNo
   });
 }
 
+export function filterMarkdownFileTreeAssets(nodes: TreeNode[]): TreeNode[] {
+  const filterNodes = (treeNodes: TreeNode[]): { hiddenAssetFound: boolean; nodes: TreeNode[] } => {
+    let hiddenAssetFound = false;
+    const filteredNodes: TreeNode[] = [];
+
+    treeNodes.forEach((node) => {
+      if (node.type === "file") {
+        if (node.file.kind === "asset") {
+          hiddenAssetFound = true;
+          return;
+        }
+
+        filteredNodes.push(node);
+        return;
+      }
+
+      const children = filterNodes(node.children);
+      hiddenAssetFound = hiddenAssetFound || children.hiddenAssetFound;
+      if (children.nodes.length > 0 || !children.hiddenAssetFound) {
+        filteredNodes.push({ ...node, children: children.nodes });
+      }
+    });
+
+    return { hiddenAssetFound, nodes: filteredNodes };
+  };
+
+  return filterNodes(nodes).nodes;
+}
+
 export function collectMarkdownFolderPaths(nodes: TreeNode[]) {
   const paths: string[] = [];
 

@@ -292,6 +292,8 @@ const messages: LocaleMessages = {
   "app.sortMarkdownFilesByCreatedTime": "作成日時",
   "app.sortMarkdownFilesAscending": "昇順",
   "app.sortMarkdownFilesDescending": "降順",
+  "app.hideImageAssets": "画像アセットを非表示",
+  "app.showImageAssets": "画像アセットを表示",
   "app.expandMarkdownFolders": "すべてのフォルダーを展開",
   "app.collapseMarkdownFolders": "すべてのフォルダーを折りたたむ",
   "app.expandOutlineHeading": "見出しを展開",

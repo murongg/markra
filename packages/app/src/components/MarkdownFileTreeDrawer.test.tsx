@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MarkdownFileTreeDrawer } from "./MarkdownFileTreeDrawer";
 import { getMarkdownOutline } from "@markra/markdown";
@@ -1334,6 +1335,55 @@ describe("MarkdownFileTreeDrawer", () => {
     fireEvent.keyDown(renameInput, { key: "Enter" });
 
     expect(renameFile).toHaveBeenCalledWith(asset, "renamed-image.png");
+  });
+
+  it("toggles image assets without hiding markdown files inside the assets folder", () => {
+    const asset = {
+      kind: "asset" as const,
+      name: "diagram.png",
+      path: "/vault/assets/diagram.png",
+      relativePath: "assets/diagram.png"
+    };
+
+    function AssetVisibilityProbe() {
+      const [assetsVisible, setAssetsVisible] = useState(true);
+
+      return (
+        <MarkdownFileTreeDrawer
+          currentPath="/vault/index.md"
+          fileTreeAssetsVisible={assetsVisible}
+          files={[
+            { name: "index.md", path: "/vault/index.md", relativePath: "index.md" },
+            { kind: "folder", name: "assets", path: "/vault/assets", relativePath: "assets" },
+            asset,
+            { name: "notes.md", path: "/vault/assets/notes.md", relativePath: "assets/notes.md" }
+          ]}
+          open
+          outlineItems={[]}
+          rootName="Example Vault"
+          onFileTreeAssetsVisibleChange={setAssetsVisible}
+          onOpenFile={() => {}}
+          onSelectOutlineItem={() => {}}
+        />
+      );
+    }
+
+    render(<AssetVisibilityProbe />);
+
+    fireEvent.click(screen.getByRole("button", { name: "assets" }));
+    expect(screen.getByRole("button", { name: "assets/diagram.png" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "assets/notes.md" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide image assets" }));
+
+    expect(screen.queryByRole("button", { name: "assets/diagram.png" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "assets" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "assets/notes.md" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show image assets" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show image assets" }));
+
+    expect(screen.getByRole("button", { name: "assets/diagram.png" })).toBeInTheDocument();
   });
 
   it("starts native drags for image assets with a markdown image payload", () => {

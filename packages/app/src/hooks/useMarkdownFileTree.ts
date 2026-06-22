@@ -65,6 +65,7 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
   const [recentFolders, setRecentFolders] = useState<RecentMarkdownFolder[]>([]);
   const [recentFoldersOpen, setRecentFoldersOpenState] = useState(true);
   const [fileTreeSortByWorkspace, setFileTreeSortByWorkspace] = useState<StoredFileTreeSortByWorkspace>({});
+  const [fileTreeAssetsVisible, setFileTreeAssetsVisibleState] = useState(true);
   const [width, setWidth] = useState(markdownFileTreeDefaultWidth);
   const [resizing, setResizing] = useState(false);
   const loadedSourcePathRef = useRef<string | null>(null);
@@ -203,6 +204,11 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     persistWorkspaceState({ recentFoldersOpen: openRecentFolders });
   }, []);
 
+  const setFileTreeAssetsVisible = useCallback((assetsVisible: boolean) => {
+    setFileTreeAssetsVisibleState(assetsVisible);
+    persistWorkspaceState({ fileTreeAssetsVisible: assetsVisible });
+  }, []);
+
   const setFileTreeSort = useCallback((sort: StoredFileTreeSort) => {
     const normalizedSort = normalizeStoredFileTreeSort(sort);
     const workspacePath = fileTreeSortWorkspacePathFromSourcePath(sourcePath);
@@ -324,6 +330,7 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
       if (active) {
         if (!openChangedBeforeWorkspaceRestoreRef.current) setOpen(workspace.fileTreeOpen);
         setRecentFoldersOpenState(workspace.recentFoldersOpen ?? true);
+        setFileTreeAssetsVisibleState(workspace.fileTreeAssetsVisible ?? true);
       }
     }).catch(() => {});
 
@@ -394,6 +401,7 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     createFolder,
     deleteFile,
     files,
+    fileTreeAssetsVisible,
     fileTreeSort,
     recentFolders,
     recentFoldersOpen,
@@ -406,6 +414,7 @@ export function useMarkdownFileTree({ onWorkspaceSessionChange }: UseMarkdownFil
     openRecentFolder,
     removeRecentFolder,
     setRecentFoldersOpen,
+    setFileTreeAssetsVisible,
     setFileTreeSort,
     moveFile,
     rootNameForDocument,

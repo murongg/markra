@@ -494,6 +494,8 @@ const messages: BaseLocaleMessages = {
   "app.sortMarkdownFilesByCreatedTime": "Created time",
   "app.sortMarkdownFilesAscending": "Ascending",
   "app.sortMarkdownFilesDescending": "Descending",
+  "app.hideImageAssets": "Hide image assets",
+  "app.showImageAssets": "Show image assets",
   "app.expandMarkdownFolders": "Expand folders",
   "app.collapseMarkdownFolders": "Collapse folders",
   "app.expandOutlineHeading": "Expand heading",

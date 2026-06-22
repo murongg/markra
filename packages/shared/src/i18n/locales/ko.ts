@@ -284,6 +284,8 @@ const messages: LocaleMessages = {
   "app.sortMarkdownFilesByCreatedTime": "생성 시간",
   "app.sortMarkdownFilesAscending": "오름차순",
   "app.sortMarkdownFilesDescending": "내림차순",
+  "app.hideImageAssets": "이미지 에셋 숨기기",
+  "app.showImageAssets": "이미지 에셋 보기",
   "app.expandMarkdownFolders": "모든 폴더 펼치기",
   "app.collapseMarkdownFolders": "모든 폴더 접기",
   "app.expandOutlineHeading": "제목 펼치기",

@@ -494,6 +494,8 @@ const messages: LocaleMessages = {
   "app.sortMarkdownFilesByCreatedTime": "创建时间",
   "app.sortMarkdownFilesAscending": "升序",
   "app.sortMarkdownFilesDescending": "降序",
+  "app.hideImageAssets": "隐藏图片资源",
+  "app.showImageAssets": "显示图片资源",
   "app.expandMarkdownFolders": "展开所有文件夹",
   "app.collapseMarkdownFolders": "折叠所有文件夹",
   "app.expandOutlineHeading": "展开标题",

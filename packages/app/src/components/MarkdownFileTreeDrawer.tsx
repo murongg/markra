@@ -34,6 +34,7 @@ import {
   Folder,
   FolderOpen,
   ImageIcon,
+  ImageOff,
   LayoutTemplate,
   ListChevronsDownUp,
   ListChevronsUpDown,
@@ -92,6 +93,7 @@ import {
   fileTreeRowIndentClass,
   fileTreeRowIndentStyle,
   fileTreeVirtualizationThreshold,
+  filterMarkdownFileTreeAssets,
   filterMarkdownFileTree,
   folderExpandedForFileTreeRows,
   folderNodeAsFile,
@@ -125,6 +127,7 @@ type MarkdownFileTreeDrawerProps = {
   currentPath: string | null;
   customTemplates?: readonly MarkdownTemplate[];
   fileTreeSort?: FileTreeSort;
+  fileTreeAssetsVisible?: boolean;
   files: NativeMarkdownFolderFile[];
   language?: AppLanguage;
   maxWidth?: number;
@@ -147,6 +150,7 @@ type MarkdownFileTreeDrawerProps = {
     context?: { files: readonly NativeMarkdownFolderFile[] }
   ) => unknown | Promise<unknown>;
   onFileTreeSortChange?: (sort: FileTreeSort) => unknown;
+  onFileTreeAssetsVisibleChange?: (visible: boolean) => unknown;
   onInsertImageAsset?: (
     file: NativeMarkdownFolderFile,
     point: { left: number; top: number }
@@ -386,6 +390,7 @@ export function MarkdownFileTreeDrawer({
   currentPath,
   customTemplates = emptyMarkdownTemplates,
   fileTreeSort: controlledFileTreeSort,
+  fileTreeAssetsVisible: controlledFileTreeAssetsVisible,
   files,
   language = "en",
   maxWidth = 440,
@@ -404,6 +409,7 @@ export function MarkdownFileTreeDrawer({
   onCreateFile,
   onCreateFolder,
   onDeleteFile,
+  onFileTreeAssetsVisibleChange,
   onFileTreeSortChange,
   onInsertImageAsset,
   onOpenFile,
@@ -454,6 +460,7 @@ export function MarkdownFileTreeDrawer({
   const [newFolderName, setNewFolderName] = useState("");
   const [fileTreeSortMenuOpen, setFileTreeSortMenuOpen] = useState(false);
   const [localFileTreeSort, setLocalFileTreeSort] = useState<FileTreeSort>(defaultFileTreeSort);
+  const [localFileTreeAssetsVisible, setLocalFileTreeAssetsVisible] = useState(true);
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<SidebarPanel>("files");
   const [outlineLevelMenuOpen, setOutlineLevelMenuOpen] = useState(false);
   const [outlineLevelFilter, setOutlineLevelFilter] = useState<OutlineLevelFilter>("all");
@@ -486,12 +493,21 @@ export function MarkdownFileTreeDrawer({
   const fileTreeSort = controlledFileTreeSort ?? localFileTreeSort;
   const fileTreeSortKey = fileTreeSort.key;
   const fileTreeSortDirection = fileTreeSort.direction;
+  const fileTreeAssetsVisible = controlledFileTreeAssetsVisible ?? localFileTreeAssetsVisible;
   const updateFileTreeSort = useCallback((sort: FileTreeSort) => {
     if (controlledFileTreeSort === undefined) setLocalFileTreeSort(sort);
     onFileTreeSortChange?.(sort);
   }, [controlledFileTreeSort, onFileTreeSortChange]);
+  const updateFileTreeAssetsVisible = useCallback((visible: boolean) => {
+    if (controlledFileTreeAssetsVisible === undefined) setLocalFileTreeAssetsVisible(visible);
+    onFileTreeAssetsVisibleChange?.(visible);
+  }, [controlledFileTreeAssetsVisible, onFileTreeAssetsVisibleChange]);
   const fullTree = useMemo(() => buildMarkdownFileTree(files, rootPath, fileTreeSort), [files, rootPath, fileTreeSort]);
-  const tree = useMemo(() => filterMarkdownFileTree(fullTree, searchQuery), [fullTree, searchQuery]);
+  const assetFilteredTree = useMemo(
+    () => fileTreeAssetsVisible ? fullTree : filterMarkdownFileTreeAssets(fullTree),
+    [fileTreeAssetsVisible, fullTree]
+  );
+  const tree = useMemo(() => filterMarkdownFileTree(assetFilteredTree, searchQuery), [assetFilteredTree, searchQuery]);
   const recentFoldersOpen = controlledRecentFoldersOpen ?? localRecentFoldersOpen;
   const setRecentFoldersExpanded = useCallback((openRecentFolders: boolean) => {
     if (controlledRecentFoldersOpen === undefined) {
@@ -580,8 +596,8 @@ export function MarkdownFileTreeDrawer({
     const nextOffset = Math.max(0, event.currentTarget.scrollTop);
     setFileTreeScrollOffset((current) => current === nextOffset ? current : nextOffset);
   }, []);
-  const folderPaths = useMemo(() => collectMarkdownFolderPaths(fullTree), [fullTree]);
-  const folderTargetPaths = useMemo(() => collectMarkdownFolderTargetPaths(fullTree), [fullTree]);
+  const folderPaths = useMemo(() => collectMarkdownFolderPaths(assetFilteredTree), [assetFilteredTree]);
+  const folderTargetPaths = useMemo(() => collectMarkdownFolderTargetPaths(assetFilteredTree), [assetFilteredTree]);
   const availableMarkdownTemplates = useMemo(() => mergeMarkdownTemplates(customTemplates), [customTemplates]);
   const outlineMaxLevel = outlineLevelFilter === "all" ? null : outlineLevelFilter;
   const outlineRenderItems = useMemo(() => buildOutlineRenderItems(outlineItems, outlineMaxLevel), [outlineItems, outlineMaxLevel]);
@@ -603,6 +619,7 @@ export function MarkdownFileTreeDrawer({
   const folderActionsAvailable = fileCreationAvailable || folderCreationAvailable;
   const backgroundContextMenuAvailable = folderActionsAvailable || Boolean(onOpenContainingFolder && rootPath);
   const folderExpansionAvailable = folderPaths.length > 0;
+  const assetVisibilityToggleAvailable = files.some((file) => file.kind === "asset");
   const allFoldersExpanded = folderExpansionAvailable && folderPaths.every((folderPath) => expandedFolders.has(folderPath));
   const outlineExpansionAvailable = collapsibleOutlineKeys.length > 0;
   const allOutlineItemsCollapsed = outlineExpansionAvailable &&
@@ -818,7 +835,7 @@ export function MarkdownFileTreeDrawer({
   const revealFileTreePath = useCallback((path: string | null | undefined) => {
     if (!path?.trim()) return false;
 
-    const revealFolderPaths = expandedFolderPathsForFileTreePath(fullTree, path);
+    const revealFolderPaths = expandedFolderPathsForFileTreePath(assetFilteredTree, path);
     if (revealFolderPaths === null) return false;
 
     setActiveSidebarPanel("files");
@@ -841,7 +858,7 @@ export function MarkdownFileTreeDrawer({
     });
     setPendingRevealPath(path);
     return true;
-  }, [fullTree]);
+  }, [assetFilteredTree]);
 
   useEffect(() => {
     if (!open || !revealPathRequest || lastRevealRequestIdRef.current === revealPathRequest.id) return;
@@ -952,6 +969,10 @@ export function MarkdownFileTreeDrawer({
       direction,
       key: fileTreeSortKey
     });
+  };
+
+  const toggleFileTreeAssetsVisible = () => {
+    updateFileTreeAssetsVisible(!fileTreeAssetsVisible);
   };
 
   const startCreatingFile = (parentPath: string | null = null, template: MarkdownTemplate | null = null) => {
@@ -2389,6 +2410,20 @@ export function MarkdownFileTreeDrawer({
                     </div>
                   ) : null}
                 </div>
+                {assetVisibilityToggleAvailable ? (
+                  <IconButton
+                    className="rounded-md"
+                    label={fileTreeAssetsVisible ? label("app.hideImageAssets") : label("app.showImageAssets")}
+                    pressed={!fileTreeAssetsVisible}
+                    onClick={toggleFileTreeAssetsVisible}
+                  >
+                    {fileTreeAssetsVisible ? (
+                      <ImageOff aria-hidden="true" size={14} />
+                    ) : (
+                      <ImageIcon aria-hidden="true" size={14} />
+                    )}
+                  </IconButton>
+                ) : null}
                 {folderExpansionAvailable ? (
                   <IconButton
                     className="rounded-md"

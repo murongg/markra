@@ -1005,6 +1005,7 @@ function workspaceWindowStateIsEmpty(state: StoredWorkspaceWindowState) {
     !state.activeDraftId &&
     !state.draftTabs?.length &&
     !state.aiAgentSessionId &&
+    state.fileTreeAssetsVisible !== false &&
     !state.filePath &&
     !state.fileTreeOpen &&
     !state.folderName &&
