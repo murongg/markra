@@ -198,9 +198,14 @@ const sideDocumentPaneKeyboardStepPercent = 5;
 const sideDocumentMainPanePercentMin = 35;
 const sideDocumentMainPanePercentMax = 70;
 const defaultSideDocumentMainPanePercent = 50;
+const quietStatusOverlayInset = 56;
 
 function persistSideDocumentGroup(group: StoredWorkspaceSideBySideGroup | null) {
   saveStoredWorkspaceState({ sideBySideGroup: group }).catch(() => {});
+}
+
+function editorBottomOverlayInset(aiCommandActive: boolean, aiCommandInset: number) {
+  return Math.max(quietStatusOverlayInset, aiCommandActive ? aiCommandInset : 0);
 }
 
 type AiQuickActionIntent = Exclude<AiEditIntent, "custom">;
@@ -3395,11 +3400,11 @@ function WorkspaceApp() {
                 (splitMode ? activeEditorSurface === "visual" : shouldFocusEditorOnReady(tab.content))
               }
               bottomOverlayInset={
-                tabActive &&
-                !sourceMode &&
-                aiCommandVisible &&
-                (!splitMode || activeEditorSurface === "visual")
-                  ? aiCommandOverlayInset
+                tabActive && !sourceMode
+                  ? editorBottomOverlayInset(
+                      aiCommandVisible && (!splitMode || activeEditorSurface === "visual"),
+                      aiCommandOverlayInset
+                    )
                   : 0
               }
               bodyFontSize={editorPreferences.preferences.bodyFontSize}
@@ -3704,6 +3709,10 @@ function WorkspaceApp() {
                       <div className="min-h-0 overflow-hidden" onFocusCapture={handleSourcePaneFocus}>
                         <LazyMarkdownSourceEditor
                           autoFocus={activeEditorSurface === "source"}
+                          bottomOverlayInset={editorBottomOverlayInset(
+                            aiCommandVisible && activeEditorSurface === "source",
+                            aiCommandOverlayInset
+                          )}
                           bodyFontSize={editorPreferences.preferences.bodyFontSize}
                           content={document.content}
                           contentWidth={activeEditorContentWidth}
@@ -3733,6 +3742,7 @@ function WorkspaceApp() {
                       {sourceMode ? (
                         <LazyMarkdownSourceEditor
                           autoFocus
+                          bottomOverlayInset={editorBottomOverlayInset(aiCommandVisible, aiCommandOverlayInset)}
                           bodyFontSize={editorPreferences.preferences.bodyFontSize}
                           content={document.content}
                           contentWidth={activeEditorContentWidth}

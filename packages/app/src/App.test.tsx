@@ -503,6 +503,22 @@ describe("Markra workspace", () => {
     expect(container.querySelector(".quiet-status")).not.toHaveTextContent("75 words");
   });
 
+  it("keeps the active writing surface clear of the quiet status line", async () => {
+    const { container } = renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector(".markdown-paper")?.getAttribute("style")).toContain("padding-bottom: 56px");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await waitFor(() => {
+      expect(container.querySelector(".markdown-source-paper")?.getAttribute("style")).toContain(
+        "padding-bottom: 56px"
+      );
+    });
+  });
+
   it("restores a selected history version into the current document", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
     mockOpenMarkdownFile({

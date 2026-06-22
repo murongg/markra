@@ -29,6 +29,7 @@ function markdownSourceContentWidth(contentWidth: EditorContentWidth | undefined
 
 function MarkdownSourceEditorFallback({
   bodyFontSize = 16,
+  bottomOverlayInset = 0,
   contentWidth,
   contentWidthPx,
   editorFontFamily = { family: null, source: "theme" },
@@ -41,7 +42,8 @@ function MarkdownSourceEditorFallback({
     ...(editorFontFamilyCss ? { "--source-editor-font-family": editorFontFamilyCss } : {}),
     fontSize: `${bodyFontSize}px`,
     lineHeight,
-    maxWidth: `${markdownSourceContentWidth(contentWidth, contentWidthPx)}px`
+    maxWidth: `${markdownSourceContentWidth(contentWidth, contentWidthPx)}px`,
+    paddingBottom: bottomOverlayInset > 0 ? `${bottomOverlayInset}px` : 0
   } satisfies MarkdownSourceFallbackStyle;
 
   return (

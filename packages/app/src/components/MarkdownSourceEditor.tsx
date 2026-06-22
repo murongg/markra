@@ -19,6 +19,7 @@ import { EditorWidthResizer } from "./EditorWidthResizer";
 
 export type MarkdownSourceEditorProps = {
   autoFocus?: boolean;
+  bottomOverlayInset?: number;
   bodyFontSize?: number;
   content: string;
   contentWidth?: EditorContentWidth;
@@ -172,6 +173,7 @@ function markdownSourceTheme(): Extension {
 
 export function MarkdownSourceEditor({
   autoFocus = false,
+  bottomOverlayInset = 0,
   bodyFontSize = 16,
   content,
   contentWidth = "default",
@@ -212,7 +214,8 @@ export function MarkdownSourceEditor({
     ...(editorFontFamilyCss ? { "--source-editor-font-family": editorFontFamilyCss } : {}),
     fontSize: `${bodyFontSize}px`,
     lineHeight,
-    maxWidth: `${resolvedContentWidth}px`
+    maxWidth: `${resolvedContentWidth}px`,
+    paddingBottom: bottomOverlayInset > 0 ? `${bottomOverlayInset}px` : 0
   } satisfies MarkdownSourcePaperStyle;
   const topInsetClassName =
     topInset === "tabs"
