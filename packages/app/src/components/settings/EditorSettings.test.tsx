@@ -493,8 +493,8 @@ describe("EditorSettings", () => {
     expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
       "Switch to dark theme",
       "Save Markdown",
-      "Switch to split mode",
-      "Switch to source mode",
+      "Switch to preview and source split",
+      "Editor view mode",
       "Toggle Markra AI"
     ]);
     expect(screen.getByRole("button", { name: "Switch to dark theme" })).toHaveAttribute("aria-pressed", "true");
@@ -540,7 +540,7 @@ describe("EditorSettings", () => {
       ]
     });
 
-    const sourceModeButton = screen.getByRole("button", { name: "Switch to source mode" });
+    const sourceModeButton = screen.getByRole("button", { name: "Editor view mode" });
 
     fireEvent.mouseDown(sourceModeButton, {
       button: 0,

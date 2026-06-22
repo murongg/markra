@@ -29,6 +29,15 @@ vi.mock("./hooks/useEditorController", async (importOriginal) => {
 
 installAppTestHarness();
 
+async function selectEditorViewMode(optionName: "Preview" | "Source code" | "Preview + Source") {
+  const targetLabel = `Editor view mode: ${optionName}`;
+  const targetButton = screen.getByRole("button", { name: targetLabel });
+  if (targetButton.getAttribute("aria-pressed") === "true") return;
+
+  fireEvent.click(targetButton);
+  await waitFor(() => expect(screen.getByRole("button", { name: targetLabel })).toHaveAttribute("aria-pressed", "true"));
+}
+
 function replaceMarkdownSource(sourceEditor: HTMLElement, value: string) {
   const view = EditorView.findFromDOM(sourceEditor);
   if (!view) {
@@ -304,7 +313,7 @@ describe("Markra document history restore", () => {
       expect(mockedListNativeMarkdownFileHistory).toHaveBeenCalledTimes(1);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     replaceMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" }), "# Updated\n\nSynthetic body.");
     fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
 

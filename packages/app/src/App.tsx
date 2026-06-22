@@ -812,10 +812,19 @@ function WorkspaceApp() {
     if (activeImageFile || !activeTabId) return;
 
     const nextState: DocumentTabViewState = {};
-    if (visualScrollRef.current) nextState.visualScrollTop = visualScrollRef.current.scrollTop;
-    if (sourceScrollRef.current) nextState.sourceScrollTop = sourceScrollRef.current.scrollTop;
+    if (editorMode === "visual" && visualScrollRef.current) {
+      nextState.visualScrollTop = visualScrollRef.current.scrollTop;
+    } else if (editorMode === "source" && sourceScrollRef.current) {
+      nextState.sourceScrollTop = sourceScrollRef.current.scrollTop;
+    } else if (editorMode === "split") {
+      if (activeEditorSurface === "visual" && visualScrollRef.current) {
+        nextState.visualScrollTop = visualScrollRef.current.scrollTop;
+      } else if (activeEditorSurface === "source" && sourceScrollRef.current) {
+        nextState.sourceScrollTop = sourceScrollRef.current.scrollTop;
+      }
+    }
     if (Object.keys(nextState).length > 0) saveDocumentTabViewState(activeTabId, nextState);
-  }, [activeImageFile, activeTabId, saveDocumentTabViewState]);
+  }, [activeEditorSurface, activeImageFile, activeTabId, editorMode, saveDocumentTabViewState]);
   const queueEditorModeScroll = useCallback((targetSurface: EditorSurface) => {
     if (!activeTabId) return;
 
@@ -2755,41 +2764,26 @@ function WorkspaceApp() {
       path: document.path
     };
   }, [activeImageFile, document.content, document.name, document.path, hasOpenDocument]);
-  const handleEditorModeToggle = useCallback(() => {
+  const handleEditorModeSelect = useCallback((nextMode: EditorMode) => {
     if (!sourceModeAvailable) return;
+    if (nextMode === editorMode) return;
 
     captureActiveDocumentViewState();
 
-    if (sourceMode) {
-      syncSourceEditsToVisualHistory();
+    if (nextMode === "visual") {
+      if (sourceMode) syncSourceEditsToVisualHistory();
       queueEditorModeScroll("visual");
       setEditorMode("visual");
       setActiveEditorSurface("visual");
       return;
     }
 
-    updateActiveAiSelection(null);
-    handleAiCommandClose();
-    queueEditorModeScroll("source");
-    setEditorMode("source");
-    setActiveEditorSurface("source");
-  }, [
-    captureActiveDocumentViewState,
-    handleAiCommandClose,
-    queueEditorModeScroll,
-    sourceMode,
-    sourceModeAvailable,
-    syncSourceEditsToVisualHistory,
-    updateActiveAiSelection
-  ]);
-  const handleEditorSplitToggle = useCallback(() => {
-    if (!sourceModeAvailable) return;
-
-    captureActiveDocumentViewState();
-
-    if (splitMode) {
-      setEditorMode("visual");
-      setActiveEditorSurface("visual");
+    if (nextMode === "source") {
+      updateActiveAiSelection(null);
+      handleAiCommandClose();
+      queueEditorModeScroll("source");
+      setEditorMode("source");
+      setActiveEditorSurface("source");
       return;
     }
 
@@ -2801,13 +2795,21 @@ function WorkspaceApp() {
   }, [
     captureActiveDocumentViewState,
     clearSideDocumentGroup,
+    editorMode,
     handleAiCommandClose,
+    queueEditorModeScroll,
     sideDocumentGroup,
     sourceMode,
     sourceModeAvailable,
-    splitMode,
+    syncSourceEditsToVisualHistory,
     updateActiveAiSelection
   ]);
+  const handleEditorModeToggle = useCallback(() => {
+    handleEditorModeSelect(sourceMode ? "visual" : "source");
+  }, [handleEditorModeSelect, sourceMode]);
+  const handleEditorSplitToggle = useCallback(() => {
+    handleEditorModeSelect(splitMode ? "visual" : "split");
+  }, [handleEditorModeSelect, splitMode]);
   const handleOpenMarkdownFolder = useCallback(async () => {
     captureActiveDocumentViewState();
     await openMarkdownFolder({
@@ -3559,6 +3561,7 @@ function WorkspaceApp() {
           onOpenMarkdownFolder={handleOpenMarkdownFolder}
           onOpenSettings={handleOpenSettings}
           onSaveMarkdown={handleSaveDocument}
+          onSelectEditorMode={handleEditorModeSelect}
           onShowDocumentHistory={handleDocumentHistoryOpen}
           onShowAbout={handleShowAbout}
           onTitlebarActionsChange={handleTitlebarActionsChange}

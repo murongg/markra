@@ -4,7 +4,17 @@ type MarkdownChangeOptions = {
   documentRevision?: number;
 };
 
-type ReplaceEditorMarkdown = (markdown: string, options?: { addToHistory?: boolean }) => boolean;
+type PendingSourceHistory = {
+  previousContent: string;
+};
+
+type ReplaceEditorMarkdown = (
+  markdown: string,
+  options?: {
+    addToHistory?: boolean;
+    historyBaselineMarkdown?: string;
+  }
+) => boolean;
 
 type SharedEditorHistoryOptions = {
   documentContent: string;
@@ -25,7 +35,7 @@ export function useSharedEditorHistory({
   syncSourceToVisual,
   visualEditorReadySequence
 }: SharedEditorHistoryOptions) {
-  const pendingSourceHistoryRef = useRef(false);
+  const pendingSourceHistoryRef = useRef<PendingSourceHistory | null>(null);
   const syncingSourceToVisualRef = useRef(false);
 
   const isApplyingSourceToVisualSync = useCallback(() => syncingSourceToVisualRef.current, []);
@@ -34,7 +44,9 @@ export function useSharedEditorHistory({
       content !== documentContent &&
       (options?.documentRevision === undefined || options.documentRevision === documentRevision)
     ) {
-      pendingSourceHistoryRef.current = true;
+      pendingSourceHistoryRef.current ??= {
+        previousContent: documentContent
+      };
     }
   }, [documentContent, documentRevision]);
 
@@ -42,10 +54,12 @@ export function useSharedEditorHistory({
     if (largeMarkdownVisualBlocked) return false;
     syncingSourceToVisualRef.current = true;
     try {
+      const pendingSourceHistory = pendingSourceHistoryRef.current;
       const synced = replaceEditorMarkdown(documentContent, {
-        addToHistory: pendingSourceHistoryRef.current
+        addToHistory: Boolean(pendingSourceHistory),
+        historyBaselineMarkdown: pendingSourceHistory?.previousContent
       });
-      if (synced) pendingSourceHistoryRef.current = false;
+      if (synced) pendingSourceHistoryRef.current = null;
       return synced;
     } finally {
       syncingSourceToVisualRef.current = false;
@@ -58,7 +72,7 @@ export function useSharedEditorHistory({
 
   useEffect(() => {
     if (!sourceSurfaceActive || largeMarkdownVisualBlocked) {
-      pendingSourceHistoryRef.current = false;
+      pendingSourceHistoryRef.current = null;
       return;
     }
 
