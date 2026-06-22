@@ -508,7 +508,10 @@ export function useEditorController() {
     }
   }, []);
 
-  const replaceMarkdown = useCallback((markdown: string, options: { addToHistory?: boolean } = {}) => {
+  const replaceMarkdown = useCallback((
+    markdown: string,
+    options: { addToHistory?: boolean; historyBaselineMarkdown?: string } = {}
+  ) => {
     try {
       const editor = editorRef.current;
       if (!editor) {
@@ -527,6 +530,32 @@ export function useEditorController() {
         const image = imageSchema.type(ctx);
         const currentMarkdown = serializeLinkImageLiveMarkdown(view.state.doc, serializer, link, image);
         if (comparableSerializedMarkdown(currentMarkdown) === comparableSerializedMarkdown(markdown)) {
+          if (
+            options.addToHistory &&
+            options.historyBaselineMarkdown !== undefined &&
+            comparableSerializedMarkdown(options.historyBaselineMarkdown) !== comparableSerializedMarkdown(markdown)
+          ) {
+            const baselineDocument = parseMarkdown(options.historyBaselineMarkdown);
+            const baselineTransaction = view.state.tr
+              .replace(0, view.state.doc.content.size, new Slice(baselineDocument.content, 0, 0))
+              .setMeta("addToHistory", false);
+            view.dispatch(baselineTransaction);
+
+            const parsedDocument = parseMarkdown(markdown);
+            const selectionPosition = Math.min(view.state.selection.from, parsedDocument.content.size);
+            const historyTransaction = view.state.tr
+              .replace(0, view.state.doc.content.size, new Slice(parsedDocument.content, 0, 0));
+
+            historyTransaction.setSelection(TextSelection.near(historyTransaction.doc.resolve(selectionPosition))).scrollIntoView();
+            view.dispatch(historyTransaction);
+            debug(() => ["[markra-history] editor replace history repaired", {
+              currentChars: currentMarkdown.length,
+              requestedChars: markdown.length,
+              selectionPosition
+            }]);
+            return true;
+          }
+
           debug(() => ["[markra-history] editor replace skipped", {
             currentChars: currentMarkdown.length,
             reason: "contents equivalent",

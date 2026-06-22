@@ -78,7 +78,7 @@ const titlebarActionOptions: Array<{
   {
     icon: Code2,
     id: "sourceMode",
-    labelKey: "app.switchToSourceMode"
+    labelKey: "app.editorViewMode"
   },
   {
     icon: PanelRight,

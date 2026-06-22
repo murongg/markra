@@ -96,6 +96,15 @@ import { configureAppRuntime, createDefaultAppRuntime, resetAppRuntimeForTests }
 
 installAppTestHarness();
 
+async function selectEditorViewMode(optionName: "Preview" | "Source code" | "Preview + Source") {
+  const targetLabel = `Editor view mode: ${optionName}`;
+  const targetButton = screen.getByRole("button", { name: targetLabel });
+  if (targetButton.getAttribute("aria-pressed") === "true") return;
+
+  fireEvent.click(targetButton);
+  await waitFor(() => expect(screen.getByRole("button", { name: targetLabel })).toHaveAttribute("aria-pressed", "true"));
+}
+
 const defaultImageUpload = {
   fileNamePattern: "pasted-image-{timestamp}",
   picgo: {
@@ -484,7 +493,7 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
     const view = getMarkdownSourceView(sourceEditor);
@@ -511,7 +520,7 @@ describe("Markra workspace", () => {
       expect(container.querySelector(".markdown-paper")?.getAttribute("style")).toContain("padding-bottom: 56px");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     await waitFor(() => {
       expect(container.querySelector(".markdown-source-paper")?.getAttribute("style")).toContain(
         "padding-bottom: 56px"
@@ -1519,8 +1528,8 @@ describe("Markra workspace", () => {
 
     expect(within(toolbarGroup).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
       "Toggle Markra AI",
-      "Switch to source mode",
-      "Switch to split mode",
+      "Editor view mode",
+      "Switch to preview and source split",
       "Save Markdown",
       "Switch to dark theme",
       "Reset toolbar buttons"
@@ -1540,8 +1549,8 @@ describe("Markra workspace", () => {
     });
 
     expect(within(toolbarGroup).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Switch to source mode",
-      "Switch to split mode",
+      "Editor view mode",
+      "Switch to preview and source split",
       "Save Markdown",
       "Toggle Markra AI",
       "Switch to dark theme",
@@ -2043,7 +2052,7 @@ describe("Markra workspace", () => {
       contentWidthPx: 980
     })));
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     const sourceEditor = (await screen.findByTestId("markdown-source-editor")).closest<HTMLElement>(
       '[data-editor-engine="source"]'
@@ -3321,9 +3330,9 @@ describe("Markra workspace", () => {
     expect(within(replacedSidePane).queryByRole("button", { name: "Close side document" })).not.toBeInTheDocument();
     expect(screen.queryAllByRole("textbox", { name: "Markdown source" })).toHaveLength(0);
 
-    const sourceModeButton = screen.getByRole("button", { name: "Switch to source mode" });
+    const sourceModeButton = screen.getByRole("button", { name: "Editor view mode: Preview" });
     expect(sourceModeButton).toBeEnabled();
-    fireEvent.click(sourceModeButton);
+    await selectEditorViewMode("Source code");
 
     const sourceEditors = await screen.findAllByRole("textbox", { name: "Markdown source" });
     expect(sourceEditors.map((editor) => readMarkdownSource(editor).trimEnd())).toEqual(
@@ -3336,7 +3345,7 @@ describe("Markra workspace", () => {
     replaceMarkdownSource(sideSource, "# Third\n\nIndependent update");
     expect(screen.getByRole("tab", { name: /guide\.md/ })).toHaveAttribute("aria-selected", "true");
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
     expect(screen.queryAllByRole("textbox", { name: "Markdown source" })).toHaveLength(0);
     await waitFor(() => expect(within(replacedSidePane).getByText("Independent update")).toBeInTheDocument());
 
@@ -3668,7 +3677,7 @@ describe("Markra workspace", () => {
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
     mockedSaveStoredWorkspaceState.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const groupedTabs = container.querySelector(".document-tabs-side-by-side-group") as HTMLElement;
     const mainPaneTab = within(groupedTabs).getByRole("tab", { name: /1\.md/ });
     const sidePaneTab = within(groupedTabs).getByRole("tab", { name: /2\.md/ });
@@ -3806,7 +3815,7 @@ describe("Markra workspace", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Open to side" }));
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
     const sideSource = await within(sidePane).findByRole("textbox", { name: "Markdown source" });
 
@@ -3882,7 +3891,7 @@ describe("Markra workspace", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Open to side" }));
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
     const sideSource = await within(sidePane).findByRole("textbox", { name: "Markdown source" });
 
@@ -3955,7 +3964,7 @@ describe("Markra workspace", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Open to side" }));
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
     fireEvent.focus(await within(sidePane).findByRole("textbox", { name: "Markdown source" }));
 
@@ -5143,7 +5152,7 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
     expect(readMarkdownSource(sourceEditor)).toContain("# Welcome to Markra");
@@ -5153,7 +5162,7 @@ describe("Markra workspace", () => {
 
     expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     expect(await screen.findByRole("heading", { name: "Source edit" })).toBeInTheDocument();
     expect(screen.getByText("Updated from source mode.")).toBeInTheDocument();
@@ -5165,7 +5174,7 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
 
     replaceMarkdownSource(sourceEditor, "# Raw source\n\n**");
@@ -5179,7 +5188,7 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
     const originalSource = readMarkdownSource(sourceEditor);
 
@@ -5211,11 +5220,11 @@ describe("Markra workspace", () => {
     await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
     await waitFor(() => expect(readMarkdownSource(sourceEditor)).toContain("| - | - |"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
     await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
 
     act(() => {
@@ -5278,13 +5287,13 @@ describe("Markra workspace", () => {
     await waitFor(() => expect(mockedInstallNativeApplicationMenu).toHaveBeenCalledTimes(1));
     const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls[0]?.[0] as NativeMenuHandlers;
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     replaceMarkdownSource(
       await screen.findByRole("textbox", { name: "Markdown source" }),
       "# Source history\n\nShared undo."
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
     expect(await screen.findByRole("heading", { name: "Source history" })).toBeInTheDocument();
     expect(screen.getByText("Shared undo.")).toBeInTheDocument();
 
@@ -5308,12 +5317,12 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
     replaceMarkdownSource(sourceEditor, "> [!WARNING]\n>\n> First line\n> Second line");
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     await waitFor(() => {
       expect(document.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
@@ -5333,24 +5342,24 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     const source = "> [!WARNING]\n>\n>";
     replaceMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" }), source);
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     await waitFor(() => {
       expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(3);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     await waitFor(() => {
       expect(readMarkdownSource(screen.getByRole("textbox", { name: "Markdown source" }))).toBe(source);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     await waitFor(() => {
       expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(3);
@@ -5362,24 +5371,24 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     const source = "> [!WARNING]\n>\n> Synthetic details\n>\n>";
     replaceMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" }), source);
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     await waitFor(() => {
       expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(4);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     await waitFor(() => {
       expect(readMarkdownSource(screen.getByRole("textbox", { name: "Markdown source" }))).toBe(source);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     await waitFor(() => {
       expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(4);
@@ -5459,7 +5468,7 @@ describe("Markra workspace", () => {
 
     replaceMarkdownSource(sourceEditor, `${largeContent}\n\nEdited in source mode.`);
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     expect(await screen.findByText("This file is too large to render in visual mode.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Oversized source" })).not.toBeInTheDocument();
@@ -5490,7 +5499,7 @@ describe("Markra workspace", () => {
     await waitFor(() => expect(mockedReadNativeMarkdownFile).toHaveBeenCalledTimes(1));
     mockedReadNativeMarkdownFile.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
     expect(readMarkdownSource(sourceEditor)).toBe(restoredContent);
@@ -5498,7 +5507,7 @@ describe("Markra workspace", () => {
     await settleEditorUpdates();
 
     expect(readMarkdownSource(screen.getByRole("textbox", { name: "Markdown source" }))).toBe(restoredContent);
-    expect(screen.getByRole("button", { name: "Switch to visual mode" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Editor view mode: Source code" })).toBeInTheDocument();
     expect(mockedReadNativeMarkdownFile).not.toHaveBeenCalled();
   });
 
@@ -5508,7 +5517,7 @@ describe("Markra workspace", () => {
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
     await settleEditorUpdates();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to split mode" }));
+    await selectEditorViewMode("Preview + Source");
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
     const visualEditor = container.querySelector('[data-editor-engine="milkdown"]');
@@ -5544,7 +5553,7 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to split mode" }));
+    await selectEditorViewMode("Preview + Source");
 
     const splitSurface = container.querySelector(".editor-split-surface");
     expect(splitSurface).toBeInTheDocument();
@@ -5559,7 +5568,7 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to split mode" }));
+    await selectEditorViewMode("Preview + Source");
 
     const splitSurface = container.querySelector<HTMLElement>(".editor-split-surface");
     expect(splitSurface).toBeInTheDocument();
@@ -5599,7 +5608,7 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to split mode" }));
+    await selectEditorViewMode("Preview + Source");
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
 
     const splitScrollElements = Array.from(
@@ -5632,7 +5641,7 @@ describe("Markra workspace", () => {
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
     await settleEditorUpdates();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to split mode" }));
+    await selectEditorViewMode("Preview + Source");
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
 
     const splitScrollElements = Array.from(
@@ -5714,7 +5723,7 @@ describe("Markra workspace", () => {
       return restoreFrames.length;
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const sourceScroll = (await screen.findByLabelText("Markdown source")).closest(".paper-scroll")!;
     mockScrollMetrics(sourceScroll, {
       clientHeight: 200,
@@ -5729,7 +5738,7 @@ describe("Markra workspace", () => {
     expect(sourceScroll.scrollTop).toBe(500);
 
     fireEvent.scroll(sourceScroll);
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
     const restoredVisualScroll = screen.getByLabelText("Writing surface");
     mockScrollMetrics(restoredVisualScroll, {
       clientHeight: 200,
@@ -6207,12 +6216,12 @@ describe("Markra workspace", () => {
     expect(await screen.findByText("Native file")).toBeInTheDocument();
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     expect(readMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" }))).toBe(originalContent);
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     expect(await screen.findByText("Native file")).toBeInTheDocument();
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
@@ -6238,7 +6247,7 @@ describe("Markra workspace", () => {
 
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     expect(readMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" })).trim()).toBe(
       "### C\n\nSummary content."
@@ -6262,7 +6271,7 @@ describe("Markra workspace", () => {
     fireEvent.keyDown(window, { key: "o", metaKey: true });
     expect(await screen.findByText("Native file")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     replaceMarkdownSource(
       await screen.findByRole("textbox", { name: "Markdown source" }),
       "# Source save\n\nSaved from source mode."
@@ -6324,7 +6333,7 @@ describe("Markra workspace", () => {
     fireEvent.keyDown(window, { key: "o", metaKey: true });
     expect(await screen.findByText("Native file")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     replaceMarkdownSource(
       await screen.findByRole("textbox", { name: "Markdown source" }),
       "# Source save\n\nSynced after save."
