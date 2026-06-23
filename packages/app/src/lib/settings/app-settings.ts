@@ -182,6 +182,9 @@ const recentMarkdownFoldersKey = "recentMarkdownFolders";
 const mainWorkspaceWindowLabel = "main";
 const settingsWorkspaceWindowLabel = "markra-settings";
 const maxFileTreeSortWorkspaceEntries = 50;
+const storedAppSettingsFileFormat = "markra-settings";
+const storedAppSettingsFileVersion = 1;
+const invalidStoredAppSettingsFileMessage = "Invalid Markra settings file.";
 
 type StoredWorkspaceStateOptions = {
   windowLabel?: string | null;
@@ -306,6 +309,27 @@ export type ImageUploadSettings = {
 export type AiAgentPreferences = {
   thinkingEnabled: boolean;
   webSearchEnabled: boolean;
+};
+export type PortableStoredAppSettings = {
+  aiAgentPreferences: AiAgentPreferences;
+  aiProviders: AiProviderSettings;
+  appearanceMode: AppAppearanceMode;
+  backupSettings: BackupSettings;
+  customThemeCss: CustomThemeCssValues;
+  darkTheme: DarkEditorTheme;
+  editorPreferences: EditorPreferences;
+  exportSettings: ExportSettings;
+  language: AppLanguage;
+  lightTheme: LightEditorTheme;
+  network: NetworkSettings;
+  syncSettings: SyncSettings;
+  webSearch: WebSearchSettings;
+};
+export type StoredAppSettingsFile = {
+  exportedAt: string;
+  format: typeof storedAppSettingsFileFormat;
+  settings: PortableStoredAppSettings;
+  version: typeof storedAppSettingsFileVersion;
 };
 export type ExtendedSyntaxPreferences = {
   githubAlerts: boolean;
@@ -480,6 +504,132 @@ function loadAiAgentSessionStore(sessionId: string | null) {
 
 function loadAiAgentSessionIndexStore() {
   return getAppRuntime().settings.loadStore(aiAgentSessionIndexStorePath, { autoSave: false, defaults: {} });
+}
+
+function isSettingsRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invalidStoredAppSettingsFile(): Error {
+  return new Error(invalidStoredAppSettingsFileMessage);
+}
+
+function parseStoredAppSettingsFile(contents: string): PortableStoredAppSettings {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    throw invalidStoredAppSettingsFile();
+  }
+
+  if (!isSettingsRecord(parsed)) throw invalidStoredAppSettingsFile();
+  if (parsed.format !== storedAppSettingsFileFormat) throw invalidStoredAppSettingsFile();
+  if (parsed.version !== storedAppSettingsFileVersion) throw invalidStoredAppSettingsFile();
+  if (!isSettingsRecord(parsed.settings)) throw invalidStoredAppSettingsFile();
+
+  return normalizePortableStoredAppSettings(parsed.settings);
+}
+
+function normalizePortableStoredAppSettings(value: Record<string, unknown>): PortableStoredAppSettings {
+  const themePreferences = normalizeAppThemePreferences(value);
+
+  return {
+    aiAgentPreferences: normalizeAiAgentPreferences(value.aiAgentPreferences),
+    aiProviders: normalizeAiSettings(value.aiProviders),
+    appearanceMode: themePreferences.appearanceMode,
+    backupSettings: normalizeBackupSettings(value.backupSettings),
+    customThemeCss: normalizeCustomThemeCssValues(value.customThemeCss),
+    darkTheme: themePreferences.darkTheme,
+    editorPreferences: normalizeEditorPreferences(value.editorPreferences),
+    exportSettings: normalizeExportSettings(value.exportSettings),
+    language: isAppLanguage(value.language) ? value.language : "en",
+    lightTheme: themePreferences.lightTheme,
+    network: normalizeNetworkSettings(value.network),
+    syncSettings: normalizeSyncSettings(value.syncSettings),
+    webSearch: normalizeWebSearchSettings(value.webSearch)
+  };
+}
+
+async function readPortableStoredAppSettings(): Promise<PortableStoredAppSettings> {
+  const store = await loadSettingsStore();
+  const legacyTheme = await store.get<AppTheme>(themeKey);
+  const legacyPreferences = isAppTheme(legacyTheme)
+    ? createThemePreferencesFromLegacyTheme(legacyTheme)
+    : defaultAppThemePreferences;
+  const themePreferences = normalizeAppThemePreferences({
+    appearanceMode: await store.get<AppAppearanceMode>(appearanceModeKey),
+    darkTheme: await store.get<DarkEditorTheme>(darkThemeKey),
+    lightTheme: await store.get<LightEditorTheme>(lightThemeKey)
+  }, legacyPreferences);
+  const legacyCustomThemeCss = normalizeCustomThemeCss(await store.get<string>(customThemeCssKey));
+  const customThemeCss = normalizeCustomThemeCssValues({
+    dark: await store.get<string>(darkCustomThemeCssKey) ?? legacyCustomThemeCss,
+    light: await store.get<string>(lightCustomThemeCssKey) ?? legacyCustomThemeCss
+  });
+  const language = await store.get<AppLanguage>(languageKey);
+  const aiProviders = await store.get<AiProviderSettings>(aiProvidersKey);
+  const aiAgentPreferences = await store.get<Partial<AiAgentPreferences>>(aiAgentPreferencesKey);
+  const editorPreferences = await store.get<Partial<EditorPreferences>>(editorPreferencesKey);
+  const exportSettings = await store.get<Partial<ExportSettings>>(exportSettingsKey);
+  const webSearch = await store.get<Partial<WebSearchSettings>>(webSearchKey);
+  const network = await store.get<Partial<NetworkSettings>>(networkKey);
+  const backupSettings = await store.get<Partial<BackupSettings>>(backupSettingsKey);
+  const syncSettings = await store.get<Partial<SyncSettings>>(syncSettingsKey);
+
+  return {
+    aiAgentPreferences: normalizeAiAgentPreferences(aiAgentPreferences),
+    aiProviders: aiProviders ? normalizeAiSettings(aiProviders) : createDefaultAiSettings(),
+    appearanceMode: themePreferences.appearanceMode,
+    backupSettings: normalizeBackupSettings(backupSettings),
+    customThemeCss,
+    darkTheme: themePreferences.darkTheme,
+    editorPreferences: normalizeEditorPreferences(editorPreferences),
+    exportSettings: normalizeExportSettings(exportSettings),
+    language: isAppLanguage(language) ? language : "en",
+    lightTheme: themePreferences.lightTheme,
+    network: normalizeNetworkSettings(network),
+    syncSettings: normalizeSyncSettings(syncSettings),
+    webSearch: normalizeWebSearchSettings(webSearch)
+  };
+}
+
+async function writePortableStoredAppSettings(settings: PortableStoredAppSettings) {
+  const store = await loadSettingsStore();
+
+  await store.set(aiAgentPreferencesKey, settings.aiAgentPreferences);
+  await store.set(aiProvidersKey, settings.aiProviders);
+  await store.set(appearanceModeKey, settings.appearanceMode);
+  await store.set(backupSettingsKey, settings.backupSettings);
+  await store.set(darkCustomThemeCssKey, settings.customThemeCss.dark);
+  await store.set(darkThemeKey, settings.darkTheme);
+  await store.set(editorPreferencesKey, settings.editorPreferences);
+  await store.set(exportSettingsKey, settings.exportSettings);
+  await store.set(languageKey, settings.language);
+  await store.set(lightCustomThemeCssKey, settings.customThemeCss.light);
+  await store.set(lightThemeKey, settings.lightTheme);
+  await store.set(networkKey, settings.network);
+  await store.set(syncSettingsKey, settings.syncSettings);
+  await store.set(webSearchKey, settings.webSearch);
+  await store.save();
+}
+
+export async function exportStoredAppSettings(exportedAt: Date = new Date()) {
+  const settingsFile: StoredAppSettingsFile = {
+    exportedAt: exportedAt.toISOString(),
+    format: storedAppSettingsFileFormat,
+    settings: await readPortableStoredAppSettings(),
+    version: storedAppSettingsFileVersion
+  };
+
+  return JSON.stringify(settingsFile, null, 2);
+}
+
+export async function importStoredAppSettings(contents: string) {
+  const settings = parseStoredAppSettingsFile(contents);
+
+  await writePortableStoredAppSettings(settings);
+
+  return settings;
 }
 
 export function createAiAgentSessionId() {

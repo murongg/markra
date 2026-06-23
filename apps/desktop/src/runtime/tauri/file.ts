@@ -35,6 +35,11 @@ type MarkdownTemplateFileResponse = {
   contents: string;
 };
 
+type TextFileResponse = {
+  path: string;
+  contents: string;
+};
+
 type MarkdownFolderFileResponse = {
   createdAt?: number;
   kind?: "asset" | "file" | "folder";
@@ -66,6 +71,12 @@ export type NativeMarkdownFile = {
   name: string;
   content: string;
   sizeBytes: number;
+};
+
+export type NativeSettingsFile = {
+  path: string;
+  name: string;
+  content: string;
 };
 
 export type NativeMarkdownFileHistoryEntry = {
@@ -150,6 +161,11 @@ export type SaveNativePdfFileInput = {
   contents: string;
 };
 
+export type SaveNativeSettingsFileInput = {
+  suggestedName: string;
+  contents: string;
+};
+
 export type NativePandocExportFormat = "docx" | "epub" | "latex";
 
 export type SaveNativePandocFileInput = {
@@ -172,6 +188,11 @@ export type SavedNativeHtmlFile = {
 };
 
 export type SavedNativePdfFile = {
+  path: string;
+  name: string;
+};
+
+export type SavedNativeSettingsFile = {
   path: string;
   name: string;
 };
@@ -316,6 +337,13 @@ const pdfFilters = [
   {
     name: "PDF",
     extensions: ["pdf"]
+  }
+];
+
+const settingsFilters = [
+  {
+    name: "Markra settings",
+    extensions: ["json"]
   }
 ];
 
@@ -750,6 +778,27 @@ export async function openNativeMarkdownPath(labels?: NativeMarkdownPickerLabels
   };
 }
 
+export async function openNativeSettingsFile(labels?: NativeMarkdownPickerLabels): Promise<NativeSettingsFile | null> {
+  const selectedPath = await open({
+    multiple: false,
+    fileAccessMode: "scoped",
+    filters: settingsFilters,
+    ...pickerTitleOption(labels)
+  });
+
+  if (!selectedPath || Array.isArray(selectedPath)) return null;
+
+  const file = await invoke<TextFileResponse>("read_text_file", {
+    path: selectedPath
+  });
+
+  return {
+    path: file.path,
+    name: fileNameFromPath(file.path),
+    content: file.contents
+  };
+}
+
 function droppedTargetFromResponse(target: MarkdownOpenPathResponse): NativeMarkdownDroppedTarget {
   return {
     kind: target.kind,
@@ -919,6 +968,28 @@ export async function saveNativePdfFile({
   await invoke("export_pdf_file", {
     path: targetPath,
     html: contents
+  });
+
+  return {
+    path: targetPath,
+    name: fileNameFromPath(targetPath)
+  };
+}
+
+export async function saveNativeSettingsFile({
+  suggestedName,
+  contents
+}: SaveNativeSettingsFileInput): Promise<SavedNativeSettingsFile | null> {
+  const targetPath = await save({
+    defaultPath: suggestedName,
+    filters: settingsFilters
+  });
+
+  if (!targetPath) return null;
+
+  await invoke("write_text_file", {
+    path: targetPath,
+    contents
   });
 
   return {

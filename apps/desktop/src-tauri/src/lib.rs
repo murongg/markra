@@ -14,6 +14,7 @@ mod opened_files;
 mod remote_sync;
 mod shell_command;
 mod spellcheck_dictionary;
+mod text_file;
 mod watcher;
 mod web_http;
 mod window_state;
@@ -58,6 +59,7 @@ use spellcheck_dictionary::{
 };
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
+use text_file::{read_text_file, write_text_file};
 use watcher::{
     unwatch_markdown_file, unwatch_markdown_tree, watch_markdown_file, watch_markdown_tree,
     MarkdownFileWatcherState, MarkdownTreeWatcherState,
@@ -239,6 +241,7 @@ pub fn run() {
             open_markdown_path,
             resolve_markdown_path,
             read_markdown_file,
+            read_text_file,
             list_markdown_file_history,
             read_markdown_file_history,
             read_markdown_image_file,
@@ -263,6 +266,7 @@ pub fn run() {
             upload_s3_image,
             upload_webdav_image,
             write_markdown_file,
+            write_text_file,
             export_pdf_file,
             check_pandoc_available,
             detect_pandoc_path,

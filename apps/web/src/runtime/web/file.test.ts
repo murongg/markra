@@ -95,6 +95,63 @@ describe("web file runtime", () => {
     });
   });
 
+  it("opens and saves Markra settings JSON files through the browser file system API", async () => {
+    const settingsHandle = new FakeFileHandle(
+      "markra-settings.json",
+      "{\"format\":\"markra-settings\"}",
+      "application/json"
+    );
+    const savedHandle = new FakeFileHandle("markra-settings.json", "", "application/json");
+    let openOptions: unknown;
+    let saveOptions: unknown;
+    const runtime = createWebRuntime({
+      indexedDB: new FakeIndexedDbFactory().indexedDB,
+      showOpenFilePicker: async (options) => {
+        openOptions = options;
+        return [settingsHandle];
+      },
+      showSaveFilePicker: async (options) => {
+        saveOptions = options;
+        return savedHandle;
+      }
+    });
+
+    await expect(runtime.files.openSettingsFile({ title: "Import Markra settings" })).resolves.toEqual({
+      content: "{\"format\":\"markra-settings\"}",
+      name: "markra-settings.json",
+      path: expect.stringMatching(/^web-file:\/\//u)
+    });
+    await expect(
+      runtime.files.saveSettingsFile({
+        contents: "{\"version\":1}",
+        suggestedName: "markra-settings.json"
+      })
+    ).resolves.toEqual({
+      name: "markra-settings.json",
+      path: expect.stringMatching(/^web-file:\/\//u)
+    });
+
+    expect(openOptions).toEqual({
+      multiple: false,
+      types: [{
+        accept: {
+          "application/json": [".json"]
+        },
+        description: "Markra settings"
+      }]
+    });
+    expect(saveOptions).toEqual({
+      suggestedName: "markra-settings.json",
+      types: [{
+        accept: {
+          "application/json": [".json"]
+        },
+        description: "Markra settings"
+      }]
+    });
+    expect(savedHandle.writes).toEqual(["{\"version\":1}"]);
+  });
+
   it("opens dropped Markdown files through the shared file drop runtime hook", async () => {
     const runtime = createWebRuntime({
       document,

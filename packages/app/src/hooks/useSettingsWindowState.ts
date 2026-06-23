@@ -22,6 +22,8 @@ import {
   defaultNetworkSettings,
   defaultWebSearchSettings,
   resetWelcomeDocumentState,
+  exportStoredAppSettings,
+  importStoredAppSettings,
   saveStoredAiSettings,
   saveStoredBackupSettings,
   saveStoredSyncSettings,
@@ -40,6 +42,7 @@ import {
   type EditorPreferences,
   type ExportSettings,
   type NetworkSettings,
+  type PortableStoredAppSettings,
   type WebSearchSettings,
   type SyncSettings
 } from "../lib/settings/app-settings";
@@ -47,8 +50,11 @@ import {
   listenAppEditorPreferencesChanged,
   notifyAppAiSettingsChanged,
   notifyAppBackupSettingsChanged,
+  notifyAppCustomThemeCssChanged,
   notifyAppEditorPreferencesChanged,
   notifyAppExportSettingsChanged,
+  notifyAppLanguageChanged,
+  notifyAppThemeChanged,
   notifyAppWebSearchSettingsChanged,
   notifyAppSyncSettingsChanged
 } from "../lib/settings/settings-events";
@@ -60,8 +66,10 @@ import {
   getNativeShellCommandStatus,
   installNativeShellCommand,
   openNativeMarkdownFolder,
+  openNativeSettingsFile,
   readNativeMarkdownTemplateFile,
   requestNativeAiJson,
+  saveNativeSettingsFile,
   uninstallNativeShellCommand,
   writeNativeMarkdownTemplateFile
 } from "../lib/tauri";
@@ -98,6 +106,8 @@ export type SettingsCategory =
   | "export";
 
 export type SettingsFocusTarget = "pandocPath";
+
+const settingsExportSuggestedName = "markra-settings.json";
 
 function settingsTargetFromSearch(search: string): NativeSettingsWindowTarget | null {
   const target = new URLSearchParams(search).get("settingsTarget");
@@ -178,6 +188,7 @@ export function useSettingsWindowState() {
   const [syncSettings, setSyncSettings] = useState<SyncSettings>(defaultSyncSettings);
   const [syncRunning, setSyncRunning] = useState(false);
   const [syncSourcePath, setSyncSourcePath] = useState<string | null>(null);
+  const [settingsTransferRunning, setSettingsTransferRunning] = useState(false);
   const [editorPreferences, setEditorPreferences] = useState<EditorPreferences>(defaultEditorPreferences);
   const [markdownTemplates, setMarkdownTemplates] = useState<MarkdownTemplate[]>([]);
   const [exportSettings, setExportSettings] = useState<ExportSettings>(defaultExportSettings);
@@ -611,6 +622,87 @@ export function useSettingsWindowState() {
       .catch(() => {});
   }, []);
 
+  const applyImportedSettings = useCallback((settings: PortableStoredAppSettings) => {
+    setAiSettings(settings.aiProviders);
+    setAiSettingsSaved(true);
+    setSelectedAiProviderId(settings.aiProviders.defaultProviderId ?? settings.aiProviders.providers[0]?.id);
+    setBackupSettings(settings.backupSettings);
+    setSyncSettings(settings.syncSettings);
+    setEditorPreferences(settings.editorPreferences);
+    setExportSettings(settings.exportSettings);
+    setNetworkSettings(settings.network);
+    setWebSearchSettings(settings.webSearch);
+    loadMarkdownTemplatesFromEntries(settings.editorPreferences.markdownTemplates, readNativeMarkdownTemplateFile)
+      .then((templates) => setMarkdownTemplates(templates))
+      .catch(() => setMarkdownTemplates([]));
+
+    notifyAppAiSettingsChanged(settings.aiProviders).catch(() => {});
+    notifyAppBackupSettingsChanged(settings.backupSettings).catch(() => {});
+    notifyAppSyncSettingsChanged(settings.syncSettings).catch(() => {});
+    notifyAppEditorPreferencesChanged(settings.editorPreferences).catch(() => {});
+    notifyAppExportSettingsChanged(settings.exportSettings).catch(() => {});
+    notifyAppWebSearchSettingsChanged(settings.webSearch).catch(() => {});
+    notifyAppLanguageChanged(settings.language).catch(() => {});
+    notifyAppThemeChanged({
+      appearanceMode: settings.appearanceMode,
+      darkTheme: settings.darkTheme,
+      lightTheme: settings.lightTheme
+    }).catch(() => {});
+    notifyAppCustomThemeCssChanged(settings.customThemeCss).catch(() => {});
+  }, []);
+
+  const handleExportSettings = useCallback(async () => {
+    if (settingsTransferRunning) return;
+
+    setSettingsTransferRunning(true);
+    try {
+      const contents = await exportStoredAppSettings();
+      const savedFile = await saveNativeSettingsFile({
+        contents,
+        suggestedName: settingsExportSuggestedName
+      });
+      if (savedFile) {
+        showAppToast({
+          message: translate("settings.storage.exportSucceeded"),
+          status: "success"
+        });
+      }
+    } catch {
+      showAppToast({
+        message: translate("settings.storage.exportFailed"),
+        status: "error"
+      });
+    } finally {
+      setSettingsTransferRunning(false);
+    }
+  }, [settingsTransferRunning, translate]);
+
+  const handleImportSettings = useCallback(async () => {
+    if (settingsTransferRunning) return;
+
+    setSettingsTransferRunning(true);
+    try {
+      const file = await openNativeSettingsFile({
+        title: translate("settings.storage.importPickerTitle")
+      });
+      if (!file) return;
+
+      const settings = await importStoredAppSettings(file.content);
+      applyImportedSettings(settings);
+      showAppToast({
+        message: translate("settings.storage.importSucceeded"),
+        status: "success"
+      });
+    } catch {
+      showAppToast({
+        message: translate("settings.storage.importFailed"),
+        status: "error"
+      });
+    } finally {
+      setSettingsTransferRunning(false);
+    }
+  }, [applyImportedSettings, settingsTransferRunning, translate]);
+
   const handleChooseBackupTargetPath = useCallback(() => {
     openNativeMarkdownFolder({
       title: translate("settings.backup.targetPickerTitle")
@@ -725,6 +817,8 @@ export function useSettingsWindowState() {
     exportSettings,
     handleAddAiProvider,
     handleFetchAiProviderModels,
+    handleExportSettings,
+    handleImportSettings,
     handleResetWelcomeDocument,
     handleSaveAiSettings,
     handleTestAiProvider,
@@ -751,6 +845,7 @@ export function useSettingsWindowState() {
     markdownTemplates,
     networkSettings,
     settingsFocusTarget,
+    settingsTransferRunning,
     shellCommandRunning,
     shellCommandStatus,
     syncRunning,

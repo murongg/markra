@@ -44,6 +44,8 @@ export function SettingsWindow() {
     handleCreateMarkdownTemplate,
     handleDeleteMarkdownTemplate,
     handleResetWelcomeDocument,
+    handleExportSettings,
+    handleImportSettings,
     handleRunBackup,
     handleRunSync,
     handleInstallShellCommand,
@@ -67,6 +69,7 @@ export function SettingsWindow() {
     setActiveCategory,
     setSelectedAiProviderId,
     settingsFocusTarget,
+    settingsTransferRunning,
     shellCommandRunning,
     shellCommandStatus,
     syncRunning,
@@ -210,7 +213,10 @@ export function SettingsWindow() {
             <StorageSettings
               preferences={editorPreferences}
               s3ImageUploadEnabled={appFeatures.s3ImageUpload}
+              settingsTransferRunning={settingsTransferRunning}
               translate={translate}
+              onExportSettings={handleExportSettings}
+              onImportSettings={handleImportSettings}
               onUpdatePreferences={handleUpdateEditorPreferences}
             />
           ) : null}

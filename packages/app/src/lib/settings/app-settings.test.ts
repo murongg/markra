@@ -2,6 +2,7 @@ import { createSettingsStoreHarness, resetSettingsStoreRuntime, setupSettingsSto
 import {
   darkEditorThemeOptions,
   defaultEditorPreferences,
+  exportStoredAppSettings,
   getStoredThemePreferences,
   appThemeOptions,
   consumeWelcomeDocumentState,
@@ -12,6 +13,7 @@ import {
   isAppAppearanceMode,
   isAppTheme,
   lightEditorThemeOptions,
+  importStoredAppSettings,
   resetWelcomeDocumentState,
   normalizeEditorPreferences,
   resolveAppAppearanceTheme,
@@ -234,5 +236,130 @@ describe("app settings", () => {
 
     expect(store.delete).toHaveBeenCalledWith("welcomeDocumentSeen");
     expect(store.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("exports portable app settings without workspace-local state", async () => {
+    store.get.mockImplementation(async (key: string) => {
+      if (key === "language") return "zh-CN";
+      if (key === "appearanceMode") return "dark";
+      if (key === "lightTheme") return "minimal";
+      if (key === "darkTheme") return "night";
+      if (key === "lightCustomThemeCss") return ":root[data-theme=\"custom\"] { --bg-primary: #fff; }";
+      if (key === "darkCustomThemeCss") return ":root[data-theme=\"custom\"] { --bg-primary: #111; }";
+      if (key === "editorPreferences") {
+        return {
+          ...defaultEditorPreferences,
+          autoSaveEnabled: false,
+          imageUpload: {
+            ...defaultEditorPreferences.imageUpload,
+            provider: "webdav",
+            webdav: {
+              ...defaultEditorPreferences.imageUpload.webdav,
+              password: "synthetic-secret",
+              serverUrl: "https://dav.example.test/images"
+            }
+          }
+        };
+      }
+      if (key === "workspace") {
+        return {
+          filePath: "/private/example.md"
+        };
+      }
+      if (key === "recentMarkdownFiles") {
+        return [{ name: "example.md", path: "/private/example.md" }];
+      }
+
+      return undefined;
+    });
+
+    const exported = JSON.parse(
+      await exportStoredAppSettings(new Date("2030-01-02T03:04:05.000Z"))
+    );
+
+    expect(exported).toMatchObject({
+      exportedAt: "2030-01-02T03:04:05.000Z",
+      format: "markra-settings",
+      version: 1,
+      settings: {
+        appearanceMode: "dark",
+        darkTheme: "night",
+        editorPreferences: {
+          autoSaveEnabled: false,
+          imageUpload: {
+            provider: "webdav",
+            webdav: {
+              password: "synthetic-secret",
+              serverUrl: "https://dav.example.test/images"
+            }
+          }
+        },
+        language: "zh-CN",
+        lightTheme: "minimal"
+      }
+    });
+    expect(exported.settings).not.toHaveProperty("workspace");
+    expect(exported.settings).not.toHaveProperty("recentMarkdownFiles");
+    expect(store.get).not.toHaveBeenCalledWith("workspace");
+    expect(store.get).not.toHaveBeenCalledWith("recentMarkdownFiles");
+  });
+
+  it("imports portable app settings after validating the file contents", async () => {
+    const importedSettingsFile = {
+      format: "markra-settings",
+      version: 1,
+      exportedAt: "2030-01-02T03:04:05.000Z",
+      settings: {
+        appearanceMode: "dark",
+        customThemeCss: {
+          dark: ":root[data-theme=\"custom\"] { --bg-primary: #111; }",
+          light: ":root[data-theme=\"custom\"] { --bg-primary: #fff; }"
+        },
+        darkTheme: "night",
+        editorPreferences: {
+          ...defaultEditorPreferences,
+          autoSaveEnabled: false,
+          bodyFontSize: 20
+        },
+        language: "zh-CN",
+        lightTheme: "minimal",
+        recentMarkdownFiles: [{ name: "example.md", path: "/private/example.md" }],
+        workspace: {
+          filePath: "/private/example.md"
+        }
+      }
+    };
+
+    const imported = await importStoredAppSettings(JSON.stringify(importedSettingsFile));
+
+    expect(imported).toMatchObject({
+      appearanceMode: "dark",
+      darkTheme: "night",
+      language: "zh-CN",
+      lightTheme: "minimal"
+    });
+    expect(mockedLoadStore).toHaveBeenCalledWith("settings.json", { autoSave: false, defaults: {} });
+    expect(store.set).toHaveBeenCalledWith("language", "zh-CN");
+    expect(store.set).toHaveBeenCalledWith("appearanceMode", "dark");
+    expect(store.set).toHaveBeenCalledWith("lightTheme", "minimal");
+    expect(store.set).toHaveBeenCalledWith("darkTheme", "night");
+    expect(store.set).toHaveBeenCalledWith(
+      "editorPreferences",
+      expect.objectContaining({
+        autoSaveEnabled: false,
+        bodyFontSize: 20
+      })
+    );
+    expect(store.set).not.toHaveBeenCalledWith("workspace", expect.anything());
+    expect(store.set).not.toHaveBeenCalledWith("recentMarkdownFiles", expect.anything());
+    expect(store.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects invalid settings imports without writing to the settings store", async () => {
+    await expect(importStoredAppSettings("{not json")).rejects.toThrow("Invalid Markra settings file.");
+
+    expect(mockedLoadStore).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
+    expect(store.save).not.toHaveBeenCalled();
   });
 });

@@ -26,6 +26,7 @@ import type {
   NativeMarkdownBackupSummary,
   NativeMarkdownSyncSummary,
   NativeMarkdownPickerLabels,
+  NativeSettingsFile,
   NativeMarkdownTreeChangeHandler,
   NativePandocExportFormat,
   ReadNativeMarkdownImageInput,
@@ -34,11 +35,13 @@ import type {
   SavedNativeMarkdownFile,
   SavedNativePandocFile,
   SavedNativePdfFile,
+  SavedNativeSettingsFile,
   SaveNativeClipboardImageInput,
   SaveNativeHtmlFileInput,
   SaveNativeMarkdownFileInput,
   SaveNativePandocFileInput,
   SaveNativePdfFileInput,
+  SaveNativeSettingsFileInput,
   SyncNativeMarkdownFolderInput,
   UploadNativePicGoImageInput,
   UploadNativeS3ImageInput,
@@ -165,6 +168,7 @@ export type AppFileRuntime = {
   openMarkdownFolder: (labels?: NativeMarkdownPickerLabels) => Promise<NativeMarkdownFolder | null>;
   openMarkdownFolderInNewWindow: (path: string) => Promise<unknown>;
   openMarkdownPath: (labels?: NativeMarkdownPickerLabels) => Promise<NativeMarkdownOpenTarget | null>;
+  openSettingsFile: (labels?: NativeMarkdownPickerLabels) => Promise<NativeSettingsFile | null>;
   readLocalImageFile: (path: string) => Promise<File>;
   readMarkdownFile: (path: string) => Promise<NativeMarkdownFile>;
   readMarkdownFileHistory: (path: string, id: string) => Promise<NativeMarkdownFileHistoryFile>;
@@ -181,6 +185,7 @@ export type AppFileRuntime = {
   saveMarkdownFile: (input: SaveNativeMarkdownFileInput) => Promise<SavedNativeMarkdownFile | null>;
   savePandocFile: (input: SaveNativePandocFileInput) => Promise<SavedNativePandocFile | null>;
   savePdfFile: (input: SaveNativePdfFileInput) => Promise<SavedNativePdfFile | null>;
+  saveSettingsFile: (input: SaveNativeSettingsFileInput) => Promise<SavedNativeSettingsFile | null>;
   searchMarkdownFiles?: (request: WorkspaceSearchRequest) => Promise<WorkspaceSearchResponse>;
   syncMarkdownFolder: (input: SyncNativeMarkdownFolderInput) => Promise<NativeMarkdownSyncSummary>;
   takeOpenedMarkdownPaths: () => Promise<string[]>;
@@ -389,6 +394,7 @@ function createDefaultFileRuntime(): AppFileRuntime {
     openMarkdownFolder: async () => null,
     openMarkdownFolderInNewWindow: () => unsupportedFeature("openMarkdownFolderInNewWindow"),
     openMarkdownPath: async () => null,
+    openSettingsFile: async () => null,
     readLocalImageFile: () => unsupportedFeature("readLocalImageFile"),
     readMarkdownFile: () => unsupportedFeature("readMarkdownFile"),
     readMarkdownFileHistory: () => unsupportedFeature("readMarkdownFileHistory"),
@@ -401,6 +407,7 @@ function createDefaultFileRuntime(): AppFileRuntime {
     saveMarkdownFile: async () => null,
     savePandocFile: async () => null,
     savePdfFile: async () => null,
+    saveSettingsFile: async () => null,
     syncMarkdownFolder: () => unsupportedFeature("syncMarkdownFolder"),
     takeOpenedMarkdownPaths: async () => [],
     uploadPicGoImage: () => unsupportedFeature("uploadPicGoImage"),
@@ -542,6 +549,7 @@ export type {
   NativeMarkdownOpenTarget,
   NativeMarkdownSyncSummary,
   NativeMarkdownPickerLabels,
+  NativeSettingsFile,
   NativeMarkdownTreeChangeHandler,
   NativePandocExportFormat,
   ReadNativeMarkdownImageInput,
@@ -550,11 +558,13 @@ export type {
   SavedNativeMarkdownFile,
   SavedNativePandocFile,
   SavedNativePdfFile,
+  SavedNativeSettingsFile,
   SaveNativeClipboardImageInput,
   SaveNativeHtmlFileInput,
   SaveNativeMarkdownFileInput,
   SaveNativePandocFileInput,
   SaveNativePdfFileInput,
+  SaveNativeSettingsFileInput,
   SyncNativeMarkdownFolderInput,
   UploadNativePicGoImageInput,
   UploadNativeS3ImageInput,

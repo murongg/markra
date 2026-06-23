@@ -14,6 +14,12 @@ export type NativeMarkdownFile = {
   sizeBytes?: number;
 };
 
+export type NativeSettingsFile = {
+  path: string;
+  name: string;
+  content: string;
+};
+
 export type NativeMarkdownFileHistoryEntry = {
   id: string;
   createdAt: number;
@@ -96,6 +102,11 @@ export type SaveNativePdfFileInput = {
   contents: string;
 };
 
+export type SaveNativeSettingsFileInput = {
+  suggestedName: string;
+  contents: string;
+};
+
 export type NativePandocExportFormat = "docx" | "epub" | "latex";
 
 export type SaveNativePandocFileInput = {
@@ -118,6 +129,11 @@ export type SavedNativeHtmlFile = {
 };
 
 export type SavedNativePdfFile = {
+  path: string;
+  name: string;
+};
+
+export type SavedNativeSettingsFile = {
   path: string;
   name: string;
 };
@@ -326,6 +342,10 @@ export function openNativeMarkdownPath(labels?: NativeMarkdownPickerLabels) {
   return getAppRuntime().files.openMarkdownPath(labels);
 }
 
+export function openNativeSettingsFile(labels?: NativeMarkdownPickerLabels) {
+  return getAppRuntime().files.openSettingsFile(labels);
+}
+
 export function resolveNativeMarkdownPath(path: string) {
   return getAppRuntime().files.resolveMarkdownPath(path);
 }
@@ -344,6 +364,10 @@ export function saveNativeHtmlFile(input: SaveNativeHtmlFileInput) {
 
 export function saveNativePdfFile(input: SaveNativePdfFileInput) {
   return getAppRuntime().files.savePdfFile(input);
+}
+
+export function saveNativeSettingsFile(input: SaveNativeSettingsFileInput) {
+  return getAppRuntime().files.saveSettingsFile(input);
 }
 
 export function saveNativePandocFile(input: SaveNativePandocFileInput) {

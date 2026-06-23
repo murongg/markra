@@ -4,6 +4,51 @@ import { defaultEditorPreferences } from "../../lib/settings/app-settings";
 import { StorageSettings } from "./StorageSettings";
 
 describe("StorageSettings", () => {
+  it("offers Markra settings import and export actions", () => {
+    const onExportSettings = vi.fn();
+    const onImportSettings = vi.fn();
+
+    render(
+      <StorageSettings
+        preferences={defaultEditorPreferences}
+        translate={translate}
+        onExportSettings={onExportSettings}
+        onImportSettings={onImportSettings}
+        onUpdatePreferences={vi.fn()}
+      />
+    );
+
+    const settingsBackupRow = screen.getByText("Settings backup").closest(".settings-row") as HTMLElement | null;
+    expect(settingsBackupRow).not.toBeNull();
+    expect(
+      within(settingsBackupRow as HTMLElement).getByText(
+        "Export or import Markra settings, including AI keys and storage credentials. Keep exported files private."
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(settingsBackupRow as HTMLElement).getByRole("button", { name: "Export settings" }));
+    fireEvent.click(within(settingsBackupRow as HTMLElement).getByRole("button", { name: "Import settings" }));
+
+    expect(onExportSettings).toHaveBeenCalledTimes(1);
+    expect(onImportSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables settings import and export actions while a transfer is running", () => {
+    render(
+      <StorageSettings
+        preferences={defaultEditorPreferences}
+        settingsTransferRunning
+        translate={translate}
+        onExportSettings={vi.fn()}
+        onImportSettings={vi.fn()}
+        onUpdatePreferences={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Export settings" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Import settings" })).toBeDisabled();
+  });
+
   it("switches between provider settings without changing the active storage type", () => {
     const onUpdatePreferences = vi.fn();
 

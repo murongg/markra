@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { Download, Upload } from "lucide-react";
 import type {
   EditorPreferences,
   ImageUploadProvider
 } from "../../lib/settings/app-settings";
 import {
+  SettingsButton,
   SettingsRow,
   SettingsSection,
   SettingsTextInput
@@ -15,14 +17,20 @@ import {
 import type { SettingsTranslate } from "./translate";
 
 export function StorageSettings({
+  onExportSettings,
+  onImportSettings,
   onUpdatePreferences,
   preferences,
   s3ImageUploadEnabled = true,
+  settingsTransferRunning = false,
   translate
 }: {
+  onExportSettings?: () => unknown;
+  onImportSettings?: () => unknown;
   onUpdatePreferences: (preferences: EditorPreferences) => unknown;
   preferences: EditorPreferences;
   s3ImageUploadEnabled?: boolean;
+  settingsTransferRunning?: boolean;
   translate: SettingsTranslate;
 }) {
   const imageUpload = preferences.imageUpload;
@@ -72,6 +80,30 @@ export function StorageSettings({
   };
   return (
     <SettingsSection label={translate("settings.categories.storage")}>
+      <SettingsRow
+        title={translate("settings.storage.settingsBackup")}
+        description={translate("settings.storage.settingsBackupDescription")}
+        action={
+          <div className="inline-flex items-center gap-2">
+            <SettingsButton
+              disabled={settingsTransferRunning || !onExportSettings}
+              label={translate("settings.storage.exportSettings")}
+              onClick={() => onExportSettings?.()}
+            >
+              <Download aria-hidden="true" size={13} />
+              {translate("settings.storage.exportSettings")}
+            </SettingsButton>
+            <SettingsButton
+              disabled={settingsTransferRunning || !onImportSettings}
+              label={translate("settings.storage.importSettings")}
+              onClick={() => onImportSettings?.()}
+            >
+              <Upload aria-hidden="true" size={13} />
+              {translate("settings.storage.importSettings")}
+            </SettingsButton>
+          </div>
+        }
+      />
       <SettingsRow
         title={translate("settings.editor.imageUploadProviderSettings")}
         description={translate("settings.editor.imageUploadProviderStorageHint")}
