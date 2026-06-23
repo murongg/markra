@@ -3792,7 +3792,7 @@ function WorkspaceApp() {
                         onKeyDown={handleSplitPaneResizeKeyDown}
                         onPointerDown={handleSplitPaneResizePointerDown}
                       >
-                        <span className="pointer-events-none absolute inset-y-5 left-1/2 w-px -translate-x-1/2 bg-(--border-default) transition-colors duration-150 ease-out group-hover/split-resizer:bg-(--accent) group-focus/split-resizer:bg-(--accent)" />
+                        <span className="pointer-events-none absolute top-10 bottom-5 left-1/2 w-px -translate-x-1/2 bg-(--border-default) transition-colors duration-150 ease-out group-hover/split-resizer:bg-(--accent) group-focus/split-resizer:bg-(--accent)" />
                       </div>
                       <div className="min-h-0 overflow-hidden" onFocusCapture={handleSourcePaneFocus}>
                         <LazyMarkdownSourceEditor
@@ -3880,7 +3880,7 @@ function WorkspaceApp() {
                         onKeyDown={handleSideDocumentPaneResizeKeyDown}
                         onPointerDown={handleSideDocumentPaneResizePointerDown}
                       >
-                        <span className="pointer-events-none absolute inset-y-5 left-1/2 w-px -translate-x-1/2 bg-(--border-default) transition-colors duration-150 ease-out group-hover/side-resizer:bg-(--accent) group-focus/side-resizer:bg-(--accent)" />
+                        <span className="pointer-events-none absolute top-10 bottom-5 left-1/2 w-px -translate-x-1/2 bg-(--border-default) transition-colors duration-150 ease-out group-hover/side-resizer:bg-(--accent) group-focus/side-resizer:bg-(--accent)" />
                       </div>
                       <SideDocumentPane
                         bodyFontSize={editorPreferences.preferences.bodyFontSize}
