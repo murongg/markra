@@ -110,6 +110,8 @@ describe("Markra AI workspace", () => {
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
       editorFontFamily: { family: null, source: "theme" },
       extendedSyntax: {
         githubAlerts: true,
@@ -198,6 +200,8 @@ describe("Markra AI workspace", () => {
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
       editorFontFamily: { family: null, source: "theme" },
       extendedSyntax: {
         githubAlerts: true,

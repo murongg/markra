@@ -35,6 +35,8 @@ describe("editor preferences", () => {
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
       editorFontFamily: { family: null, source: "theme" },
       extendedSyntax: {
         githubAlerts: true,
@@ -150,6 +152,8 @@ describe("editor preferences", () => {
       closeAiCommandOnAgentPanelOpen: true,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
       editorFontFamily: { family: null, source: "theme" },
       imageUpload: {
         fileNamePattern: "web-{name}-{timestamp}",
@@ -593,6 +597,8 @@ describe("editor preferences", () => {
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
       editorFontFamily: { family: null, source: "theme" },
       extendedSyntax: {
         githubAlerts: true,
@@ -659,6 +665,8 @@ describe("editor preferences", () => {
       closeAiCommandOnAgentPanelOpen: true,
       contentWidth: "wide",
       contentWidthPx: 1120,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
       editorFontFamily: { family: "Example Serif", source: "system" },
       extendedSyntax: {
         githubAlerts: false,
@@ -733,6 +741,8 @@ describe("editor preferences", () => {
       closeAiCommandOnAgentPanelOpen: true,
       contentWidth: "wide",
       contentWidthPx: 1120,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
       editorFontFamily: { family: "Example Serif", source: "system" },
       extendedSyntax: {
         githubAlerts: false,

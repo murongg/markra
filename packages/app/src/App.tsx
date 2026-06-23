@@ -68,6 +68,7 @@ import { useAutoUpdater } from "./hooks/useAutoUpdater";
 import { useBackupSettings } from "./hooks/useBackupSettings";
 import { useDefaultContextMenuBlocker } from "./hooks/useDefaultContextMenuBlocker";
 import { useSyncSettings } from "./hooks/useSyncSettings";
+import { useWorkspaceLinkIndex } from "./hooks/useWorkspaceLinkIndex";
 import { useWebSearchSettings } from "./hooks/useWebSearchSettings";
 import { useSettingsWindowRoute } from "./hooks/useSettingsWindowRoute";
 import { useStartupWindowReveal } from "./hooks/useStartupWindowReveal";
@@ -587,6 +588,26 @@ function WorkspaceApp() {
     path: document.path,
     sizeBytes: document.sizeBytes ?? null
   };
+  const documentLinksOpen = editorPreferences.preferences.documentLinksOpen;
+  const documentLinksVisible = editorPreferences.preferences.documentLinksVisible;
+  const workspaceLinkIndex = useWorkspaceLinkIndex({
+    documentContent: document.content,
+    documentPath: document.path,
+    enabled: documentLinksVisible === true,
+    fileTreeFiles
+  });
+  const handleDocumentLinksOpenChange = useCallback((openDocumentLinks: boolean) => {
+    if (openDocumentLinks === editorPreferences.preferences.documentLinksOpen) return;
+
+    const nextPreferences = {
+      ...editorPreferences.preferences,
+      documentLinksOpen: openDocumentLinks
+    };
+
+    saveStoredEditorPreferences(nextPreferences)
+      .then(() => notifyAppEditorPreferencesChanged(nextPreferences))
+      .catch(() => {});
+  }, [editorPreferences.preferences]);
   useEffect(() => {
     setSelectedWordCount(null);
   }, [activeImageFile?.path, activeTabId, editorMode]);
@@ -3628,11 +3649,14 @@ function WorkspaceApp() {
             autoRevealActiveFile: editorPreferences.preferences.autoRevealActiveFile,
             currentPath: currentFileTreePath,
             customTemplates: markdownTemplates,
+            documentLinksOpen,
+            documentLinksVisible,
             fileTreeAssetsVisible,
             fileTreeSort,
             files: fileTreeFiles,
             folderOpen: Boolean(fileTree.sourcePath),
             language: appLanguage.language,
+            linkIndex: workspaceLinkIndex.index,
             maxWidth: fileTreeMaxWidth,
             minWidth: fileTreeMinWidth,
             open: fileTreeOpen,
@@ -3647,6 +3671,7 @@ function WorkspaceApp() {
             onCreateFile: handleCreateMarkdownTreeFile,
             onCreateFolder: handleCreateMarkdownTreeFolder,
             onDeleteFile: handleDeleteMarkdownTreeFile,
+            onDocumentLinksOpenChange: handleDocumentLinksOpenChange,
             onFileTreeAssetsVisibleChange: setFileTreeAssetsVisible,
             onFileTreeSortChange: setFileTreeSort,
             onInsertImageAsset: handleInsertFileTreeImageAsset,

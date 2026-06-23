@@ -133,7 +133,7 @@ function localMarkdownHrefPath(href: string) {
 }
 
 export function documentLinkCompletionFiles(
-  files: MarkdownDocumentLinkFile[],
+  files: readonly MarkdownDocumentLinkFile[],
   query: string,
   currentDocumentPath?: string | null
 ) {
@@ -172,7 +172,7 @@ export function markdownDocumentLinkForFile(file: MarkdownDocumentLinkFile, curr
 export function resolveMarkdownDocumentLinkFile(
   href: string,
   currentDocumentPath: string | null | undefined,
-  files: MarkdownDocumentLinkFile[]
+  files: readonly MarkdownDocumentLinkFile[]
 ) {
   const hrefPath = localMarkdownHrefPath(href);
   if (!hrefPath || !markdownDocumentExtensionPattern.test(hrefPath)) return null;

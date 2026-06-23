@@ -161,6 +161,8 @@ describe("settings events", () => {
       closeAiCommandOnAgentPanelOpen: true,
       contentWidth: "wide" as const,
       contentWidthPx: 1120,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
       editorFontFamily: {
         family: "Example Serif",
         source: "system"

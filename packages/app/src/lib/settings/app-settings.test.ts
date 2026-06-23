@@ -231,6 +231,18 @@ describe("app settings", () => {
     expect(normalizeEditorPreferences({ autoRevealActiveFile: "sometimes" }).autoRevealActiveFile).toBe(false);
   });
 
+  it("normalizes the document links visibility preference", () => {
+    expect(defaultEditorPreferences.documentLinksVisible).toBe(false);
+    expect(normalizeEditorPreferences({ documentLinksVisible: true }).documentLinksVisible).toBe(true);
+    expect(normalizeEditorPreferences({ documentLinksVisible: "yes" }).documentLinksVisible).toBe(false);
+  });
+
+  it("normalizes the document links collapse preference", () => {
+    expect(defaultEditorPreferences.documentLinksOpen).toBe(true);
+    expect(normalizeEditorPreferences({ documentLinksOpen: false }).documentLinksOpen).toBe(false);
+    expect(normalizeEditorPreferences({ documentLinksOpen: "no" }).documentLinksOpen).toBe(true);
+  });
+
   it("resets the welcome document state for the next launch", async () => {
     await resetWelcomeDocumentState();
 

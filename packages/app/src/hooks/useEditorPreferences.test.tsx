@@ -21,6 +21,8 @@ vi.mock("../lib/settings/app-settings", () => ({
     closeAiCommandOnAgentPanelOpen: false,
     contentWidth: "default",
     contentWidthPx: null,
+    documentLinksOpen: true,
+    documentLinksVisible: false,
     editorFontFamily: {
       family: null,
       source: "theme"
@@ -119,6 +121,8 @@ describe("useEditorPreferences", () => {
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
       editorFontFamily: {
         family: null,
         source: "theme"
@@ -221,6 +225,8 @@ describe("useEditorPreferences", () => {
         closeAiCommandOnAgentPanelOpen: true,
         contentWidth: "wide",
         contentWidthPx: 1120,
+        documentLinksOpen: true,
+        documentLinksVisible: false,
         editorFontFamily: {
           family: "Example Serif",
           source: "system"

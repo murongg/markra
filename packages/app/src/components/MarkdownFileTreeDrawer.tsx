@@ -36,6 +36,7 @@ import {
   ImageIcon,
   ImageOff,
   LayoutTemplate,
+  Link2,
   ListChevronsDownUp,
   ListChevronsUpDown,
   Plus,
@@ -56,11 +57,17 @@ import {
 } from "@markra/shared";
 import { IconButton } from "@markra/ui";
 import { markraHighlightRemarkPlugin, type MarkdownOutlineItem } from "@markra/markdown";
+import { DocumentLinksPanel } from "./DocumentLinksPanel";
 import type { NativeMarkdownFolderFile } from "../lib/tauri";
 import { normalizeMovedPath, sameNativePath } from "../lib/path-move";
 import { readNativeClipboardText, showNativeMarkdownFileTreeContextMenu } from "../lib/tauri";
 import { resolveDesktopPlatform, type DesktopPlatform } from "../lib/platform";
 import type { RecentMarkdownFolder, SidebarLayoutMode } from "../lib/settings/app-settings";
+import {
+  workspaceBacklinksForPath,
+  workspaceUnlinkedMentionsForPath,
+  type WorkspaceLinkIndex
+} from "../lib/workspace-links";
 import {
   markdownTemplateTitleFromFileName,
   mergeMarkdownTemplates,
@@ -126,10 +133,13 @@ type MarkdownFileTreeDrawerProps = {
   autoRevealActiveFile?: boolean;
   currentPath: string | null;
   customTemplates?: readonly MarkdownTemplate[];
+  documentLinksOpen?: boolean;
+  documentLinksVisible?: boolean;
   fileTreeSort?: FileTreeSort;
   fileTreeAssetsVisible?: boolean;
   files: NativeMarkdownFolderFile[];
   language?: AppLanguage;
+  linkIndex?: WorkspaceLinkIndex | null;
   maxWidth?: number;
   minWidth?: number;
   folderOpen?: boolean;
@@ -151,6 +161,7 @@ type MarkdownFileTreeDrawerProps = {
   ) => unknown | Promise<unknown>;
   onFileTreeSortChange?: (sort: FileTreeSort) => unknown;
   onFileTreeAssetsVisibleChange?: (visible: boolean) => unknown;
+  onDocumentLinksOpenChange?: (open: boolean) => unknown;
   onInsertImageAsset?: (
     file: NativeMarkdownFolderFile,
     point: { left: number; top: number }
@@ -173,7 +184,7 @@ type MarkdownFileTreeDrawerProps = {
   onToggleMarkdownFiles?: () => unknown;
 };
 
-type SidebarPanel = "files" | "outline";
+type SidebarPanel = "files" | "outline" | "links";
 type ImageAssetDragTracker = {
   cleanup: () => undefined;
   file: NativeMarkdownFolderFile;
@@ -189,6 +200,10 @@ const minOutlineHeightPercent = 24;
 const maxOutlineHeightPercent = 72;
 const outlineResizeKeyboardStepPercent = 5;
 const outlineResizeFallbackHeight = 320;
+const defaultDocumentLinksHeightPercent = 28;
+const minDocumentLinksHeightPercent = 16;
+const maxDocumentLinksHeightPercent = 60;
+const documentLinksResizeKeyboardStepPercent = 5;
 const recentFolderPathDisplayMaxLength = 48;
 const fileTreeContextRowSelectionClassName = "select-none [-webkit-user-select:none]";
 const fileTreeDropTargetClassName = "bg-(--bg-active) text-(--text-heading)";
@@ -397,10 +412,13 @@ export function MarkdownFileTreeDrawer({
   autoRevealActiveFile = false,
   currentPath,
   customTemplates = emptyMarkdownTemplates,
+  documentLinksOpen: controlledDocumentLinksOpen,
+  documentLinksVisible = false,
   fileTreeSort: controlledFileTreeSort,
   fileTreeAssetsVisible: controlledFileTreeAssetsVisible,
   files,
   language = "en",
+  linkIndex = null,
   maxWidth = 440,
   minWidth = 220,
   folderOpen = true,
@@ -417,6 +435,7 @@ export function MarkdownFileTreeDrawer({
   onCreateFile,
   onCreateFolder,
   onDeleteFile,
+  onDocumentLinksOpenChange,
   onFileTreeAssetsVisibleChange,
   onFileTreeSortChange,
   onInsertImageAsset,
@@ -439,6 +458,7 @@ export function MarkdownFileTreeDrawer({
 }: MarkdownFileTreeDrawerProps) {
   const resizeCleanupRef = useRef<(() => unknown) | null>(null);
   const outlineResizeCleanupRef = useRef<(() => unknown) | null>(null);
+  const documentLinksResizeCleanupRef = useRef<(() => unknown) | null>(null);
   const activeOutlineButtonRefs = useRef(new Map<number, HTMLButtonElement>());
   const fileTreeBodyRef = useRef<HTMLDivElement | null>(null);
   const fileTreeScrollNodeRef = useRef<HTMLDivElement | null>(null);
@@ -457,7 +477,9 @@ export function MarkdownFileTreeDrawer({
   const [searchQuery, setSearchQuery] = useState("");
   const [localRecentFoldersOpen, setLocalRecentFoldersOpen] = useState(true);
   const [outlineOpen, setOutlineOpen] = useState(true);
+  const [localDocumentLinksOpen, setLocalDocumentLinksOpen] = useState(true);
   const [outlineHeightPercent, setOutlineHeightPercent] = useState(defaultOutlineHeightPercent);
+  const [documentLinksHeightPercent, setDocumentLinksHeightPercent] = useState(defaultDocumentLinksHeightPercent);
   const [creatingFile, setCreatingFile] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [creatingParentPath, setCreatingParentPath] = useState<string | null>(null);
@@ -685,23 +707,50 @@ export function MarkdownFileTreeDrawer({
     () => duplicateRecentFolderNameKeys(recentFolderChoices),
     [recentFolderChoices]
   );
+  const documentLinksOpen = controlledDocumentLinksOpen ?? localDocumentLinksOpen;
   const recentFolderAreaVisible = recentFolderChoices.length > 0 && Boolean(onOpenRecentFolder);
   const tabbedSidebarLayout = sidebarLayoutMode === "tabs";
+  const linkPanelAvailable = Boolean(
+    documentLinksVisible &&
+    linkIndex &&
+    currentPath &&
+    linkIndex.files.some((file) => file.file.path === currentPath)
+  );
+  const activeBacklinks = linkIndex && currentPath ? workspaceBacklinksForPath(linkIndex, currentPath) : [];
+  const activeUnlinkedMentions = linkIndex && currentPath ? workspaceUnlinkedMentionsForPath(linkIndex, currentPath) : [];
   const filePanelAvailable = folderOpen || (open && fileCreationAvailable);
   const filePanelVisible = filePanelAvailable && (!tabbedSidebarLayout || activeSidebarPanel === "files");
   const filePanelClassName = tabbedSidebarLayout || !outlineOpen ? "flex-1" : "min-h-24";
   const filePanelStyle = !tabbedSidebarLayout && outlineOpen ? { flex: `0 1 ${100 - outlineHeightPercent}%` } : undefined;
   const outlinePanelVisible = !tabbedSidebarLayout || activeSidebarPanel === "outline";
+  const linksPanelVisible = linkPanelAvailable && (!tabbedSidebarLayout || activeSidebarPanel === "links");
+  const linksPanelOpen = tabbedSidebarLayout || documentLinksOpen;
+  const linksPanelClassName = tabbedSidebarLayout
+    ? "markdown-file-tree-links flex min-h-0 flex-1"
+    : documentLinksOpen
+      ? "markdown-file-tree-links flex min-h-20 flex-1 flex-col border-t border-(--border-default)"
+      : "markdown-file-tree-links h-9 shrink-0 border-t border-(--border-default)";
+  const linksPanelStyle = !tabbedSidebarLayout && documentLinksOpen
+    ? { flex: `0 1 ${documentLinksHeightPercent}%` }
+    : undefined;
   const outlinePanelOpen = tabbedSidebarLayout || outlineOpen;
   const outlinePanelStyle =
     !tabbedSidebarLayout && filePanelAvailable && outlineOpen ? { flex: `0 1 ${outlineHeightPercent}%` } : undefined;
   const outlinePanelFlexible = tabbedSidebarLayout || !filePanelAvailable;
   const outlineResizerVisible = !tabbedSidebarLayout && outlineOpen && filePanelAvailable;
+  const documentLinksResizerVisible = !tabbedSidebarLayout && linkPanelAvailable && documentLinksOpen;
   const fileSearchVisible = !tabbedSidebarLayout || activeSidebarPanel === "files";
   const folderAccessVisible = !tabbedSidebarLayout || activeSidebarPanel === "files";
   const fileTreeSurfaceClassName = platform === "windows" ? "bg-(--bg-chrome)" : "bg-(--bg-secondary)";
   const outlineToolbarVisible = !tabbedSidebarLayout ||
     (outlinePanelOpen && (outlineItems.length > 0 || outlineExpansionAvailable));
+  const setDocumentLinksExpanded = useCallback((openDocumentLinks: boolean) => {
+    if (controlledDocumentLinksOpen === undefined) {
+      setLocalDocumentLinksOpen(openDocumentLinks);
+    }
+
+    onDocumentLinksOpenChange?.(openDocumentLinks);
+  }, [controlledDocumentLinksOpen, onDocumentLinksOpenChange]);
   useEffect(() => {
     if (!outlinePanelOpen || !outlinePanelVisible || activeOutlineIndex === null) return;
 
@@ -721,6 +770,8 @@ export function MarkdownFileTreeDrawer({
       resizeCleanupRef.current = null;
       outlineResizeCleanupRef.current?.();
       outlineResizeCleanupRef.current = null;
+      documentLinksResizeCleanupRef.current?.();
+      documentLinksResizeCleanupRef.current = null;
     };
   }, []);
 
@@ -741,6 +792,12 @@ export function MarkdownFileTreeDrawer({
     setFileTreeScrollElement(null);
     setFileTreeScrollOffset(0);
   }, [filePanelVisible]);
+
+  useEffect(() => {
+    if (activeSidebarPanel !== "links" || linkPanelAvailable) return;
+
+    setActiveSidebarPanel("files");
+  }, [activeSidebarPanel, linkPanelAvailable]);
 
   useEffect(() => {
     if (!fileTreeScrollElement) return;
@@ -1539,6 +1596,84 @@ export function MarkdownFileTreeDrawer({
     }
   };
 
+  const resizeDocumentLinks = (nextPercent: number | null) => {
+    const clampedPercent = clampNumber(
+      nextPercent === null ? null : Math.round(nextPercent),
+      minDocumentLinksHeightPercent,
+      maxDocumentLinksHeightPercent
+    );
+    if (clampedPercent === null) return;
+
+    setDocumentLinksHeightPercent(clampedPercent);
+  };
+
+  const handleDocumentLinksResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!documentLinksOpen) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    const startY = event.clientY;
+    const startDocumentLinksHeightPercent = documentLinksHeightPercent;
+    const layoutHeight = fileTreeBodyRef.current?.getBoundingClientRect().height ?? 0;
+    const resolvedLayoutHeight = layoutHeight > 0 ? layoutHeight : outlineResizeFallbackHeight;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const deltaPercent = ((moveEvent.clientY - startY) / resolvedLayoutHeight) * 100;
+      resizeDocumentLinks(startDocumentLinksHeightPercent - deltaPercent);
+    };
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      documentLinksResizeCleanupRef.current = null;
+    };
+
+    const handlePointerUp = () => {
+      cleanup();
+    };
+
+    documentLinksResizeCleanupRef.current?.();
+    documentLinksResizeCleanupRef.current = cleanup;
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+  };
+
+  const handleDocumentLinksResizeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      resizeDocumentLinks(documentLinksHeightPercent + documentLinksResizeKeyboardStepPercent);
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      resizeDocumentLinks(documentLinksHeightPercent - documentLinksResizeKeyboardStepPercent);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      resizeDocumentLinks(minDocumentLinksHeightPercent);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      resizeDocumentLinks(maxDocumentLinksHeightPercent);
+    }
+  };
+
   const toggleFileSearch = () => {
     if (searchOpen) setSearchQuery("");
     setSearchOpen((open) => !open);
@@ -2264,9 +2399,11 @@ export function MarkdownFileTreeDrawer({
   const renderSidebarPanelTabs = () => (
     tabbedSidebarLayout ? (
       <div
-        className="markdown-file-tree-panel-tabs grid h-10 shrink-0 grid-cols-2 border-b border-(--border-default) px-3"
+        className={`markdown-file-tree-panel-tabs grid h-10 shrink-0 border-b border-(--border-default) px-3 ${linkPanelAvailable ? "grid-cols-3" : "grid-cols-2"}`}
         role="group"
-        aria-label={`${label("app.files")} / ${label("app.outline")}`}
+        aria-label={linkPanelAvailable
+          ? `${label("app.files")} / ${label("app.outline")} / ${label("app.links")}`
+          : `${label("app.files")} / ${label("app.outline")}`}
       >
         <button
           className={sidebarPanelTabClassName(activeSidebarPanel === "files")}
@@ -2293,6 +2430,22 @@ export function MarkdownFileTreeDrawer({
         >
           {label("app.outline")}
         </button>
+        {linkPanelAvailable ? (
+          <button
+            className={sidebarPanelTabClassName(activeSidebarPanel === "links")}
+            type="button"
+            aria-label={label("app.links")}
+            aria-pressed={activeSidebarPanel === "links"}
+            onClick={() => {
+              setActiveSidebarPanel("links");
+              setCreateMenuOpen(false);
+              setFileTreeSortMenuOpen(false);
+              setOutlineLevelMenuOpen(false);
+            }}
+          >
+            {label("app.links")}
+          </button>
+        ) : null}
       </div>
     ) : null
   );
@@ -2708,6 +2861,56 @@ export function MarkdownFileTreeDrawer({
               </div>
             ) : null}
           </section>
+          ) : null}
+
+          {documentLinksResizerVisible ? (
+            <div
+              className="markdown-file-tree-document-links-resizer group relative h-2 shrink-0 cursor-row-resize touch-none outline-none"
+              role="separator"
+              tabIndex={0}
+              aria-label={label("app.resizeDocumentLinks")}
+              aria-orientation="horizontal"
+              aria-valuemin={minDocumentLinksHeightPercent}
+              aria-valuemax={maxDocumentLinksHeightPercent}
+              aria-valuenow={documentLinksHeightPercent}
+              onKeyDown={handleDocumentLinksResizeKeyDown}
+              onPointerDown={handleDocumentLinksResizePointerDown}
+            >
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--border-default) transition-colors duration-150 ease-out group-hover:bg-(--border-strong) group-focus-visible:bg-(--border-strong)" />
+            </div>
+          ) : null}
+
+          {linksPanelVisible ? (
+            <div className={linksPanelClassName} style={linksPanelStyle}>
+              {!tabbedSidebarLayout ? (
+                <button
+                  className="flex h-9 w-full shrink-0 cursor-pointer items-center gap-2 border-0 bg-transparent px-4 pr-2 text-left text-[13px] leading-none text-(--text-secondary) transition-colors duration-150 hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading) focus-visible:outline-none"
+                  type="button"
+                  aria-label={label("app.documentLinks")}
+                  aria-expanded={documentLinksOpen}
+                  onClick={() => setDocumentLinksExpanded(!documentLinksOpen)}
+                >
+                  <Link2 aria-hidden="true" size={16} />
+                  <span className="min-w-0 flex-1 truncate font-[560]">{label("app.documentLinks")}</span>
+                  <span className="shrink-0 text-[11px] font-[650] text-(--text-tertiary)">
+                    {activeBacklinks.length + activeUnlinkedMentions.length}
+                  </span>
+                  {documentLinksOpen ? (
+                    <ChevronDown aria-hidden="true" size={14} />
+                  ) : (
+                    <ChevronRight aria-hidden="true" size={14} />
+                  )}
+                </button>
+              ) : null}
+              {linksPanelOpen ? (
+                <DocumentLinksPanel
+                  backlinks={activeBacklinks}
+                  language={language}
+                  unlinkedMentions={activeUnlinkedMentions}
+                  onOpenFile={onOpenFile}
+                />
+              ) : null}
+            </div>
           ) : null}
         </div>
         {open ? (

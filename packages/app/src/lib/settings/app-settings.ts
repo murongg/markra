@@ -346,6 +346,8 @@ export type EditorPreferences = {
   closeAiCommandOnAgentPanelOpen: boolean;
   contentWidth: EditorContentWidth;
   contentWidthPx: number | null;
+  documentLinksOpen: boolean;
+  documentLinksVisible: boolean;
   editorFontFamily: EditorFontFamilyPreference;
   extendedSyntax: ExtendedSyntaxPreferences;
   imageUpload: ImageUploadSettings;
@@ -464,6 +466,8 @@ export const defaultEditorPreferences: EditorPreferences = {
   closeAiCommandOnAgentPanelOpen: false,
   contentWidth: "default",
   contentWidthPx: null,
+  documentLinksOpen: true,
+  documentLinksVisible: false,
   editorFontFamily: { ...defaultEditorFontFamily },
   extendedSyntax: { ...defaultExtendedSyntaxPreferences },
   imageUpload: defaultImageUploadSettings,
@@ -1483,6 +1487,14 @@ export function normalizeEditorPreferences(value: unknown): EditorPreferences {
       ? (preferences.contentWidth as EditorContentWidth)
       : defaultEditorPreferences.contentWidth,
     contentWidthPx: normalizeEditorContentWidthPx(preferences.contentWidthPx),
+    documentLinksOpen:
+      typeof preferences.documentLinksOpen === "boolean"
+        ? preferences.documentLinksOpen
+        : defaultEditorPreferences.documentLinksOpen,
+    documentLinksVisible:
+      typeof preferences.documentLinksVisible === "boolean"
+        ? preferences.documentLinksVisible
+        : defaultEditorPreferences.documentLinksVisible,
     editorFontFamily: normalizeEditorFontFamilyPreference(preferences.editorFontFamily),
     extendedSyntax: normalizeExtendedSyntaxPreferences(preferences.extendedSyntax),
     imageUpload: normalizeImageUploadSettings(preferences.imageUpload),

@@ -776,6 +776,22 @@ export function EditorSettings({
           }
         />
         <SettingsRow
+          title={translate("app.documentLinks")}
+          description={translate("settings.editor.documentLinksDescription")}
+          action={
+            <SettingsSwitch
+              checked={preferences.documentLinksVisible}
+              label={translate("app.documentLinks")}
+              onChange={() =>
+                onUpdatePreferences({
+                  ...preferences,
+                  documentLinksVisible: !preferences.documentLinksVisible
+                })
+              }
+            />
+          }
+        />
+        <SettingsRow
           title={translate("settings.editor.showWordCount")}
           description={translate("settings.editor.showWordCountDescription")}
           action={

@@ -110,6 +110,28 @@ describe("EditorSettings", () => {
     });
   });
 
+  it("toggles document links from the editor settings", () => {
+    const onUpdatePreferences = vi.fn();
+
+    render(
+      <EditorSettings
+        preferences={{
+          ...defaultEditorPreferences,
+          documentLinksVisible: false
+        }}
+        translate={translate}
+        onUpdatePreferences={onUpdatePreferences}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("switch", { name: "Document links" }));
+
+    expect(onUpdatePreferences).toHaveBeenCalledWith({
+      ...defaultEditorPreferences,
+      documentLinksVisible: true
+    });
+  });
+
   it("toggles code block line wrapping from the editor settings", () => {
     const onUpdatePreferences = vi.fn();
 

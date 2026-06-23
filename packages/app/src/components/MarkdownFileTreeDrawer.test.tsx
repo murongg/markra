@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MarkdownFileTreeDrawer } from "./MarkdownFileTreeDrawer";
 import { getMarkdownOutline } from "@markra/markdown";
 import { readNativeClipboardText, showNativeMarkdownFileTreeContextMenu } from "../lib/tauri";
+import type { WorkspaceLinkIndex } from "../lib/workspace-links";
 
 vi.mock("../lib/tauri", () => ({
   readNativeClipboardText: vi.fn(),
@@ -200,7 +201,7 @@ describe("MarkdownFileTreeDrawer", () => {
   });
 
   it("uses safe line height for truncated compact labels", () => {
-    render(
+    const { container } = render(
       <MarkdownFileTreeDrawer
         currentPath="/vault/Untitled.md"
         files={markdownFiles}
@@ -306,6 +307,360 @@ describe("MarkdownFileTreeDrawer", () => {
 
     expect(screen.getByRole("tree", { name: "Markdown files" })).toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "Document outline" })).not.toBeInTheDocument();
+  });
+
+  it("hides document links unless the feature is enabled", () => {
+    const linkIndex = {
+      backlinks: [{
+        columnNumber: 5,
+        from: 4,
+        href: "./Untitled.md",
+        lineNumber: 4,
+        lineText: "See Untitled from AWS.",
+        sourceFile: markdownFiles[1],
+        targetFile: markdownFiles[0],
+        text: "Untitled",
+        to: 12
+      }],
+      fileCount: 3,
+      files: [{
+        file: markdownFiles[0],
+        mentionRanges: [],
+        titleCandidates: ["Untitled"]
+      }],
+      unlinkedMentions: [],
+      unreadableFileCount: 0
+    } satisfies WorkspaceLinkIndex;
+
+    const { container } = render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        linkIndex={linkIndex}
+        open
+        outlineItems={[]}
+        rootName="Example Vault"
+        sidebarLayoutMode="tabs"
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+    const layoutTabs = screen.getByRole("group", { name: "Files / Outline" });
+
+    expect(within(layoutTabs).queryByRole("button", { name: "Links" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Document links" })).not.toBeInTheDocument();
+    expect(container.querySelector(".markdown-file-tree-links")).not.toBeInTheDocument();
+  });
+
+  it("shows document links in the existing sidebar position when enabled", () => {
+    const openFile = vi.fn();
+    const linkIndex = {
+      backlinks: [{
+        columnNumber: 5,
+        from: 4,
+        href: "./Untitled.md",
+        lineNumber: 4,
+        lineText: "See Untitled from AWS.",
+        sourceFile: markdownFiles[1],
+        targetFile: markdownFiles[0],
+        text: "Untitled",
+        to: 12
+      }],
+      fileCount: 3,
+      files: [{
+        file: markdownFiles[0],
+        mentionRanges: [],
+        titleCandidates: ["Untitled"]
+      }],
+      unlinkedMentions: [{
+        columnNumber: 9,
+        from: 8,
+        lineNumber: 2,
+        lineText: "Mention Untitled before linking.",
+        sourceFile: markdownFiles[2],
+        targetFile: markdownFiles[0],
+        text: "Untitled",
+        to: 16
+      }],
+      unreadableFileCount: 0
+    } satisfies WorkspaceLinkIndex;
+
+    const { container } = render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        documentLinksVisible
+        linkIndex={linkIndex}
+        open
+        outlineItems={[]}
+        rootName="Example Vault"
+        sidebarLayoutMode="tabs"
+        onOpenFile={openFile}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+    const layoutTabs = screen.getByRole("group", { name: "Files / Outline / Links" });
+
+    expect(within(layoutTabs).getByRole("button", { name: "Links" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Document links" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(layoutTabs).getByRole("button", { name: "Links" }));
+
+    const links = screen.getByRole("region", { name: "Document links" });
+    expect(container.querySelector(".markdown-file-tree-links")).toBeInTheDocument();
+    expect(links).toHaveTextContent("Backlinks");
+    expect(links).toHaveTextContent("Unlinked mentions");
+    expect(links).toHaveTextContent("AWS.md");
+    expect(links).toHaveTextContent("See Untitled from AWS.");
+    expect(links).toHaveTextContent("deploy.md");
+    expect(links).toHaveTextContent("Mention Untitled before linking.");
+
+    fireEvent.click(within(links).getByRole("button", { name: /AWS\.md/ }));
+
+    expect(openFile).toHaveBeenCalledWith(markdownFiles[1]);
+  });
+
+  it("keeps stacked sidebar document links hidden by default", () => {
+    const linkIndex = {
+      backlinks: [],
+      fileCount: 3,
+      files: [{
+        file: markdownFiles[0],
+        mentionRanges: [],
+        titleCandidates: ["Untitled"]
+      }],
+      unlinkedMentions: [{
+        columnNumber: 9,
+        from: 8,
+        lineNumber: 2,
+        lineText: "Mention Untitled before linking.",
+        sourceFile: markdownFiles[2],
+        targetFile: markdownFiles[0],
+        text: "Untitled",
+        to: 16
+      }],
+      unreadableFileCount: 0
+    } satisfies WorkspaceLinkIndex;
+
+    const { container } = render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        files={markdownFiles}
+        linkIndex={linkIndex}
+        open
+        outlineItems={[{ level: 1, title: "Intro" }]}
+        rootName="Example Vault"
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "Links" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Document links" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Document links" })).not.toBeInTheDocument();
+    expect(container.querySelector(".markdown-file-tree-links")).not.toBeInTheDocument();
+    expect(screen.getByRole("tree", { name: "Markdown files" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Document outline" })).toBeInTheDocument();
+  });
+
+  it("shows stacked sidebar document links in the existing position when enabled", () => {
+    const linkIndex = {
+      backlinks: [],
+      fileCount: 3,
+      files: [{
+        file: markdownFiles[0],
+        mentionRanges: [],
+        titleCandidates: ["Untitled"]
+      }],
+      unlinkedMentions: [{
+        columnNumber: 9,
+        from: 8,
+        lineNumber: 2,
+        lineText: "Mention Untitled before linking.",
+        sourceFile: markdownFiles[2],
+        targetFile: markdownFiles[0],
+        text: "Untitled",
+        to: 16
+      }],
+      unreadableFileCount: 0
+    } satisfies WorkspaceLinkIndex;
+
+    const { container } = render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        documentLinksVisible
+        files={markdownFiles}
+        linkIndex={linkIndex}
+        open
+        outlineItems={[{ level: 1, title: "Intro" }]}
+        rootName="Example Vault"
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    const links = screen.getByRole("region", { name: "Document links" });
+    const linksToggle = screen.getByRole("button", { name: "Document links" });
+
+    expect(screen.queryByRole("button", { name: "Links" })).not.toBeInTheDocument();
+    expect(container.querySelector(".markdown-file-tree-links")).toBeInTheDocument();
+    expect(linksToggle).toHaveAttribute("aria-expanded", "true");
+    expect(links).toHaveTextContent("Unlinked mentions");
+    expect(links).toHaveTextContent("deploy.md");
+    expect(screen.getByRole("tree", { name: "Markdown files" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Document outline" })).toBeInTheDocument();
+
+    fireEvent.click(linksToggle);
+
+    expect(screen.queryByRole("region", { name: "Document links" })).not.toBeInTheDocument();
+    expect(linksToggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelector(".markdown-file-tree-links")).toBeInTheDocument();
+
+    fireEvent.click(linksToggle);
+
+    expect(screen.getByRole("region", { name: "Document links" })).toHaveTextContent("deploy.md");
+    expect(linksToggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("remembers stacked sidebar document links collapse state through controlled props", () => {
+    const changeDocumentLinksOpen = vi.fn();
+    const linkIndex = {
+      backlinks: [],
+      fileCount: 3,
+      files: [{
+        file: markdownFiles[0],
+        mentionRanges: [],
+        titleCandidates: ["Untitled"]
+      }],
+      unlinkedMentions: [{
+        columnNumber: 9,
+        from: 8,
+        lineNumber: 2,
+        lineText: "Mention Untitled before linking.",
+        sourceFile: markdownFiles[2],
+        targetFile: markdownFiles[0],
+        text: "Untitled",
+        to: 16
+      }],
+      unreadableFileCount: 0
+    } satisfies WorkspaceLinkIndex;
+
+    const { rerender } = render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        documentLinksOpen={false}
+        documentLinksVisible
+        files={markdownFiles}
+        linkIndex={linkIndex}
+        open
+        outlineItems={[{ level: 1, title: "Intro" }]}
+        rootName="Example Vault"
+        onDocumentLinksOpenChange={changeDocumentLinksOpen}
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    const linksToggle = screen.getByRole("button", { name: "Document links" });
+
+    expect(linksToggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "Document links" })).not.toBeInTheDocument();
+
+    fireEvent.click(linksToggle);
+
+    expect(changeDocumentLinksOpen).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole("region", { name: "Document links" })).not.toBeInTheDocument();
+
+    rerender(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        documentLinksOpen
+        documentLinksVisible
+        files={markdownFiles}
+        linkIndex={linkIndex}
+        open
+        outlineItems={[{ level: 1, title: "Intro" }]}
+        rootName="Example Vault"
+        onDocumentLinksOpenChange={changeDocumentLinksOpen}
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Document links" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("region", { name: "Document links" })).toHaveTextContent("deploy.md");
+  });
+
+  it("resizes stacked sidebar document links from the divider", () => {
+    const linkIndex = {
+      backlinks: [],
+      fileCount: 3,
+      files: [{
+        file: markdownFiles[0],
+        mentionRanges: [],
+        titleCandidates: ["Untitled"]
+      }],
+      unlinkedMentions: [{
+        columnNumber: 9,
+        from: 8,
+        lineNumber: 2,
+        lineText: "Mention Untitled before linking.",
+        sourceFile: markdownFiles[2],
+        targetFile: markdownFiles[0],
+        text: "Untitled",
+        to: 16
+      }],
+      unreadableFileCount: 0
+    } satisfies WorkspaceLinkIndex;
+
+    const { container } = render(
+      <MarkdownFileTreeDrawer
+        currentPath="/vault/Untitled.md"
+        documentLinksVisible
+        files={markdownFiles}
+        linkIndex={linkIndex}
+        open
+        outlineItems={[{ level: 1, title: "Intro" }]}
+        rootName="Example Vault"
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+    const body = container.querySelector(".markdown-file-tree-body") as HTMLElement;
+    const linksPanel = container.querySelector(".markdown-file-tree-links") as HTMLElement;
+    const resizeDocumentLinks = screen.getByRole("separator", { name: "Resize document links" });
+    const rectSpy = vi.spyOn(body, "getBoundingClientRect").mockReturnValue({
+      bottom: 500,
+      height: 400,
+      left: 0,
+      right: 288,
+      top: 100,
+      width: 288,
+      x: 0,
+      y: 100,
+      toJSON: () => ({})
+    } as DOMRect);
+
+    expect(resizeDocumentLinks).toHaveAttribute("aria-valuenow", "28");
+    expect(linksPanel).toHaveStyle({ flex: "0 1 28%" });
+
+    fireEvent.pointerDown(resizeDocumentLinks, { clientY: 240, pointerId: 1 });
+    fireEvent.pointerMove(window, { clientY: 160 });
+    fireEvent.pointerUp(window);
+
+    expect(resizeDocumentLinks).toHaveAttribute("aria-valuenow", "48");
+    expect(linksPanel).toHaveStyle({ flex: "0 1 48%" });
+
+    fireEvent.keyDown(resizeDocumentLinks, { key: "ArrowDown" });
+
+    expect(resizeDocumentLinks).toHaveAttribute("aria-valuenow", "43");
+    expect(linksPanel).toHaveStyle({ flex: "0 1 43%" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Document links" }));
+
+    expect(screen.queryByRole("separator", { name: "Resize document links" })).not.toBeInTheDocument();
+
+    rectSpy.mockRestore();
   });
 
   it("shows recent folders in a dedicated sidebar section", () => {
