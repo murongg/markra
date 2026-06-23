@@ -1,3 +1,15 @@
+## [0.14.0](https://github.com/markrahq/markra/compare/v0.13.3...v0.14.0) (2026-06-23)
+
+### Features
+
+* **spellcheck:** add custom spellcheck dictionaries ([#384](https://github.com/markrahq/markra/issues/384)) ([f8b40b9](https://github.com/markrahq/markra/commit/f8b40b9161224f59814c0c38b3c3fa040516f0d8))
+* **spellcheck:** make suggestion shortcut configurable ([#388](https://github.com/markrahq/markra/issues/388)) ([4b7b1e8](https://github.com/markrahq/markra/commit/4b7b1e840e0794ae2da42c9a5e996e3fa125883f))
+
+### Bug Fixes
+
+* **app:** collapse editor view mode controls ([#387](https://github.com/markrahq/markra/issues/387)) ([73182a7](https://github.com/markrahq/markra/commit/73182a704347ca2712279c2b825d6c661281e152))
+* **app:** expand recent folders header click target ([#389](https://github.com/markrahq/markra/issues/389)) ([e5a6752](https://github.com/markrahq/markra/commit/e5a6752ad467113180d00853e4ba19136a3c1147))
+
 ## [0.13.2](https://github.com/murongg/markra/compare/v0.13.1...v0.13.2) (2026-06-22)
 
 ### Features
