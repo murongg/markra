@@ -49,6 +49,7 @@ type SpellcheckState = {
 
 const urlPattern = /\b(?:https?:\/\/|www\.)[^\s<>()]+/giu;
 const wordPattern = /[\p{Script=Latin}\p{Script=Cyrillic}]+(?:['’][\p{Script=Latin}\p{Script=Cyrillic}]+)?(?:-[\p{Script=Latin}\p{Script=Cyrillic}]+(?:['’][\p{Script=Latin}\p{Script=Cyrillic}]+)?)*/gu;
+const snakeCaseIdentifierPattern = /[\p{Script=Latin}\p{Script=Cyrillic}][\p{Script=Latin}\p{Script=Cyrillic}\d]*(?:_[\p{Script=Latin}\p{Script=Cyrillic}\d]+)+/giu;
 const defaultMinWordLength = 2;
 const spellcheckUpdateDelayMs = 150;
 const skippedNodeTypes = new Set(["code_block", "frontmatter", "html_block", "math_block"]);
@@ -233,7 +234,10 @@ export function createWordSetSpellchecker(words: Iterable<string>): Spellchecker
 
 export function tokenizeSpellcheckText(text: string, options: Pick<SpellcheckOptions, "minWordLength"> = {}) {
   const minWordLength = options.minWordLength ?? defaultMinWordLength;
-  const urlRanges = findUrlRanges(text);
+  const skippedRanges = [
+    ...findUrlRanges(text),
+    ...findSnakeCaseIdentifierRanges(text)
+  ];
   const tokens: SpellcheckToken[] = [];
 
   for (const match of text.matchAll(wordPattern)) {
@@ -241,7 +245,7 @@ export function tokenizeSpellcheckText(text: string, options: Pick<SpellcheckOpt
     const from = match.index ?? 0;
     const to = from + token.length;
     if (token.length < minWordLength) continue;
-    if (rangeOverlaps(from, to, urlRanges)) continue;
+    if (rangeOverlaps(from, to, skippedRanges)) continue;
     if (shouldSkipToken(token)) continue;
 
     tokens.push({ from, text: token, to });
@@ -522,6 +526,17 @@ function findUrlRanges(text: string) {
   });
 }
 
+function findSnakeCaseIdentifierRanges(text: string) {
+  return Array.from(text.matchAll(snakeCaseIdentifierPattern), (match) => {
+    const from = match.index ?? 0;
+
+    return {
+      from,
+      to: from + match[0].length
+    };
+  });
+}
+
 function rangeOverlaps(from: number, to: number, ranges: Array<{ from: number; to: number }>) {
   return ranges.some((range) => from < range.to && range.from < to);
 }
@@ -535,8 +550,13 @@ function selectionTouchesSpellcheckMatch(from: number, to: number, match: Spellc
 function shouldSkipToken(token: string) {
   if (/^[A-Z]{2,}$/u.test(token)) return true;
   if (/[0-9]/u.test(token)) return true;
+  if (isMixedCaseIdentifier(token)) return true;
 
   return false;
+}
+
+function isMixedCaseIdentifier(token: string) {
+  return /[\p{Ll}][\p{Lu}]/u.test(token) || /^[\p{Lu}]{2,}[\p{Ll}]/u.test(token);
 }
 
 function hasSkippedMark(marks: readonly Mark[]) {
