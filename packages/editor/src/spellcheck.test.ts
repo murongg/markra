@@ -84,6 +84,13 @@ describe("spellcheck", () => {
     ]);
   });
 
+  it("skips identifier-style camelCase, PascalCase, and snake_case text", () => {
+    expect(
+      tokenizeSpellcheckText("myVariableName ExampleComponent HTTPResponse api_response snake_case and wrnog")
+        .map(({ text }) => text)
+    ).toEqual(["and", "wrnog"]);
+  });
+
   it("finds misspelled document ranges and skips code, frontmatter, and link marks", () => {
     const link = schema.marks.link.create({ href: "https://example.test" });
     const doc = schema.node("doc", null, [
