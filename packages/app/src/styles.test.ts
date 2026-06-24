@@ -444,6 +444,10 @@ describe("editor stylesheet", () => {
     expect(mermaidZoomCloseHoverStyles).not.toContain(":focus-visible");
     expect(mermaidZoomCloseHoverStyles).not.toContain("box-shadow");
     expect(styles).toContain(".markra-mermaid-zoom-dialog");
+    expect(styles).toContain(".markra-mermaid-zoom-toolbar");
+    expect(styles).toContain(".markra-mermaid-zoom-control-button");
+    expect(styles).toContain(".markra-mermaid-zoom-content[data-dragging=\"true\"]");
+    expect(styles).toContain(".markra-mermaid-zoom-canvas");
     expect(styles).toContain(
       ".markdown-paper .markra-code-block[data-mermaid-mode=\"preview\"] .markra-mermaid-render"
     );

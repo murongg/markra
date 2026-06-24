@@ -2154,6 +2154,46 @@ describe("MarkdownPaper editing", () => {
     expect(zoomButton).toHaveFocus();
   });
 
+  it("zooms and pans the enlarged Mermaid diagram", async () => {
+    const source = ["```mermaid", "flowchart LR", "  A --> B --> C --> D", "```"].join("\n");
+    const { container } = await renderEditor(source);
+
+    await waitFor(() => {
+      expect(container.querySelector(".ProseMirror .markra-mermaid-render svg")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Enlarge Mermaid diagram" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Enlarged Mermaid diagram" });
+    const content = dialog.querySelector<HTMLElement>(".markra-mermaid-zoom-content");
+    const canvas = dialog.querySelector<HTMLElement>(".markra-mermaid-zoom-canvas");
+
+    expect(content).toHaveAttribute("data-zoom", "1");
+    expect(canvas).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zoom in Mermaid diagram" }));
+
+    expect(content).toHaveAttribute("data-zoom", "1.25");
+    expect(within(dialog).getByText("125%")).toBeInTheDocument();
+    expect(canvas?.style.transform).toBe("translate(0px, 0px) scale(1.25)");
+
+    fireEvent.wheel(content!, { deltaY: -100 });
+
+    expect(Number(content?.dataset.zoom)).toBeGreaterThan(1.25);
+
+    fireEvent.pointerDown(content!, { button: 0, clientX: 100, clientY: 80, pointerId: 9 });
+    fireEvent.pointerMove(content!, { clientX: 132, clientY: 96, pointerId: 9 });
+    fireEvent.pointerUp(content!, { pointerId: 9 });
+
+    expect(canvas?.style.transform).toContain("translate(32px, 16px)");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reset Mermaid diagram view" }));
+
+    expect(content).toHaveAttribute("data-zoom", "1");
+    expect(within(dialog).getByText("100%")).toBeInTheDocument();
+    expect(canvas?.style.transform).toBe("translate(0px, 0px) scale(1)");
+  });
+
   it("returns a single Mermaid block to preview mode from the source control", async () => {
     const source = ["```mermaid", "flowchart TD", "  A --> B", "```"].join("\n");
     const { container } = await renderEditor(source);

@@ -2973,27 +2973,42 @@
   }
 
   .markra-mermaid-zoom-panel {
-    @apply relative max-h-[88vh] w-full overflow-auto rounded-lg border border-(--border-default) bg-(--bg-primary) shadow-2xl;
+    @apply relative flex max-h-[88vh] w-full flex-col overflow-hidden rounded-lg border border-(--border-default) bg-(--bg-primary) shadow-2xl;
     background: var(--editor-paper-bg, var(--bg-primary));
     border-color: color-mix(in srgb, var(--editor-border-strong, var(--border-strong)) 82%, transparent);
     color: var(--editor-text-primary, var(--text-primary));
+    height: min(88vh, 44rem);
     max-width: min(92vw, 80rem);
+    min-height: min(28rem, 88vh);
   }
 
+  .markra-mermaid-zoom-toolbar {
+    @apply relative z-[2] flex items-center justify-end gap-1 border-b border-(--border-default) px-3 py-2;
+    background: color-mix(in srgb, var(--editor-paper-bg, var(--bg-primary)) 94%, transparent);
+    border-color: color-mix(in srgb, var(--editor-border, var(--border-default)) 82%, transparent);
+  }
+
+  .markra-mermaid-zoom-value {
+    @apply min-w-12 px-1 text-center text-[12px] leading-5 font-[650] tabular-nums text-(--text-secondary);
+    color: var(--editor-text-secondary, var(--text-secondary));
+  }
+
+  .markra-mermaid-zoom-control-button,
   .markra-mermaid-zoom-close-button {
-    @apply sticky top-3 ml-auto mr-3 grid size-8 cursor-pointer place-items-center rounded-md border border-(--border-default) bg-(--bg-primary) p-0 text-(--text-secondary) outline-none transition-[color,background-color,border-color,box-shadow] duration-150 ease-out;
+    @apply grid size-8 cursor-pointer place-items-center rounded-md border border-(--border-default) bg-(--bg-primary) p-0 text-(--text-secondary) outline-none transition-[color,background-color,border-color,box-shadow] duration-150 ease-out;
     background: var(--editor-code-control-bg, var(--bg-primary));
     border-color: var(--editor-border, var(--border-default));
     color: var(--editor-text-secondary, var(--text-secondary));
-    z-index: 1;
   }
 
+  .markra-mermaid-zoom-control-button:hover,
   .markra-mermaid-zoom-close-button:hover {
     background: var(--editor-bg-secondary, var(--bg-hover));
     border-color: var(--editor-border-strong, var(--border-strong));
     color: var(--editor-text-heading, var(--text-heading));
   }
 
+  .markra-mermaid-zoom-control-button:focus-visible,
   .markra-mermaid-zoom-close-button:focus-visible {
     background: var(--editor-bg-secondary, var(--bg-hover));
     border-color: var(--editor-border-strong, var(--border-strong));
@@ -3002,11 +3017,33 @@
   }
 
   .markra-mermaid-zoom-content {
-    @apply px-8 pb-8 pt-2;
+    @apply relative min-h-0 flex-1 overflow-hidden px-8 py-8 outline-none;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .markra-mermaid-zoom-content:focus-visible {
+    box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+
+  .markra-mermaid-zoom-content[data-dragging="true"] {
+    cursor: grabbing;
+  }
+
+  .markra-mermaid-zoom-canvas {
+    @apply flex min-h-full items-center justify-center;
+    transform-origin: center center;
+    transition: transform 90ms ease-out;
+    will-change: transform;
+  }
+
+  .markra-mermaid-zoom-content[data-dragging="true"] .markra-mermaid-zoom-canvas {
+    transition: none;
   }
 
   .markra-mermaid-zoom-svg {
     display: block;
+    flex: 0 0 auto;
     width: min(100%, 72rem);
     min-width: min(48rem, calc(100vw - 5rem));
     max-width: none;

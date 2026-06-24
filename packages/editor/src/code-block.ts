@@ -39,6 +39,14 @@ type SvgChildSpec = {
   tag: "path" | "rect";
 };
 
+type MermaidZoomDragState = {
+  originX: number;
+  originY: number;
+  pointerId: number;
+  startX: number;
+  startY: number;
+};
+
 const codeLanguageOptions = [
   { label: "Plain Text", value: "" },
   { label: "Bash", value: "bash" },
@@ -87,6 +95,11 @@ const codeLanguageOptions = [
 const codeBlockHighlightKey = new PluginKey("markra-code-block-highlight");
 const lowlight = createLowlight(common);
 const codeFencePattern = /^```(?<language>[^\s`]*)$/u;
+const mermaidZoomDefaultScale = 1;
+const mermaidZoomMaxScale = 6;
+const mermaidZoomMinScale = 0.25;
+const mermaidZoomStep = 0.25;
+const mermaidZoomWheelFactor = 1.12;
 const svgNamespace = "http://www.w3.org/2000/svg";
 const copyIconChildren: SvgChildSpec[] = [
   {
@@ -152,6 +165,42 @@ const closeIconChildren: SvgChildSpec[] = [
     tag: "path",
     attributes: {
       d: "m6 6 12 12"
+    }
+  }
+];
+const zoomInIconChildren: SvgChildSpec[] = [
+  {
+    tag: "path",
+    attributes: {
+      d: "M12 5v14"
+    }
+  },
+  {
+    tag: "path",
+    attributes: {
+      d: "M5 12h14"
+    }
+  }
+];
+const zoomOutIconChildren: SvgChildSpec[] = [
+  {
+    tag: "path",
+    attributes: {
+      d: "M5 12h14"
+    }
+  }
+];
+const resetViewIconChildren: SvgChildSpec[] = [
+  {
+    tag: "path",
+    attributes: {
+      d: "M3 12a9 9 0 1 0 3-6.7"
+    }
+  },
+  {
+    tag: "path",
+    attributes: {
+      d: "M3 3v6h6"
     }
   }
 ];
@@ -305,6 +354,18 @@ function targetIsInside(target: EventTarget | Node | null, container: HTMLElemen
   return target instanceof Node && container.contains(target);
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatMermaidZoomValue(scale: number) {
+  return String(Math.round(scale * 100) / 100);
+}
+
+function mermaidZoomPercentLabel(scale: number) {
+  return `${Math.round(scale * 100)}%`;
+}
+
 function createIcon(ownerDocument: Document, className: string, children: SvgChildSpec[]) {
   const icon = ownerDocument.createElementNS(svgNamespace, "svg");
 
@@ -328,6 +389,22 @@ function createIcon(ownerDocument: Document, className: string, children: SvgChi
   }
 
   return icon;
+}
+
+function createIconButton(
+  ownerDocument: Document,
+  className: string,
+  label: string,
+  iconClassName: string,
+  iconChildren: SvgChildSpec[]
+) {
+  const button = ownerDocument.createElement("button");
+  button.className = className;
+  button.type = "button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.append(createIcon(ownerDocument, iconClassName, iconChildren));
+  return button;
 }
 
 function openCodeBlockWithInsertedFence(view: EditorView, codeBlock: NodeType, text: string) {
@@ -473,6 +550,10 @@ class MarkraCodeBlockNodeView implements NodeView {
   private readonly mermaidThemeObserver: MutationObserver | null = null;
   private mermaidZoomDialog: HTMLElement | null = null;
   private mermaidZoomFocusTarget: HTMLElement | null = null;
+  private mermaidZoomDrag: MermaidZoomDragState | null = null;
+  private mermaidZoomScale = mermaidZoomDefaultScale;
+  private mermaidZoomTranslateX = 0;
+  private mermaidZoomTranslateY = 0;
   private mermaidSourceEditing = false;
   private mermaidRenderSignature = "";
   private mermaidRenderToken = 0;
@@ -741,8 +822,8 @@ class MarkraCodeBlockNodeView implements NodeView {
   }
 
   private updateMermaidZoomDiagram() {
-    const content = this.mermaidZoomDialog?.querySelector<HTMLElement>(".markra-mermaid-zoom-content");
-    if (!content) return;
+    const canvas = this.mermaidZoomDialog?.querySelector<HTMLElement>(".markra-mermaid-zoom-canvas");
+    if (!canvas) return;
 
     const svg = this.cloneMermaidPreviewSvg();
     if (!svg) {
@@ -750,7 +831,8 @@ class MarkraCodeBlockNodeView implements NodeView {
       return;
     }
 
-    content.replaceChildren(svg);
+    canvas.replaceChildren(svg);
+    this.syncMermaidZoomTransform();
   }
 
   private openMermaidZoom() {
@@ -758,35 +840,80 @@ class MarkraCodeBlockNodeView implements NodeView {
     if (!svg) return;
 
     this.closeMermaidZoom({ restoreFocus: false });
+    this.resetMermaidZoomState();
 
     const ownerDocument = this.dom.ownerDocument;
     const dialog = ownerDocument.createElement("div");
     const panel = ownerDocument.createElement("div");
-    const closeButton = ownerDocument.createElement("button");
+    const toolbar = ownerDocument.createElement("div");
+    const zoomValue = ownerDocument.createElement("span");
     const content = ownerDocument.createElement("div");
+    const canvas = ownerDocument.createElement("div");
+    const zoomOutButton = createIconButton(
+      ownerDocument,
+      "markra-mermaid-zoom-control-button markra-mermaid-zoom-out-button",
+      "Zoom out Mermaid diagram",
+      "markra-mermaid-zoom-out-icon",
+      zoomOutIconChildren
+    );
+    const zoomInButton = createIconButton(
+      ownerDocument,
+      "markra-mermaid-zoom-control-button markra-mermaid-zoom-in-button",
+      "Zoom in Mermaid diagram",
+      "markra-mermaid-zoom-in-icon",
+      zoomInIconChildren
+    );
+    const resetButton = createIconButton(
+      ownerDocument,
+      "markra-mermaid-zoom-control-button markra-mermaid-zoom-reset-button",
+      "Reset Mermaid diagram view",
+      "markra-mermaid-zoom-reset-icon",
+      resetViewIconChildren
+    );
+    const closeButton = createIconButton(
+      ownerDocument,
+      "markra-mermaid-zoom-close-button",
+      "Close enlarged Mermaid diagram",
+      "markra-mermaid-zoom-close-icon",
+      closeIconChildren
+    );
 
     dialog.className = "markra-mermaid-zoom-dialog";
     dialog.setAttribute("role", "dialog");
     dialog.setAttribute("aria-modal", "true");
     dialog.setAttribute("aria-label", "Enlarged Mermaid diagram");
     panel.className = "markra-mermaid-zoom-panel";
-    closeButton.className = "markra-mermaid-zoom-close-button";
-    closeButton.type = "button";
-    closeButton.setAttribute("aria-label", "Close enlarged Mermaid diagram");
-    closeButton.title = "Close enlarged Mermaid diagram";
-    closeButton.append(createIcon(ownerDocument, "markra-mermaid-zoom-close-icon", closeIconChildren));
+    toolbar.className = "markra-mermaid-zoom-toolbar";
+    zoomValue.className = "markra-mermaid-zoom-value";
+    zoomValue.setAttribute("aria-live", "polite");
+    zoomValue.textContent = mermaidZoomPercentLabel(this.mermaidZoomScale);
     content.className = "markra-mermaid-zoom-content";
+    content.tabIndex = 0;
+    content.setAttribute("aria-label", "Mermaid diagram viewport");
+    content.dataset.zoom = formatMermaidZoomValue(this.mermaidZoomScale);
+    canvas.className = "markra-mermaid-zoom-canvas";
 
-    content.append(svg);
-    panel.append(closeButton, content);
+    canvas.append(svg);
+    content.append(canvas);
+    toolbar.append(zoomOutButton, zoomValue, zoomInButton, resetButton, closeButton);
+    panel.append(toolbar, content);
     dialog.append(panel);
     dialog.addEventListener("mousedown", this.handleMermaidZoomDialogMouseDown);
+    zoomOutButton.addEventListener("click", this.handleMermaidZoomOutClick);
+    zoomInButton.addEventListener("click", this.handleMermaidZoomInClick);
+    resetButton.addEventListener("click", this.handleMermaidZoomResetClick);
     closeButton.addEventListener("click", this.handleMermaidZoomCloseClick);
+    content.addEventListener("wheel", this.handleMermaidZoomWheel, { passive: false });
+    content.addEventListener("pointerdown", this.handleMermaidZoomPointerDown);
+    content.addEventListener("pointermove", this.handleMermaidZoomPointerMove);
+    content.addEventListener("pointerup", this.handleMermaidZoomPointerUp);
+    content.addEventListener("pointercancel", this.handleMermaidZoomPointerUp);
     ownerDocument.addEventListener("keydown", this.handleMermaidZoomKeyDown, true);
     (this.view.dom.closest(".markdown-paper") ?? ownerDocument.body).append(dialog);
 
     this.mermaidZoomDialog = dialog;
     this.mermaidZoomFocusTarget = this.mermaidZoomButton;
+    this.syncMermaidZoomTransform();
     closeButton.focus();
   }
 
@@ -794,16 +921,62 @@ class MarkraCodeBlockNodeView implements NodeView {
     const dialog = this.mermaidZoomDialog;
     if (!dialog) return;
 
+    const zoomOutButton = dialog.querySelector<HTMLButtonElement>(".markra-mermaid-zoom-out-button");
+    const zoomInButton = dialog.querySelector<HTMLButtonElement>(".markra-mermaid-zoom-in-button");
+    const resetButton = dialog.querySelector<HTMLButtonElement>(".markra-mermaid-zoom-reset-button");
     const closeButton = dialog.querySelector<HTMLButtonElement>(".markra-mermaid-zoom-close-button");
+    const content = dialog.querySelector<HTMLElement>(".markra-mermaid-zoom-content");
     dialog.removeEventListener("mousedown", this.handleMermaidZoomDialogMouseDown);
+    zoomOutButton?.removeEventListener("click", this.handleMermaidZoomOutClick);
+    zoomInButton?.removeEventListener("click", this.handleMermaidZoomInClick);
+    resetButton?.removeEventListener("click", this.handleMermaidZoomResetClick);
     closeButton?.removeEventListener("click", this.handleMermaidZoomCloseClick);
+    content?.removeEventListener("wheel", this.handleMermaidZoomWheel);
+    content?.removeEventListener("pointerdown", this.handleMermaidZoomPointerDown);
+    content?.removeEventListener("pointermove", this.handleMermaidZoomPointerMove);
+    content?.removeEventListener("pointerup", this.handleMermaidZoomPointerUp);
+    content?.removeEventListener("pointercancel", this.handleMermaidZoomPointerUp);
+    if (content && this.mermaidZoomDrag && content.hasPointerCapture?.(this.mermaidZoomDrag.pointerId)) {
+      content.releasePointerCapture(this.mermaidZoomDrag.pointerId);
+    }
     this.dom.ownerDocument.removeEventListener("keydown", this.handleMermaidZoomKeyDown, true);
     dialog.remove();
     this.mermaidZoomDialog = null;
+    this.mermaidZoomDrag = null;
 
     const focusTarget = this.mermaidZoomFocusTarget;
     this.mermaidZoomFocusTarget = null;
     if (restoreFocus && focusTarget?.isConnected) focusTarget.focus();
+  }
+
+  private resetMermaidZoomState() {
+    this.mermaidZoomDrag = null;
+    this.mermaidZoomScale = mermaidZoomDefaultScale;
+    this.mermaidZoomTranslateX = 0;
+    this.mermaidZoomTranslateY = 0;
+  }
+
+  private resetMermaidZoomView() {
+    this.resetMermaidZoomState();
+    this.syncMermaidZoomTransform();
+  }
+
+  private setMermaidZoomScale(scale: number) {
+    this.mermaidZoomScale = clampNumber(scale, mermaidZoomMinScale, mermaidZoomMaxScale);
+    this.syncMermaidZoomTransform();
+  }
+
+  private syncMermaidZoomTransform() {
+    const dialog = this.mermaidZoomDialog;
+    const content = dialog?.querySelector<HTMLElement>(".markra-mermaid-zoom-content");
+    const canvas = dialog?.querySelector<HTMLElement>(".markra-mermaid-zoom-canvas");
+    const value = dialog?.querySelector<HTMLElement>(".markra-mermaid-zoom-value");
+    if (!content || !canvas) return;
+
+    const zoomValue = formatMermaidZoomValue(this.mermaidZoomScale);
+    content.dataset.zoom = zoomValue;
+    canvas.style.transform = `translate(${this.mermaidZoomTranslateX}px, ${this.mermaidZoomTranslateY}px) scale(${zoomValue})`;
+    if (value) value.textContent = mermaidZoomPercentLabel(this.mermaidZoomScale);
   }
 
   private activateMermaidSourceEditing() {
@@ -869,6 +1042,65 @@ class MarkraCodeBlockNodeView implements NodeView {
     event.preventDefault();
     event.stopPropagation();
     this.openMermaidZoom();
+  };
+
+  private readonly handleMermaidZoomOutClick = (event: MouseEvent) => {
+    event.preventDefault();
+    this.setMermaidZoomScale(this.mermaidZoomScale - mermaidZoomStep);
+  };
+
+  private readonly handleMermaidZoomInClick = (event: MouseEvent) => {
+    event.preventDefault();
+    this.setMermaidZoomScale(this.mermaidZoomScale + mermaidZoomStep);
+  };
+
+  private readonly handleMermaidZoomResetClick = (event: MouseEvent) => {
+    event.preventDefault();
+    this.resetMermaidZoomView();
+  };
+
+  private readonly handleMermaidZoomWheel = (event: WheelEvent) => {
+    if (event.deltaY === 0) return;
+
+    event.preventDefault();
+    const factor = event.deltaY < 0 ? mermaidZoomWheelFactor : 1 / mermaidZoomWheelFactor;
+    this.setMermaidZoomScale(this.mermaidZoomScale * factor);
+  };
+
+  private readonly handleMermaidZoomPointerDown = (event: PointerEvent) => {
+    if (event.button !== 0) return;
+
+    event.preventDefault();
+    const content = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    content?.setPointerCapture?.(event.pointerId);
+    if (content) content.dataset.dragging = "true";
+    this.mermaidZoomDrag = {
+      originX: this.mermaidZoomTranslateX,
+      originY: this.mermaidZoomTranslateY,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY
+    };
+  };
+
+  private readonly handleMermaidZoomPointerMove = (event: PointerEvent) => {
+    const drag = this.mermaidZoomDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    this.mermaidZoomTranslateX = drag.originX + event.clientX - drag.startX;
+    this.mermaidZoomTranslateY = drag.originY + event.clientY - drag.startY;
+    this.syncMermaidZoomTransform();
+  };
+
+  private readonly handleMermaidZoomPointerUp = (event: PointerEvent) => {
+    const drag = this.mermaidZoomDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const content = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    if (content?.hasPointerCapture?.(event.pointerId)) content.releasePointerCapture(event.pointerId);
+    if (content) delete content.dataset.dragging;
+    this.mermaidZoomDrag = null;
   };
 
   private readonly handleMermaidZoomDialogMouseDown = (event: MouseEvent) => {
