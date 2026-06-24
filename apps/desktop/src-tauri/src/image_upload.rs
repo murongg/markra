@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
+use crate::network::{apply_network_settings, NetworkSettings};
+
 type HmacSha256 = Hmac<Sha256>;
 
 const IMAGE_UPLOAD_REQUEST_TIMEOUT_SECS: u64 = 30;
@@ -18,6 +20,7 @@ pub(crate) struct WebDavImageUploadRequest {
     bytes: Vec<u8>,
     file_name: String,
     mime_type: String,
+    network: Option<NetworkSettings>,
     password: String,
     public_base_url: String,
     server_url: String,
@@ -34,6 +37,7 @@ pub(crate) struct S3ImageUploadRequest {
     endpoint_url: String,
     file_name: String,
     mime_type: String,
+    network: Option<NetworkSettings>,
     public_base_url: String,
     region: String,
     secret_access_key: String,
@@ -46,6 +50,7 @@ pub(crate) struct PicGoImageUploadRequest {
     bytes: Vec<u8>,
     file_name: String,
     mime_type: String,
+    network: Option<NetworkSettings>,
     secret: String,
     server_url: String,
 }
@@ -95,7 +100,7 @@ async fn execute_webdav_image_upload(
         &request.public_base_url,
         &file_name,
     )?;
-    let client = image_upload_http_client()?;
+    let client = image_upload_http_client(request.network.as_ref())?;
 
     for collection_url in webdav_collection_urls(&request.server_url, &request.upload_path)? {
         let response = apply_basic_auth(
@@ -151,7 +156,7 @@ async fn execute_picgo_image_upload(
         .mime_str(&request.mime_type)
         .map_err(|error| error.to_string())?;
     let form = multipart::Form::new().part("files", file_part);
-    let client = image_upload_http_client()?;
+    let client = image_upload_http_client(request.network.as_ref())?;
     let response = apply_picgo_auth(client.post(upload_url), &request.secret)
         .multipart(form)
         .send()
@@ -197,7 +202,7 @@ async fn execute_s3_image_upload(request: S3ImageUploadRequest) -> Result<Upload
         &access_key_id,
         &secret_access_key,
     )?;
-    let client = image_upload_http_client()?;
+    let client = image_upload_http_client(request.network.as_ref())?;
     let response = client
         .put(targets.upload_url.clone())
         .header(CONTENT_TYPE, request.mime_type)
@@ -262,11 +267,13 @@ pub(crate) fn s3_image_upload_targets(
     })
 }
 
-fn image_upload_http_client() -> Result<Client, String> {
-    Client::builder()
-        .timeout(Duration::from_secs(IMAGE_UPLOAD_REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|error| error.to_string())
+fn image_upload_http_client(network: Option<&NetworkSettings>) -> Result<Client, String> {
+    apply_network_settings(
+        Client::builder().timeout(Duration::from_secs(IMAGE_UPLOAD_REQUEST_TIMEOUT_SECS)),
+        network,
+    )?
+    .build()
+    .map_err(|error| error.to_string())
 }
 
 fn apply_basic_auth(builder: RequestBuilder, username: &str, password: &str) -> RequestBuilder {

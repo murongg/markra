@@ -29,13 +29,16 @@ export function createWebRuntime(options: WebRuntimeOptions = {}): AppRuntime {
       ai: false,
       export: true,
       nativeWindowChrome: false,
+      networkProxy: false,
       pandoc: false,
       s3ImageUpload: false,
+      spellcheck: false,
       updater: false
     },
     files: createWebFileRuntime(settings, options),
     menu: createWebMenuRuntime(defaultRuntime.menu, options),
     platform: {
+      resolveDesktopOsVersion: () => null,
       resolveDesktopPlatform: () => "windows"
     },
     settings,

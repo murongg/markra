@@ -1,10 +1,12 @@
 import { SerializerReady, serializerCtx } from "@milkdown/kit/core";
 import type { Ctx, MilkdownPlugin } from "@milkdown/kit/ctx";
-import { paragraphSchema } from "@milkdown/kit/preset/commonmark";
-import type { Node as ProseNode } from "@milkdown/kit/prose/model";
-import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
+import { blockquoteSchema, listItemSchema, paragraphSchema } from "@milkdown/kit/preset/commonmark";
+import { splitBlock } from "@milkdown/kit/prose/commands";
+import type { Node as ProseNode, ResolvedPos } from "@milkdown/kit/prose/model";
+import { liftListItem, splitListItem } from "@milkdown/kit/prose/schema-list";
+import { Plugin, TextSelection, type Command, type EditorState } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
-import { $prose } from "@milkdown/kit/utils";
+import { $prose, $remark } from "@milkdown/kit/utils";
 import {
   markdownCalloutDefinitions,
   markdownCalloutMarkerForType,
@@ -13,6 +15,8 @@ import {
   type MarkdownCalloutType,
   type ParsedMarkdownCalloutMarker
 } from "@markra/shared";
+import { finalizeActiveLiveMarkdown, markraLiveMarkdownSpecs } from "./input-rules.ts";
+import { removeEmptyListItem } from "./list-editing.ts";
 
 type CalloutBlock = {
   blockquote: ProseNode;
@@ -24,6 +28,13 @@ type CalloutBlock = {
   markerLineIsEmpty: boolean;
   markerFrom: number;
   markerTo: number;
+};
+
+type MarkdownTreeNode = {
+  children?: MarkdownTreeNode[];
+  data?: Record<string, unknown>;
+  type?: string;
+  value?: unknown;
 };
 
 const calloutTypeOrder: MarkdownCalloutType[] = ["note", "tip", "important", "warning", "caution"];
@@ -38,6 +49,42 @@ export const markraCalloutSerializerPlugin: MilkdownPlugin = (ctx: Ctx) => async
 
   return () => {};
 };
+
+function nodeText(node: MarkdownTreeNode): string {
+  if (typeof node.value === "string") return node.value;
+  return node.children?.map(nodeText).join("") ?? "";
+}
+
+function markCalloutBreaks(node: MarkdownTreeNode) {
+  if (node.type === "break") {
+    node.data = {
+      ...node.data,
+      renderLineBreak: true
+    };
+    return;
+  }
+
+  node.children?.forEach(markCalloutBreaks);
+}
+
+function markCalloutHardbreaks(tree: MarkdownTreeNode) {
+  if (!Array.isArray(tree.children)) return;
+
+  for (const child of tree.children) {
+    markCalloutHardbreaks(child);
+  }
+
+  if (tree.type !== "blockquote") return;
+
+  const firstParagraph = tree.children.find((child) => child.type === "paragraph");
+  if (!firstParagraph || !parseMarkdownCalloutMarker(nodeText(firstParagraph))) return;
+
+  tree.children.forEach(markCalloutBreaks);
+}
+
+export const markraCalloutRemarkPlugin = $remark("markraCalloutRemark", () => () => (tree) => {
+  markCalloutHardbreaks(tree as unknown as MarkdownTreeNode);
+});
 
 function firstTextMarkerRange(blockquote: ProseNode, blockquoteFrom: number): CalloutBlock | null {
   const firstBlock = blockquote.firstChild;
@@ -73,8 +120,63 @@ function isDeleteKey(event: KeyboardEvent) {
   return event.key === "Backspace" || event.key === "Delete";
 }
 
+function isEnterKey(event: KeyboardEvent) {
+  return event.key === "Enter";
+}
+
 function hasModifier(event: KeyboardEvent) {
   return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+}
+
+function runCommand(view: EditorView, command: Command) {
+  const handled = command(view.state, view.dispatch, view);
+
+  if (handled) {
+    view.focus();
+  }
+
+  return handled;
+}
+
+function selectionIsInEmptyTextBlock(state: EditorState) {
+  const { selection } = state;
+  return (
+    selection instanceof TextSelection &&
+    selection.empty &&
+    selection.$from.parent.isTextblock &&
+    selection.$from.parent.content.size === 0
+  );
+}
+
+function selectionIsAtSlashCommandEnd(state: EditorState) {
+  const { selection } = state;
+  if (!(selection instanceof TextSelection) || !selection.empty) return false;
+
+  const { $from } = selection;
+  if (!$from.parent.isTextblock || $from.parent.type.spec.code) return false;
+
+  const beforeCursor = $from.parent.textContent.slice(0, $from.parentOffset);
+  const afterCursor = $from.parent.textContent.slice($from.parentOffset);
+
+  return afterCursor.length === 0 && /^\/[^\s/]*$/u.test(beforeCursor);
+}
+
+function insertCalloutSourceLineBreak(view: EditorView) {
+  const callout = findCalloutAtSelection(view);
+  if (!callout) return false;
+  if (!(view.state.selection instanceof TextSelection)) return false;
+
+  const hardbreak = view.state.schema.nodes.hardbreak;
+  if (!hardbreak) return false;
+
+  view.dispatch(
+    view.state.tr
+      .setMeta("hardbreak", true)
+      .replaceSelectionWith(hardbreak.create({ isInline: true, renderLineBreak: true }))
+      .scrollIntoView()
+  );
+  view.focus();
+  return true;
 }
 
 function calloutVisibleText(callout: CalloutBlock) {
@@ -94,8 +196,8 @@ function calloutVisibleText(callout: CalloutBlock) {
   return text.trim();
 }
 
-function findCalloutAtSelection(view: EditorView): CalloutBlock | null {
-  const { selection } = view.state;
+function findCalloutInState(state: EditorState): CalloutBlock | null {
+  const { selection } = state;
   if (!(selection instanceof TextSelection) || !selection.empty) return null;
 
   const { $from } = selection;
@@ -109,20 +211,37 @@ function findCalloutAtSelection(view: EditorView): CalloutBlock | null {
   return null;
 }
 
-function removeEmptyCallout(view: EditorView, callout: CalloutBlock, paragraph: ReturnType<typeof paragraphSchema.type>) {
-  if (calloutVisibleText(callout).length > 0) return false;
+function findCalloutAncestorAtPosition($pos: ResolvedPos) {
+  for (let depth = $pos.depth; depth > 0; depth -= 1) {
+    const node = $pos.node(depth);
+    if (node.type.name !== "blockquote") continue;
 
-  const transaction = view.state.tr.replaceWith(callout.blockquoteFrom, callout.blockquoteTo, paragraph.create());
-  const selectionPosition = Math.min(callout.blockquoteFrom + 1, transaction.doc.content.size);
+    const callout = firstTextMarkerRange(node, $pos.before(depth));
+    if (callout) return callout;
+  }
 
-  view.dispatch(
-    transaction
-      .setSelection(TextSelection.create(transaction.doc, selectionPosition))
-      .scrollIntoView()
-  );
-  view.focus();
+  return null;
+}
 
-  return true;
+function findCalloutAtSelection(view: EditorView): CalloutBlock | null {
+  return findCalloutInState(view.state);
+}
+
+function positionHasAncestorNodeName($pos: ResolvedPos, nodeName: string) {
+  for (let depth = $pos.depth; depth > 0; depth -= 1) {
+    if ($pos.node(depth).type.name === nodeName) return true;
+  }
+
+  return false;
+}
+
+function selectionIsInsideNodeName(state: EditorState, nodeName: string) {
+  const { selection } = state;
+  return [selection.$from, selection.$to].every(($pos) => positionHasAncestorNodeName($pos, nodeName));
+}
+
+function removeEmptyCalloutListItem(view: EditorView, key: KeyboardEvent["key"]) {
+  return removeEmptyListItem(view, key);
 }
 
 function emptySelectionBlockRange(view: EditorView) {
@@ -139,21 +258,136 @@ function emptySelectionBlockRange(view: EditorView) {
 function adjacentCalloutTextPosition(callout: CalloutBlock, emptyBlockFrom: number, direction: "backward" | "forward") {
   let fallbackPosition: number | null = null;
 
-  callout.blockquote.forEach((child, offset, index) => {
-    if (!child.isTextblock || index === 0 || child.content.size === 0) return;
+  callout.blockquote.descendants((child, offset) => {
+    if (!child.isTextblock) return true;
 
     const childFrom = callout.blockquoteFrom + 1 + offset;
+    if (childFrom >= callout.markerBlockFrom && childFrom < callout.markerBlockTo) return false;
+    if (child.content.size === 0) return false;
+
     if (direction === "backward" && childFrom < emptyBlockFrom) {
       fallbackPosition = childFrom + 1 + child.content.size;
-      return;
+      return false;
     }
 
     if (direction === "forward" && fallbackPosition === null && childFrom > emptyBlockFrom) {
       fallbackPosition = childFrom + 1;
     }
+
+    return false;
   });
 
   return fallbackPosition;
+}
+
+function calloutBodyTextBlockRanges(callout: CalloutBlock) {
+  const ranges: Array<{ from: number; to: number }> = [];
+
+  callout.blockquote.forEach((child, offset, index) => {
+    if (index === 0 || !child.isTextblock) return;
+
+    const from = callout.blockquoteFrom + 1 + offset;
+    ranges.push({
+      from,
+      to: from + child.nodeSize
+    });
+  });
+
+  return ranges;
+}
+
+function calloutHasBodyBlocks(callout: CalloutBlock) {
+  return callout.blockquote.childCount > 1;
+}
+
+function exitCalloutBlock(
+  view: EditorView,
+  callout: CalloutBlock,
+  paragraph: ReturnType<typeof paragraphSchema.type>
+) {
+  const transaction = view.state.tr;
+  const hasVisibleBodyContent = calloutVisibleText(callout).length > 0;
+  const selectedEmptyBodyRange = hasVisibleBodyContent ? emptySelectionBlockRange(view) : null;
+
+  if (selectedEmptyBodyRange) {
+    transaction.delete(
+      transaction.mapping.map(selectedEmptyBodyRange.from),
+      transaction.mapping.map(selectedEmptyBodyRange.to)
+    );
+  } else if (!hasVisibleBodyContent && callout.blockquote.childCount > 1) {
+    const [, ...extraBodyRanges] = calloutBodyTextBlockRanges(callout);
+
+    for (const range of extraBodyRanges.reverse()) {
+      transaction.delete(
+        transaction.mapping.map(range.from),
+        transaction.mapping.map(range.to)
+      );
+    }
+  }
+
+  const insertAt = transaction.mapping.map(callout.blockquoteTo);
+  transaction.insert(insertAt, paragraph.create());
+  const selectionPosition = Math.min(insertAt + 1, transaction.doc.content.size);
+
+  view.dispatch(
+    transaction
+      .setSelection(TextSelection.create(transaction.doc, selectionPosition))
+      .scrollIntoView()
+  );
+  view.focus();
+
+  return true;
+}
+
+function rawCalloutMarkerLineAtSelection(view: EditorView) {
+  const { selection } = view.state;
+  if (!(selection instanceof TextSelection) || !selection.empty) return null;
+
+  const { $from } = selection;
+  if (!$from.parent.isTextblock) return null;
+  if ($from.parentOffset !== $from.parent.content.size) return null;
+
+  const quoteMatch = /^\s*>\s*(.*?)\s*$/u.exec($from.parent.textContent);
+  if (!quoteMatch) return null;
+
+  const marker = parseMarkdownCalloutMarker(quoteMatch[1] ?? "");
+  if (!marker) return null;
+
+  const quotedText = quoteMatch[1] ?? "";
+  const afterMarker = quotedText.slice(quotedText.indexOf(marker.source) + marker.source.length);
+  if (afterMarker.trim().length > 0) return null;
+
+  return {
+    marker,
+    from: $from.before($from.depth),
+    to: $from.after($from.depth)
+  };
+}
+
+function replaceRawCalloutMarkerLine(
+  view: EditorView,
+  paragraph: ReturnType<typeof paragraphSchema.type>,
+  blockquote: ReturnType<typeof blockquoteSchema.type>
+) {
+  const rawLine = rawCalloutMarkerLineAtSelection(view);
+  if (!rawLine) return false;
+
+  const markerParagraph = paragraph.create(
+    null,
+    view.state.schema.text(markdownCalloutMarkerForType(rawLine.marker.type))
+  );
+  const bodyParagraph = paragraph.create();
+  const callout = blockquote.create(null, [markerParagraph, bodyParagraph]);
+  let transaction = view.state.tr.replaceWith(rawLine.from, rawLine.to, callout);
+  const selectionPosition = Math.min(rawLine.from + 1 + markerParagraph.nodeSize + 1, transaction.doc.content.size);
+
+  transaction = transaction
+    .setSelection(TextSelection.create(transaction.doc, selectionPosition))
+    .scrollIntoView();
+  view.dispatch(transaction);
+  view.focus();
+
+  return true;
 }
 
 function removeEmptyCalloutLine(view: EditorView, callout: CalloutBlock, key: KeyboardEvent["key"]) {
@@ -164,10 +398,35 @@ function removeEmptyCalloutLine(view: EditorView, callout: CalloutBlock, key: Ke
   const targetPosition =
     adjacentCalloutTextPosition(callout, emptyBlock.from, direction) ??
     adjacentCalloutTextPosition(callout, emptyBlock.from, direction === "forward" ? "backward" : "forward");
-  if (targetPosition === null) return false;
+
+  if (targetPosition !== null) {
+    const transaction = view.state.tr.delete(emptyBlock.from, emptyBlock.to);
+    const mappedTargetPosition = transaction.mapping.map(targetPosition);
+
+    view.dispatch(
+      transaction
+        .setSelection(TextSelection.create(transaction.doc, mappedTargetPosition))
+        .scrollIntoView()
+    );
+    view.focus();
+
+    return true;
+  }
+
+  const bodyRanges = calloutBodyTextBlockRanges(callout);
+  if (bodyRanges.length <= 1) return false;
+
+  const emptyBlockIndex = bodyRanges.findIndex((range) => range.from === emptyBlock.from && range.to === emptyBlock.to);
+  if (emptyBlockIndex === -1) return false;
+
+  const adjacentRange =
+    direction === "forward"
+      ? bodyRanges[emptyBlockIndex + 1] ?? bodyRanges[emptyBlockIndex - 1]
+      : bodyRanges[emptyBlockIndex - 1] ?? bodyRanges[emptyBlockIndex + 1];
+  if (!adjacentRange) return false;
 
   const transaction = view.state.tr.delete(emptyBlock.from, emptyBlock.to);
-  const mappedTargetPosition = transaction.mapping.map(targetPosition);
+  const mappedTargetPosition = transaction.mapping.map(adjacentRange.from + 1);
 
   view.dispatch(
     transaction
@@ -177,6 +436,203 @@ function removeEmptyCalloutLine(view: EditorView, callout: CalloutBlock, key: Ke
   view.focus();
 
   return true;
+}
+
+function deleteEmptyCalloutBlock(
+  view: EditorView,
+  callout: CalloutBlock,
+  paragraph: ReturnType<typeof paragraphSchema.type>
+) {
+  if (calloutVisibleText(callout).length > 0) return false;
+  if (!emptySelectionBlockRange(view)) return false;
+
+  const transaction = view.state.tr.replaceWith(callout.blockquoteFrom, callout.blockquoteTo, paragraph.create());
+  const selectionPosition = Math.min(callout.blockquoteFrom + 1, transaction.doc.content.size);
+
+  view.dispatch(
+    transaction
+      .setSelection(TextSelection.create(transaction.doc, selectionPosition))
+      .scrollIntoView()
+  );
+  view.focus();
+  return true;
+}
+
+function keepDeleteHoldInsideEmptyCallout(
+  view: EditorView,
+  callout: CalloutBlock,
+  event: KeyboardEvent,
+  deleteHoldStartedInsideNonEmptyCallout: boolean
+) {
+  if (!event.repeat && !deleteHoldStartedInsideNonEmptyCallout) return false;
+  if (calloutVisibleText(callout).length > 0) return false;
+  if (!emptySelectionBlockRange(view)) return false;
+
+  view.focus();
+  return true;
+}
+
+function continueCalloutListItemOnEnter(
+  view: EditorView,
+  listItem: ReturnType<typeof listItemSchema.type>
+) {
+  if (selectionIsInEmptyTextBlock(view.state)) return runCommand(view, liftListItem(listItem));
+
+  return runCommand(view, splitListItem(listItem));
+}
+
+function handleCalloutEnter(
+  view: EditorView,
+  callout: CalloutBlock,
+  paragraph: ReturnType<typeof paragraphSchema.type>,
+  listItem: ReturnType<typeof listItemSchema.type>
+) {
+  if (selectionIsInMarkerLine(view.state, callout)) return exitCalloutBlock(view, callout, paragraph);
+  if (selectionIsInsideNodeName(view.state, "list_item")) return continueCalloutListItemOnEnter(view, listItem);
+  if (selectionIsInEmptyTextBlock(view.state)) return exitCalloutBlock(view, callout, paragraph);
+
+  return runCommand(view, splitBlock);
+}
+
+function markerOnlyCalloutsInDoc(doc: ProseNode) {
+  const callouts: CalloutBlock[] = [];
+
+  doc.descendants((node, position) => {
+    if (node.type.name !== "blockquote") return;
+
+    const callout = firstTextMarkerRange(node, position);
+    if (!callout || calloutHasBodyBlocks(callout) || !callout.markerLineIsEmpty) return false;
+
+    callouts.push(callout);
+    return false;
+  });
+
+  return callouts;
+}
+
+function selectionIsInMarkerLine(state: EditorState, callout: CalloutBlock) {
+  if (!(state.selection instanceof TextSelection) || !state.selection.empty) return false;
+
+  return state.selection.from >= callout.markerBlockFrom && state.selection.from <= callout.markerBlockTo - 1;
+}
+
+function firstCalloutBodyTextPosition(callout: CalloutBlock) {
+  const [firstBodyRange] = calloutBodyTextBlockRanges(callout);
+  return firstBodyRange ? firstBodyRange.from + 1 : null;
+}
+
+function moveHiddenMarkerSelectionToCalloutBody(state: EditorState) {
+  const callout = findCalloutInState(state);
+  if (!callout || !callout.markerLineIsEmpty || !selectionIsInMarkerLine(state, callout)) return null;
+
+  const bodyTextPosition = firstCalloutBodyTextPosition(callout);
+  if (bodyTextPosition === null) return null;
+
+  return state.tr
+    .setSelection(TextSelection.create(state.doc, bodyTextPosition))
+    .scrollIntoView();
+}
+
+function dispatchHiddenMarkerSelectionToCalloutBody(view: EditorView) {
+  const transaction = moveHiddenMarkerSelectionToCalloutBody(view.state);
+  if (transaction) view.dispatch(transaction);
+}
+
+function selectionIsQuoteShortcutAfterCallout(state: EditorState, paragraph: ReturnType<typeof paragraphSchema.type>) {
+  const { selection } = state;
+  if (!(selection instanceof TextSelection) || !selection.empty) return false;
+
+  const { $from } = selection;
+  if ($from.depth !== 1 || $from.parent.type !== paragraph) return false;
+  if ($from.parent.textContent !== ">" || $from.parentOffset !== $from.parent.content.size) return false;
+
+  const index = $from.index(0);
+  if (index <= 0) return false;
+
+  const previousNode = state.doc.child(index - 1);
+  return previousNode.type.name === "blockquote" && firstTextMarkerRange(previousNode, 0) !== null;
+}
+
+function trailingEmptySelectionInCallout(state: EditorState) {
+  const { selection } = state;
+  if (!(selection instanceof TextSelection) || !selection.empty) return null;
+  if (!selection.$from.parent.isTextblock || selection.$from.parent.content.size > 0) return null;
+
+  const callout = findCalloutInState(state);
+  if (!callout || calloutVisibleText(callout).length === 0) return null;
+  if (selection.$from.after(selection.$from.depth) !== callout.blockquoteTo - 1) return null;
+
+  return {
+    callout,
+    from: selection.$from.before(selection.$from.depth),
+    to: selection.$from.after(selection.$from.depth)
+  };
+}
+
+function splitTypedQuoteAfterCallout(
+  oldState: EditorState,
+  newState: EditorState,
+  paragraph: ReturnType<typeof paragraphSchema.type>,
+  blockquote: ReturnType<typeof blockquoteSchema.type>
+) {
+  if (!selectionIsQuoteShortcutAfterCallout(oldState, paragraph)) return null;
+
+  const trailingEmptyBlock = trailingEmptySelectionInCallout(newState);
+  if (!trailingEmptyBlock) return null;
+
+  const transaction = newState.tr.delete(trailingEmptyBlock.from, trailingEmptyBlock.to);
+  const insertAt = transaction.mapping.map(trailingEmptyBlock.callout.blockquoteTo, -1);
+  transaction.insert(insertAt, blockquote.create(null, paragraph.create()));
+  transaction.setSelection(TextSelection.create(transaction.doc, Math.min(insertAt + 2, transaction.doc.content.size)));
+
+  return transaction.scrollIntoView();
+}
+
+function appendBodyToMarkerOnlyCallout(
+  state: EditorState,
+  paragraph: ReturnType<typeof paragraphSchema.type>
+) {
+  const callouts = markerOnlyCalloutsInDoc(state.doc).filter((callout) =>
+    selectionIsInMarkerLine(state, callout)
+  );
+  if (callouts.length === 0) return null;
+
+  const transaction = state.tr;
+  let bodySelectionPosition: number | null = null;
+
+  for (const callout of callouts) {
+    const insertAt = transaction.mapping.map(callout.markerBlockTo, 1);
+    transaction.insert(insertAt, paragraph.create());
+    bodySelectionPosition = Math.min(insertAt + 1, transaction.doc.content.size);
+  }
+
+  if (!transaction.docChanged) return null;
+
+  if (bodySelectionPosition !== null) {
+    transaction.setSelection(TextSelection.create(transaction.doc, bodySelectionPosition));
+  }
+
+  return transaction.scrollIntoView();
+}
+
+function normalizeCalloutHardbreaks(state: EditorState) {
+  const hardbreak = state.schema.nodes.hardbreak;
+  if (!hardbreak) return null;
+
+  const transaction = state.tr;
+  let changed = false;
+
+  state.doc.descendants((node, position) => {
+    if (node.type !== hardbreak || (node.attrs.isInline === true && node.attrs.renderLineBreak === true)) return;
+
+    const callout = findCalloutAncestorAtPosition(state.doc.resolve(position));
+    if (!callout) return;
+
+    transaction.setNodeMarkup(position, undefined, { ...node.attrs, isInline: true, renderLineBreak: true }, node.marks);
+    changed = true;
+  });
+
+  return changed ? transaction : null;
 }
 
 function createCalloutTypeSelect(
@@ -253,7 +709,10 @@ function buildCalloutDecorations(doc: ProseNode) {
       Decoration.widget(callout.blockquoteFrom + 1, createCalloutHeader(callout), {
         key: `markra-callout-header-${callout.blockquoteFrom}-${callout.marker.type}`,
         side: -1
-      }),
+      })
+    );
+
+    decorations.push(
       Decoration.inline(callout.markerFrom, callout.markerTo, {
         class: "markra-callout-source-marker"
       })
@@ -273,18 +732,98 @@ function buildCalloutDecorations(doc: ProseNode) {
 
 export const markraCalloutPlugin = $prose((ctx) => {
   const paragraph = paragraphSchema.type(ctx);
+  const blockquote = blockquoteSchema.type(ctx);
+  const listItem = listItemSchema.type(ctx);
+  const liveMarkdownSpecs = markraLiveMarkdownSpecs(ctx);
+  let deleteHoldStartedInsideNonEmptyCallout = false;
 
   return new Plugin({
+    view: (view) => {
+      dispatchHiddenMarkerSelectionToCalloutBody(view);
+
+      return {
+        update: (updatedView, previousState) => {
+          if (
+            updatedView.state.doc.eq(previousState.doc) &&
+            updatedView.state.selection.eq(previousState.selection)
+          ) return;
+
+          dispatchHiddenMarkerSelectionToCalloutBody(updatedView);
+        }
+      };
+    },
+    appendTransaction: (transactions, oldState, newState) => {
+      const markerSelectionTransaction = moveHiddenMarkerSelectionToCalloutBody(newState);
+      if (markerSelectionTransaction) return markerSelectionTransaction;
+
+      if (!transactions.some((transaction) => transaction.docChanged)) return null;
+
+      return (
+        appendBodyToMarkerOnlyCallout(newState, paragraph) ??
+        normalizeCalloutHardbreaks(newState) ??
+        splitTypedQuoteAfterCallout(oldState, newState, paragraph, blockquote)
+      );
+    },
     props: {
       decorations: (state) => buildCalloutDecorations(state.doc),
+      handleDOMEvents: {
+        keyup: (_view, event) => {
+          if (isDeleteKey(event)) {
+            deleteHoldStartedInsideNonEmptyCallout = false;
+          }
+
+          return false;
+        }
+      },
       handleKeyDown: (view, event) => {
-        if (!isDeleteKey(event) || hasModifier(event)) return false;
+        if (isEnterKey(event)) {
+          if (event.altKey || event.ctrlKey || event.metaKey) return false;
+          if (event.shiftKey) {
+            const handled = insertCalloutSourceLineBreak(view);
+            if (!handled) return false;
+
+            event.preventDefault();
+            return true;
+          }
+
+          if (selectionIsAtSlashCommandEnd(view.state)) return false;
+
+          const callout = findCalloutAtSelection(view);
+          if (callout) {
+            finalizeActiveLiveMarkdown(view, liveMarkdownSpecs);
+          }
+
+          const handled = callout
+            ? handleCalloutEnter(view, callout, paragraph, listItem)
+            : replaceRawCalloutMarkerLine(view, paragraph, blockquote);
+          if (!handled) return false;
+
+          event.preventDefault();
+          return true;
+        }
+
+        if (hasModifier(event)) return false;
+        if (!isDeleteKey(event)) return false;
 
         const callout = findCalloutAtSelection(view);
         if (!callout) return false;
+        if (selectionIsInsideNodeName(view.state, "list_item")) {
+          const handled = removeEmptyCalloutListItem(view, event.key);
+          if (!handled) return false;
 
-        const handled = removeEmptyCallout(view, callout, paragraph);
-        if (!handled && !removeEmptyCalloutLine(view, callout, event.key)) return false;
+          event.preventDefault();
+          return true;
+        }
+
+        if (calloutVisibleText(callout).length > 0) {
+          deleteHoldStartedInsideNonEmptyCallout = true;
+        }
+
+        const handled =
+          removeEmptyCalloutLine(view, callout, event.key) ||
+          keepDeleteHoldInsideEmptyCallout(view, callout, event, deleteHoldStartedInsideNonEmptyCallout) ||
+          deleteEmptyCalloutBlock(view, callout, paragraph);
+        if (!handled) return false;
 
         event.preventDefault();
         return true;

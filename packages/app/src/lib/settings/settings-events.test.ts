@@ -46,7 +46,11 @@ describe("settings events", () => {
   it("does nothing outside the Tauri runtime", async () => {
     const cleanup = await listenAppThemeChanged(vi.fn());
 
-    await notifyAppThemeChanged("dark");
+    await notifyAppThemeChanged({
+      appearanceMode: "dark",
+      darkTheme: "dark",
+      lightTheme: "light"
+    });
     cleanup();
 
     expect(mockedListen).not.toHaveBeenCalled();
@@ -61,38 +65,58 @@ describe("settings events", () => {
 
     const cleanup = await listenAppThemeChanged(onThemeChanged);
     const listener = mockedListen.mock.calls[0]?.[1];
+    const preferences = {
+      appearanceMode: "dark" as const,
+      darkTheme: "night" as const,
+      lightTheme: "sepia" as const
+    };
 
-    await notifyAppThemeChanged("newsprint");
+    await notifyAppThemeChanged(preferences);
+    listener?.({ payload: { preferences } } as Parameters<NonNullable<typeof listener>>[0]);
     listener?.({ payload: { theme: "newsprint" } } as Parameters<NonNullable<typeof listener>>[0]);
     listener?.({ payload: { theme: "dracula" } } as Parameters<NonNullable<typeof listener>>[0]);
     cleanup();
 
     expect(mockedListen).toHaveBeenCalledWith("markra://theme-changed", expect.any(Function));
-    expect(mockedEmit).toHaveBeenCalledWith("markra://theme-changed", { theme: "newsprint" });
-    expect(onThemeChanged).toHaveBeenCalledWith("newsprint");
-    expect(onThemeChanged).toHaveBeenCalledTimes(1);
+    expect(mockedEmit).toHaveBeenCalledWith("markra://theme-changed", { preferences });
+    expect(onThemeChanged).toHaveBeenCalledWith(preferences);
+    expect(onThemeChanged).toHaveBeenCalledWith({
+      appearanceMode: "light",
+      darkTheme: "dark",
+      lightTheme: "newsprint"
+    });
+    expect(onThemeChanged).toHaveBeenCalledTimes(2);
     expect(unlisten).toHaveBeenCalledTimes(1);
   });
 
   it("emits and listens for custom theme CSS changes inside Tauri", async () => {
     const unlisten = vi.fn();
     const onCustomThemeCssChanged = vi.fn();
-    const css = ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }";
+    const customThemeCss = {
+      dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+      light: ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"
+    };
+    const legacyCss = ":root[data-theme=\"custom\"] { --accent: #0969da; }";
     eventsAvailable = true;
     mockedListen.mockResolvedValue(unlisten);
 
     const cleanup = await listenAppCustomThemeCssChanged(onCustomThemeCssChanged);
     const listener = mockedListen.mock.calls[0]?.[1];
 
-    await notifyAppCustomThemeCssChanged(css);
-    listener?.({ payload: { css } } as Parameters<NonNullable<typeof listener>>[0]);
+    await notifyAppCustomThemeCssChanged(customThemeCss);
+    listener?.({ payload: { customThemeCss } } as Parameters<NonNullable<typeof listener>>[0]);
+    listener?.({ payload: { css: legacyCss } } as Parameters<NonNullable<typeof listener>>[0]);
     listener?.({ payload: { css: 42 } } as Parameters<NonNullable<typeof listener>>[0]);
     cleanup();
 
     expect(mockedListen).toHaveBeenCalledWith("markra://custom-theme-css-changed", expect.any(Function));
-    expect(mockedEmit).toHaveBeenCalledWith("markra://custom-theme-css-changed", { css });
-    expect(onCustomThemeCssChanged).toHaveBeenCalledWith(css);
-    expect(onCustomThemeCssChanged).toHaveBeenCalledTimes(1);
+    expect(mockedEmit).toHaveBeenCalledWith("markra://custom-theme-css-changed", { customThemeCss });
+    expect(onCustomThemeCssChanged).toHaveBeenCalledWith(customThemeCss);
+    expect(onCustomThemeCssChanged).toHaveBeenCalledWith({
+      dark: legacyCss,
+      light: legacyCss
+    });
+    expect(onCustomThemeCssChanged).toHaveBeenCalledTimes(2);
     expect(unlisten).toHaveBeenCalledTimes(1);
   });
 
@@ -128,12 +152,21 @@ describe("settings events", () => {
 
     const preferences: EditorPreferences = {
       aiQuickActionPrompts: defaultAiQuickActionPrompts,
+      autoRevealActiveFile: true,
+      autoSaveEnabled: true,
+      autoSaveIntervalMinutes: 10,
       autoUpdateEnabled: true,
       bodyFontSize: 18,
       clipboardImageFolder: "images",
       closeAiCommandOnAgentPanelOpen: true,
       contentWidth: "wide" as const,
       contentWidthPx: 1120,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
+      editorFontFamily: {
+        family: "Example Serif",
+        source: "system"
+      },
       extendedSyntax: {
         githubAlerts: true,
         highlight: true
@@ -172,15 +205,18 @@ describe("settings events", () => {
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
       splitVisualPanePercent: 64,
+      spellcheckEnabled: true,
+      spellcheckIgnoredWords: [],
+      spellcheckLanguage: "en",
       titlebarActions: [
         { id: "theme", visible: true },
         { id: "save", visible: false },
         { id: "sourceMode", visible: true },
-        { id: "splitMode", visible: true },
         { id: "aiAgent", visible: true },
         { id: "history", visible: true }
       ],
-      showWordCount: false
+      showWordCount: false,
+      wrapCodeBlocks: false
     };
 
     await notifyAppEditorPreferencesChanged(preferences);

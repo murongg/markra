@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
 import { editorViewCtx, parserCtx, serializerCtx, type Editor } from "@milkdown/kit/core";
 import { imageSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
-import { Slice, type Node as ProseNode } from "@milkdown/kit/prose/model";
-import { TextSelection } from "@milkdown/kit/prose/state";
+import { Fragment, Slice, type Node as ProseNode, type NodeType } from "@milkdown/kit/prose/model";
+import { NodeSelection, Selection, TextSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { AiDiffResult, AiDocumentAnchor, AiHeadingAnchor, AiSelectionContext } from "@markra/ai";
 import {
   applyAiEditorResult,
+  clearFinalizedImageSourceEditing,
   clearAiSelectionHold,
   clearAiEditorPreview,
   confirmAiEditorResultApplied,
@@ -21,11 +22,13 @@ import {
   type AiEditorPreviewLabels
 } from "@markra/editor";
 import type { MarkdownOutlineItem } from "@markra/markdown";
-import { debug, type SearchRange } from "@markra/shared";
+import { debug, normalizedExternalAutolinkUrl, type SearchRange } from "@markra/shared";
 import {
+  clearSelectionFormattingInView,
   readSelectionFormattingActionsFromView,
   readSelectionFormattingStateFromView,
   setSelectionHeadingLevelInView,
+  toggleSelectionLinkInView,
   toggleSelectionHighlightInView,
   type SelectionHeadingLevel,
   type SelectionFormattingState
@@ -42,6 +45,47 @@ const defaultMarkdownTable = [
   "|  |  |"
 ].join("\n");
 const aiSelectionHoldSelector = ".markra-ai-selection-hold";
+
+type MarkdownLinkInsertion =
+  | {
+      href: string;
+      kind: "link";
+      label: string;
+      selectionFromOffset: number;
+      selectionToOffset: number;
+    }
+  | {
+      cursorOffset: number;
+      insertedText: string;
+      kind: "snippet";
+      selectionFromOffset?: undefined;
+      selectionToOffset?: undefined;
+    }
+  | {
+      cursorOffset?: undefined;
+      insertedText: string;
+      kind: "snippet";
+      selectionFromOffset: number;
+      selectionToOffset: number;
+    };
+
+type MarkdownImageInsertion = {
+  alt: string;
+  insertedText: string;
+  selectionFromOffset: number;
+  selectionToOffset: number;
+  src: string;
+};
+
+type MarkdownImageReference = {
+  alt: string;
+  src: string;
+};
+
+type EditorInsertionPoint = {
+  left: number;
+  top: number;
+};
 
 function comparableSerializedMarkdown(markdown: string) {
   return markdown
@@ -113,6 +157,138 @@ function aiCommandSelectionScrollBehavior(): ScrollBehavior {
   if (typeof window.matchMedia !== "function") return "smooth";
 
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
+export function markdownLinkInsertionForSelection(selectedText: string): MarkdownLinkInsertion {
+  const href = normalizedExternalAutolinkUrl(selectedText);
+  if (href) {
+    return {
+      href,
+      kind: "link",
+      label: selectedText.trim(),
+      selectionFromOffset: 0,
+      selectionToOffset: selectedText.trim().length
+    };
+  }
+
+  const content = selectedText || "text";
+  const insertedText = `[${content}](https://)`;
+  if (selectedText) {
+    return {
+      insertedText,
+      kind: "snippet",
+      selectionFromOffset: 1,
+      selectionToOffset: 1 + content.length
+    };
+  }
+
+  return {
+    cursorOffset: `[${content}`.length,
+    insertedText,
+    kind: "snippet"
+  };
+}
+
+export function markdownImageInsertionForSelection(selectedText: string): MarkdownImageInsertion {
+  const alt = selectedText || "alt";
+  const markdownAlt = alt.replace(/\\/gu, "\\\\").replace(/\]/gu, "\\]");
+  const src = "assets/image.png";
+  const insertedText = `![${markdownAlt}](${src})`;
+  const selectionFromOffset = markdownAlt.length + 4;
+
+  return {
+    alt,
+    insertedText,
+    selectionFromOffset,
+    selectionToOffset: selectionFromOffset + src.length,
+    src
+  };
+}
+
+function findInsertedImageNodePosition(
+  doc: ProseNode,
+  image: NodeType,
+  insertion: MarkdownImageInsertion,
+  preferredPosition: number
+) {
+  let bestPosition: number | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  doc.descendants((node, position) => {
+    if (node.type !== image) return true;
+    if (String(node.attrs.alt ?? "") !== insertion.alt) return true;
+    if (String(node.attrs.src ?? "") !== insertion.src) return true;
+
+    const distance = Math.abs(position - preferredPosition);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestPosition = position;
+    }
+
+    return true;
+  });
+
+  return bestPosition;
+}
+
+function focusInsertedImageSource(view: EditorView, insertion: MarkdownImageInsertion) {
+  const source = view.dom.querySelector<HTMLInputElement>(".markra-image-node-source");
+  if (!source) {
+    view.focus();
+    return;
+  }
+
+  source.focus();
+  source.setSelectionRange(insertion.selectionFromOffset, insertion.selectionToOffset);
+}
+
+function emptyTopLevelParagraphSelectionRange(view: EditorView, selection: Selection = view.state.selection) {
+  if (!selection.empty) return null;
+  let range: { from: number; to: number } | null = null;
+
+  view.state.doc.forEach((node, offset) => {
+    if (range) return;
+    if (node.type.name !== "paragraph" || node.content.size > 0) return;
+    if (selection.from < offset || selection.from > offset + node.nodeSize) return;
+
+    range = {
+      from: offset,
+      to: offset + node.nodeSize
+    };
+  });
+
+  return range;
+}
+
+function editorSelectionAtPoint(view: EditorView, point: EditorInsertionPoint) {
+  const position = view.posAtCoords(point);
+  if (!position) return null;
+
+  return Selection.near(view.state.doc.resolve(position.pos));
+}
+
+function insertMarkdownImageReferences(
+  view: EditorView,
+  image: NodeType,
+  images: MarkdownImageReference[],
+  selection: Selection
+) {
+  const range = emptyTopLevelParagraphSelectionRange(view, selection) ?? selection;
+  const fragment = Fragment.fromArray(
+    images.map((savedImage) =>
+      image.create({
+        alt: savedImage.alt || "image",
+        src: savedImage.src,
+        title: ""
+      })
+    )
+  );
+  const tr = view.state.tr.replaceWith(range.from, range.to, fragment).scrollIntoView();
+  const cursor = Math.min(tr.doc.content.size, range.from + fragment.size);
+
+  tr.setSelection(TextSelection.near(tr.doc.resolve(cursor), -1));
+  view.dispatch(tr);
+  view.focus();
 }
 
 export function readAiSelectionContextFromView(view: EditorView): AiSelectionContext {
@@ -332,7 +508,10 @@ export function useEditorController() {
     }
   }, []);
 
-  const replaceMarkdown = useCallback((markdown: string) => {
+  const replaceMarkdown = useCallback((
+    markdown: string,
+    options: { addToHistory?: boolean; historyBaselineMarkdown?: string } = {}
+  ) => {
     try {
       const editor = editorRef.current;
       if (!editor) {
@@ -351,6 +530,32 @@ export function useEditorController() {
         const image = imageSchema.type(ctx);
         const currentMarkdown = serializeLinkImageLiveMarkdown(view.state.doc, serializer, link, image);
         if (comparableSerializedMarkdown(currentMarkdown) === comparableSerializedMarkdown(markdown)) {
+          if (
+            options.addToHistory &&
+            options.historyBaselineMarkdown !== undefined &&
+            comparableSerializedMarkdown(options.historyBaselineMarkdown) !== comparableSerializedMarkdown(markdown)
+          ) {
+            const baselineDocument = parseMarkdown(options.historyBaselineMarkdown);
+            const baselineTransaction = view.state.tr
+              .replace(0, view.state.doc.content.size, new Slice(baselineDocument.content, 0, 0))
+              .setMeta("addToHistory", false);
+            view.dispatch(baselineTransaction);
+
+            const parsedDocument = parseMarkdown(markdown);
+            const selectionPosition = Math.min(view.state.selection.from, parsedDocument.content.size);
+            const historyTransaction = view.state.tr
+              .replace(0, view.state.doc.content.size, new Slice(parsedDocument.content, 0, 0));
+
+            historyTransaction.setSelection(TextSelection.near(historyTransaction.doc.resolve(selectionPosition))).scrollIntoView();
+            view.dispatch(historyTransaction);
+            debug(() => ["[markra-history] editor replace history repaired", {
+              currentChars: currentMarkdown.length,
+              requestedChars: markdown.length,
+              selectionPosition
+            }]);
+            return true;
+          }
+
           debug(() => ["[markra-history] editor replace skipped", {
             currentChars: currentMarkdown.length,
             reason: "contents equivalent",
@@ -362,8 +567,11 @@ export function useEditorController() {
         const parsedDocument = parseMarkdown(markdown);
         const selectionPosition = Math.min(view.state.selection.from, parsedDocument.content.size);
         const tr = view.state.tr
-          .replace(0, view.state.doc.content.size, new Slice(parsedDocument.content, 0, 0))
-          .setMeta("addToHistory", false);
+          .replace(0, view.state.doc.content.size, new Slice(parsedDocument.content, 0, 0));
+
+        if (!options.addToHistory) {
+          tr.setMeta("addToHistory", false);
+        }
 
         tr.setSelection(TextSelection.near(tr.doc.resolve(selectionPosition))).scrollIntoView();
         view.dispatch(tr);
@@ -456,6 +664,17 @@ export function useEditorController() {
     }
   }, []);
 
+  const clearSelectionFormatting = useCallback(() => {
+    try {
+      const view = editorRef.current?.action((ctx) => ctx.get(editorViewCtx));
+      if (!view) return false;
+
+      return clearSelectionFormattingInView(view);
+    } catch {
+      return false;
+    }
+  }, []);
+
   const getHeadingAnchors = useCallback((): AiHeadingAnchor[] => {
     try {
       const view = editorRef.current?.action((ctx) => ctx.get(editorViewCtx));
@@ -539,9 +758,13 @@ export function useEditorController() {
   }, []);
 
   const runEditorShortcut = useCallback(
-    (key: string, modifiers: Pick<KeyboardEventInit, "altKey" | "shiftKey"> = {}) => {
+    (
+      key: string,
+      modifiers: Pick<KeyboardEventInit, "altKey" | "code" | "shiftKey"> = {},
+      options: { focusEditor?: boolean } = {}
+    ) => {
       const editor = editorRef.current;
-      if (!editor) return;
+      if (!editor) return false;
 
       const view = editor.action((ctx) => ctx.get(editorViewCtx));
       const event = new KeyboardEvent("keydown", {
@@ -553,9 +776,11 @@ export function useEditorController() {
       });
       const handled = view.someProp("handleKeyDown", (handler) => handler(view, event));
 
-      if (handled) {
+      if (handled && options.focusEditor !== false) {
         view.focus();
       }
+
+      return Boolean(handled);
     },
     []
   );
@@ -580,6 +805,7 @@ export function useEditorController() {
       const view = editorRef.current?.action((ctx) => ctx.get(editorViewCtx));
       if (!view) return;
 
+      if (options.suppressEditorChrome) clearFinalizedImageSourceEditing(view);
       updateSearchDecorations(view, matches, activeIndex, options);
     } catch {
       // Search decoration is a transient affordance; failing to draw it should not interrupt editing.
@@ -651,6 +877,104 @@ export function useEditorController() {
 
     view.dispatch(tr);
     view.focus();
+  }, []);
+
+  const insertMarkdownImage = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const image = imageSchema.type(ctx);
+      const parseMarkdown = ctx.get(parserCtx);
+      const { from, to } = view.state.selection;
+      const selectedText = view.state.doc.textBetween(from, to, " ");
+      const insertion = markdownImageInsertionForSelection(selectedText);
+      const parsedDocument = parseMarkdown(insertion.insertedText);
+      const tr = view.state.tr.replaceRange(from, to, new Slice(parsedDocument.content, 0, 0));
+      const imagePosition = findInsertedImageNodePosition(tr.doc, image, insertion, from);
+
+      if (imagePosition !== null) {
+        tr.setSelection(NodeSelection.create(tr.doc, imagePosition)).scrollIntoView();
+      } else {
+        tr.scrollIntoView();
+      }
+
+      view.dispatch(tr);
+      focusInsertedImageSource(view, insertion);
+    });
+  }, []);
+
+  const insertMarkdownImages = useCallback((images: MarkdownImageReference[]) => {
+    const editor = editorRef.current;
+    if (!editor || images.length === 0) return;
+
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const image = imageSchema.type(ctx);
+      insertMarkdownImageReferences(view, image, images, view.state.selection);
+    });
+  }, []);
+
+  const insertMarkdownImagesAtPoint = useCallback((images: MarkdownImageReference[], point: EditorInsertionPoint) => {
+    const editor = editorRef.current;
+    if (!editor || images.length === 0) return false;
+
+    let inserted = false;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const selection = editorSelectionAtPoint(view, point);
+      if (!selection) return;
+
+      const image = imageSchema.type(ctx);
+      insertMarkdownImageReferences(view, image, images, selection);
+      inserted = true;
+    });
+
+    return inserted;
+  }, []);
+
+  const insertMarkdownLink = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      if (toggleSelectionLinkInView(view)) return;
+
+      const { from, to } = view.state.selection;
+      const selectedText = view.state.doc.textBetween(from, to, " ");
+      const insertion = markdownLinkInsertionForSelection(selectedText);
+
+      if (insertion.kind === "link") {
+        const link = linkSchema.type(ctx);
+        const linkedText = view.state.schema.text(insertion.label, [
+          link.create({ href: insertion.href })
+        ]);
+        const tr = view.state.tr.replaceWith(from, to, linkedText);
+        tr.setSelection(
+          TextSelection.create(
+            tr.doc,
+            from + insertion.selectionFromOffset,
+            from + insertion.selectionToOffset
+          )
+        ).scrollIntoView();
+
+        view.dispatch(tr);
+        view.focus();
+        return;
+      }
+
+      const tr = view.state.tr.insertText(insertion.insertedText, from, to);
+      const selection =
+        insertion.selectionFromOffset === undefined
+          ? TextSelection.create(tr.doc, from + insertion.cursorOffset)
+          : TextSelection.create(tr.doc, from + insertion.selectionFromOffset, from + insertion.selectionToOffset);
+      tr.setSelection(selection).scrollIntoView();
+
+      view.dispatch(tr);
+      view.focus();
+    });
   }, []);
 
   const insertMarkdownTable = useCallback(() => {
@@ -849,6 +1173,7 @@ export function useEditorController() {
     applyAiResult,
     clearAiPreview,
     clearAiSelection,
+    clearSelectionFormatting,
     confirmAiResultApplied,
     findSearchMatches,
     getDocumentEndPosition,
@@ -863,6 +1188,10 @@ export function useEditorController() {
     getTableAnchors,
     handleEditorReady,
     holdAiSelection,
+    insertMarkdownImage,
+    insertMarkdownImages,
+    insertMarkdownImagesAtPoint,
+    insertMarkdownLink,
     insertMarkdownSnippet,
     insertMarkdownTable,
     listAiPreviews,

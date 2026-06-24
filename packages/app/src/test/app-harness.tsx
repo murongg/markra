@@ -9,8 +9,12 @@ import {
   deleteNativeMarkdownTreeFile,
   detectNativePandocPath,
   downloadNativeWebImage,
+  getNativeShellCommandStatus,
+  installNativeShellCommand,
   closeNativeWindow,
   exitNativeApp,
+  openNativeContainingFolder,
+  openNativeLocalImages,
   openNativeMarkdownFolder,
   openNativeMarkdownFolderInNewWindow,
   openNativeMarkdownFileInNewWindow,
@@ -19,23 +23,30 @@ import {
   listenNativeWindowCloseRequested,
   listenNativeOpenedMarkdownPaths,
   listNativeMarkdownFileHistory,
+  readNativeLocalImageFile,
   readNativeMarkdownImageFile,
   readNativeMarkdownFile,
   readNativeMarkdownFileHistory,
   readNativeMarkdownTemplateFile,
   resolveNativeMarkdownPath,
+  saveNativeClipboardImage,
   saveNativeHtmlFile,
   saveNativeMarkdownFile,
   saveNativePandocFile,
   saveNativePdfFile,
   searchNativeMarkdownFilesForPath,
   setNativeEditorWindowRestoreState,
+  showNativeWindow,
+  showNativeAppAbout,
   showNativePandocSetup,
   showNativeMarkdownFileTreeContextMenu,
   syncNativeMarkdownFolder,
+  uninstallNativeShellCommand,
   installNativeMarkdownFileDrop,
   listNativeMarkdownFilesForPath,
   takeNativeOpenedMarkdownPaths,
+  toggleNativeWindowFullscreen,
+  toggleNativeWindowMaximized,
   renameNativeMarkdownTreeFile,
   watchNativeMarkdownFile,
   writeNativeMarkdownTemplateFile,
@@ -62,9 +73,11 @@ import {
   getStoredEditorPreferences,
   getStoredExportSettings,
   getStoredLanguage,
+  getStoredNetworkSettings,
   getStoredRecentMarkdownFiles,
   getStoredRecentMarkdownFolders,
   getStoredTheme,
+  getStoredThemePreferences,
   getStoredWebSearchSettings,
   getStoredWorkspaceState,
   initializeStoredAiAgentSession,
@@ -82,12 +95,15 @@ import {
   saveStoredEditorPreferences,
   saveStoredExportSettings,
   saveStoredLanguage,
+  saveStoredNetworkSettings,
   saveStoredRecentMarkdownFile,
   saveStoredRecentMarkdownFolder,
   saveStoredTheme,
+  saveStoredThemePreferences,
   saveStoredWorkspaceState,
   setStoredAiAgentSessionArchived,
   normalizeBackupSettings,
+  normalizeNetworkSettings,
   normalizeSyncSettings,
   type RecentMarkdownFile,
   type RecentMarkdownFolder
@@ -114,7 +130,7 @@ import {
 } from "../lib/settings/settings-events";
 import { fetchAiProviderModels, testAiProviderConnection } from "@markra/providers";
 import { chatCompletion, generateAiAgentSessionTitle } from "@markra/ai";
-import { resolveDesktopPlatform } from "../lib/platform";
+import { resolveDesktopOsVersion, resolveDesktopPlatform } from "../lib/platform";
 
 const testAiQuickActionPrompts = vi.hoisted(() => ({
   continue: "",
@@ -132,13 +148,18 @@ vi.mock("../lib/tauri", () => ({
   deleteNativeMarkdownTreeFile: vi.fn(),
   detectNativePandocPath: vi.fn(),
   downloadNativeWebImage: vi.fn(),
+  getNativeShellCommandStatus: vi.fn(),
+  installNativeShellCommand: vi.fn(),
   installNativeMarkdownFileDrop: vi.fn(),
+  openNativeContainingFolder: vi.fn(),
+  openNativeLocalImages: vi.fn(),
   openNativeMarkdownFolder: vi.fn(),
   openNativeMarkdownFolderInNewWindow: vi.fn(),
   openNativeMarkdownFileInNewWindow: vi.fn(),
   openNativeMarkdownPath: vi.fn(),
   listenNativeOpenedMarkdownPaths: vi.fn(),
   listNativeMarkdownFileHistory: vi.fn(),
+  readNativeLocalImageFile: vi.fn(),
   readNativeMarkdownImageFile: vi.fn(),
   readNativeMarkdownFile: vi.fn(),
   readNativeMarkdownFileHistory: vi.fn(),
@@ -159,6 +180,7 @@ vi.mock("../lib/tauri", () => ({
   showNativePandocSetup: vi.fn(),
   showNativeMarkdownFileTreeContextMenu: vi.fn(),
   syncNativeMarkdownFolder: vi.fn(),
+  uninstallNativeShellCommand: vi.fn(),
   uploadNativePicGoImage: vi.fn(),
   uploadNativeS3Image: vi.fn(),
   uploadNativeWebDavImage: vi.fn(),
@@ -175,7 +197,11 @@ vi.mock("../lib/tauri", () => ({
   listenNativeAppExitRequested: vi.fn(),
   listenNativeWindowCloseRequested: vi.fn(),
   openSettingsWindow: vi.fn(),
-  setNativeWindowTitle: vi.fn()
+  setNativeWindowTitle: vi.fn(),
+  showNativeWindow: vi.fn(),
+  showNativeAppAbout: vi.fn(),
+  toggleNativeWindowFullscreen: vi.fn(),
+  toggleNativeWindowMaximized: vi.fn()
 }));
 
 vi.mock("../lib/tauri/updater", () => ({
@@ -187,6 +213,7 @@ vi.mock("../lib/platform", async (importOriginal) => {
 
   return {
     ...actual,
+    resolveDesktopOsVersion: vi.fn(() => null),
     resolveDesktopPlatform: vi.fn(() => "macos")
   };
 });
@@ -207,7 +234,11 @@ vi.mock("../lib/settings/app-settings", () => ({
     intervalMinutes: 0,
     lastSyncAt: null,
     provider: "webdav",
-    remotePath: ""
+    remotePath: "markra"
+  },
+  defaultStoredFileTreeSort: {
+    direction: "ascending",
+    key: "name"
   },
   defaultSplitVisualPanePercent: 50,
   splitVisualPanePercentMin: 25,
@@ -220,6 +251,9 @@ vi.mock("../lib/settings/app-settings", () => ({
     closeAiCommandOnAgentPanelOpen: false,
     contentWidth: "default",
     contentWidthPx: null,
+    documentLinksOpen: true,
+    documentLinksVisible: false,
+    editorFontFamily: { family: null, source: "theme" },
     extendedSyntax: {
       githubAlerts: true,
       highlight: true
@@ -265,15 +299,18 @@ vi.mock("../lib/settings/app-settings", () => ({
     suggestAiPanelForComplexInlinePrompts: false,
     showDocumentTabs: true,
     splitVisualPanePercent: 50,
+    spellcheckEnabled: false,
+    spellcheckIgnoredWords: [],
+    spellcheckLanguage: "en",
     titlebarActions: [
       { id: "aiAgent", visible: true },
       { id: "sourceMode", visible: true },
-      { id: "splitMode", visible: true },
       { id: "history", visible: true },
       { id: "save", visible: true },
       { id: "theme", visible: true }
     ],
-    showWordCount: true
+    showWordCount: true,
+    wrapCodeBlocks: true
   },
   appThemeOptions: [
     "system",
@@ -299,6 +336,7 @@ vi.mock("../lib/settings/app-settings", () => ({
     "minimal",
     "custom"
   ],
+  appAppearanceModeOptions: ["system", "light", "dark"],
   editorThemeOptions: [
     "light",
     "dark",
@@ -322,6 +360,77 @@ vi.mock("../lib/settings/app-settings", () => ({
     "minimal",
     "custom"
   ],
+  lightEditorThemeOptions: [
+    "light",
+    "github",
+    "one-light",
+    "gothic",
+    "newsprint",
+    "pixyll",
+    "whitey",
+    "sepia",
+    "solarized-light",
+    "catppuccin-latte",
+    "academic",
+    "minimal",
+    "custom"
+  ],
+  darkEditorThemeOptions: [
+    "dark",
+    "github-dark",
+    "one-dark",
+    "one-dark-pro",
+    "night",
+    "solarized-dark",
+    "nord",
+    "catppuccin-mocha",
+    "custom"
+  ],
+  defaultAppThemePreferences: {
+    appearanceMode: "system",
+    darkTheme: "dark",
+    lightTheme: "light"
+  },
+  normalizeAppThemePreferences: vi.fn((preferences) => {
+    const value = typeof preferences === "object" && preferences !== null
+      ? preferences as Record<string, unknown>
+      : {};
+    const appearanceMode = ["system", "light", "dark"].includes(String(value.appearanceMode))
+      ? value.appearanceMode
+      : "system";
+    const lightTheme = [
+      "light",
+      "github",
+      "one-light",
+      "gothic",
+      "newsprint",
+      "pixyll",
+      "whitey",
+      "sepia",
+      "solarized-light",
+      "catppuccin-latte",
+      "academic",
+      "minimal",
+      "custom"
+    ].includes(String(value.lightTheme)) ? value.lightTheme : "light";
+    const darkTheme = [
+      "dark",
+      "github-dark",
+      "one-dark",
+      "one-dark-pro",
+      "night",
+      "solarized-dark",
+      "nord",
+      "catppuccin-mocha",
+      "custom"
+    ].includes(String(value.darkTheme)) ? value.darkTheme : "dark";
+
+    return {
+      appearanceMode,
+      darkTheme,
+      lightTheme
+    };
+  }),
   resolveAppAppearanceTheme: vi.fn((theme, systemTheme) => {
     const resolvedTheme = theme === "system" ? systemTheme : theme;
     return [
@@ -336,10 +445,17 @@ vi.mock("../lib/settings/app-settings", () => ({
     ].includes(resolvedTheme) ? "dark" : "light";
   }),
   resolveAppEditorTheme: vi.fn((theme, systemTheme) => theme === "system" ? systemTheme : theme),
+  resolveAppThemePreferencesAppearance: vi.fn((preferences, systemTheme) =>
+    preferences.appearanceMode === "system" ? systemTheme : preferences.appearanceMode
+  ),
+  resolveAppThemePreferencesEditorTheme: vi.fn((preferences, systemTheme) => {
+    const appearance = preferences.appearanceMode === "system" ? systemTheme : preferences.appearanceMode;
+
+    return appearance === "dark" ? preferences.darkTheme : preferences.lightTheme;
+  }),
   defaultTitlebarActions: [
     { id: "aiAgent", visible: true },
     { id: "sourceMode", visible: true },
-    { id: "splitMode", visible: true },
     { id: "history", visible: true },
     { id: "save", visible: true },
     { id: "theme", visible: true }
@@ -350,6 +466,11 @@ vi.mock("../lib/settings/app-settings", () => ({
     maxResults: 5,
     providerId: "local-bing",
     searxngApiHost: ""
+  },
+  defaultNetworkSettings: {
+    bypassLocalAddresses: true,
+    proxyEnabled: false,
+    proxyUrl: ""
   },
   defaultExportSettings: {
     pandocArgs: "",
@@ -365,6 +486,10 @@ vi.mock("../lib/settings/app-settings", () => ({
     pdfWidthMm: 210
   },
   defaultCustomThemeCss: ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }",
+  defaultCustomThemeCssValues: {
+    dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+    light: ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"
+  },
   getStoredAiAgentSession: vi.fn(),
   getStoredAiAgentSessionSummary: vi.fn(),
   getStoredAiAgentPreferences: vi.fn(),
@@ -374,10 +499,13 @@ vi.mock("../lib/settings/app-settings", () => ({
   getStoredCustomThemeCss: vi.fn(),
   getStoredEditorPreferences: vi.fn(),
   getStoredExportSettings: vi.fn(),
+  getStoredFileTreeSortByWorkspace: vi.fn(async () => ({})),
   getStoredLanguage: vi.fn(),
+  getStoredNetworkSettings: vi.fn(),
   getStoredRecentMarkdownFiles: vi.fn(),
   getStoredRecentMarkdownFolders: vi.fn(),
   getStoredTheme: vi.fn(),
+  getStoredThemePreferences: vi.fn(),
   getStoredWebSearchSettings: vi.fn(),
   getStoredWorkspaceState: vi.fn(),
   initializeStoredAiAgentSession: vi.fn(),
@@ -390,6 +518,7 @@ vi.mock("../lib/settings/app-settings", () => ({
     closeAiCommandOnAgentPanelOpen: false,
     contentWidth: "default",
     contentWidthPx: null,
+    editorFontFamily: { family: null, source: "theme" },
     extendedSyntax: {
       githubAlerts: true,
       highlight: true
@@ -435,21 +564,32 @@ vi.mock("../lib/settings/app-settings", () => ({
     suggestAiPanelForComplexInlinePrompts: false,
     showDocumentTabs: true,
     splitVisualPanePercent: 50,
+    spellcheckEnabled: preferences?.spellcheckEnabled ?? false,
+    spellcheckIgnoredWords: preferences?.spellcheckIgnoredWords ?? [],
+    spellcheckLanguage: preferences?.spellcheckLanguage ?? "en",
     titlebarActions: [
       { id: "aiAgent", visible: true },
       { id: "sourceMode", visible: true },
-      { id: "splitMode", visible: true },
       { id: "history", visible: true },
       { id: "save", visible: true },
       { id: "theme", visible: true }
     ],
     showWordCount: true,
-    ...preferences
+    ...preferences,
+    wrapCodeBlocks: preferences?.wrapCodeBlocks ?? true
   })),
+  normalizeStoredFileTreeSort: vi.fn((sort) => {
+    const value = typeof sort === "object" && sort !== null
+      ? sort as Record<string, unknown>
+      : {};
+    const key = ["createdAt", "modifiedAt", "name"].includes(String(value.key)) ? value.key : "name";
+    const direction = ["ascending", "descending"].includes(String(value.direction)) ? value.direction : "ascending";
+
+    return { direction, key };
+  }),
   normalizeTitlebarActions: vi.fn((actions) => Array.isArray(actions) ? actions : [
     { id: "aiAgent", visible: true },
     { id: "sourceMode", visible: true },
-    { id: "splitMode", visible: true },
     { id: "save", visible: true },
     { id: "theme", visible: true }
   ]),
@@ -461,7 +601,6 @@ vi.mock("../lib/settings/app-settings", () => ({
     const normalized = Array.isArray(actions) ? actions : [
       { id: "aiAgent", visible: true },
       { id: "sourceMode", visible: true },
-      { id: "splitMode", visible: true },
       { id: "save", visible: true },
       { id: "theme", visible: true }
     ];
@@ -498,6 +637,12 @@ vi.mock("../lib/settings/app-settings", () => ({
     searxngApiHost: "",
     ...settings
   })),
+  normalizeNetworkSettings: vi.fn((settings) => ({
+    bypassLocalAddresses: true,
+    proxyEnabled: false,
+    proxyUrl: "",
+    ...(typeof settings === "object" && settings !== null ? settings : {})
+  })),
   normalizeBackupSettings: vi.fn((settings) => ({
     backupOnExit: false,
     intervalMinutes: 0,
@@ -526,6 +671,23 @@ vi.mock("../lib/settings/app-settings", () => ({
     };
   }),
   normalizeCustomThemeCss: vi.fn((css) => typeof css === "string" ? css.slice(0, 50000) : ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"),
+  normalizeCustomThemeCssValues: vi.fn((css) => {
+    if (typeof css === "object" && css !== null) {
+      const value = css as Record<string, unknown>;
+
+      return {
+        dark: typeof value.dark === "string" ? value.dark.slice(0, 50000) : ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+        light: typeof value.light === "string" ? value.light.slice(0, 50000) : ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"
+      };
+    }
+
+    const value = typeof css === "string" ? css.slice(0, 50000) : ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }";
+
+    return {
+      dark: value,
+      light: value
+    };
+  }),
   prependRecentMarkdownFile: vi.fn((files: RecentMarkdownFile[], file: RecentMarkdownFile) => [
     file,
     ...files.filter((item) => item.path !== file.path)
@@ -542,10 +704,13 @@ vi.mock("../lib/settings/app-settings", () => ({
   saveStoredCustomThemeCss: vi.fn(),
   saveStoredEditorPreferences: vi.fn(),
   saveStoredExportSettings: vi.fn(),
+  saveStoredFileTreeSortForWorkspace: vi.fn(async () => {}),
   saveStoredLanguage: vi.fn(),
+  saveStoredNetworkSettings: vi.fn(),
   saveStoredRecentMarkdownFile: vi.fn(),
   saveStoredRecentMarkdownFolder: vi.fn(),
   saveStoredTheme: vi.fn(),
+  saveStoredThemePreferences: vi.fn(),
   saveStoredWorkspaceState: vi.fn(),
   setStoredAiAgentSessionArchived: vi.fn(),
   clearStoredRecentMarkdownFiles: vi.fn()
@@ -593,6 +758,8 @@ vi.mock("@markra/providers", async (importOriginal) => {
 });
 
 export const mockedOpenNativeMarkdownFolder = vi.mocked(openNativeMarkdownFolder);
+export const mockedOpenNativeContainingFolder = vi.mocked(openNativeContainingFolder);
+export const mockedOpenNativeLocalImages = vi.mocked(openNativeLocalImages);
 export const mockedOpenNativeMarkdownFolderInNewWindow = vi.mocked(openNativeMarkdownFolderInNewWindow);
 export const mockedConfirmNativeMarkdownFileDelete = vi.mocked(confirmNativeMarkdownFileDelete);
 export const mockedConfirmNativeUnsavedMarkdownDocumentDiscard = vi.mocked(confirmNativeUnsavedMarkdownDocumentDiscard);
@@ -601,23 +768,30 @@ export const mockedCreateNativeMarkdownTreeFolder = vi.mocked(createNativeMarkdo
 export const mockedDeleteNativeMarkdownTreeFile = vi.mocked(deleteNativeMarkdownTreeFile);
 export const mockedDetectNativePandocPath = vi.mocked(detectNativePandocPath);
 export const mockedDownloadNativeWebImage = vi.mocked(downloadNativeWebImage);
+export const mockedGetNativeShellCommandStatus = vi.mocked(getNativeShellCommandStatus);
+export const mockedInstallNativeShellCommand = vi.mocked(installNativeShellCommand);
 export const mockedOpenNativeMarkdownFileInNewWindow = vi.mocked(openNativeMarkdownFileInNewWindow);
 export const mockedOpenNativeMarkdownPath = vi.mocked(openNativeMarkdownPath);
 export const mockedListenNativeOpenedMarkdownPaths = vi.mocked(listenNativeOpenedMarkdownPaths);
+export const mockedReadNativeLocalImageFile = vi.mocked(readNativeLocalImageFile);
 export const mockedReadNativeMarkdownImageFile = vi.mocked(readNativeMarkdownImageFile);
 export const mockedReadNativeMarkdownFile = vi.mocked(readNativeMarkdownFile);
 export const mockedReadNativeMarkdownFileHistory = vi.mocked(readNativeMarkdownFileHistory);
 export const mockedReadNativeMarkdownTemplateFile = vi.mocked(readNativeMarkdownTemplateFile);
 export const mockedResolveNativeMarkdownPath = vi.mocked(resolveNativeMarkdownPath);
+export const mockedSaveNativeClipboardImage = vi.mocked(saveNativeClipboardImage);
 export const mockedSaveNativeHtmlFile = vi.mocked(saveNativeHtmlFile);
 export const mockedSaveNativeMarkdownFile = vi.mocked(saveNativeMarkdownFile);
 export const mockedSaveNativePandocFile = vi.mocked(saveNativePandocFile);
 export const mockedSaveNativePdfFile = vi.mocked(saveNativePdfFile);
 export const mockedSearchNativeMarkdownFilesForPath = vi.mocked(searchNativeMarkdownFilesForPath);
 export const mockedSetNativeEditorWindowRestoreState = vi.mocked(setNativeEditorWindowRestoreState);
+export const mockedShowNativeWindow = vi.mocked(showNativeWindow);
+export const mockedShowNativeAppAbout = vi.mocked(showNativeAppAbout);
 export const mockedShowNativePandocSetup = vi.mocked(showNativePandocSetup);
 export const mockedShowNativeMarkdownFileTreeContextMenu = vi.mocked(showNativeMarkdownFileTreeContextMenu);
 export const mockedSyncNativeMarkdownFolder = vi.mocked(syncNativeMarkdownFolder);
+export const mockedUninstallNativeShellCommand = vi.mocked(uninstallNativeShellCommand);
 export const mockedInstallNativeMarkdownFileDrop = vi.mocked(installNativeMarkdownFileDrop);
 export const mockedListNativeMarkdownFileHistory = vi.mocked(listNativeMarkdownFileHistory);
 export const mockedListNativeMarkdownFilesForPath = vi.mocked(listNativeMarkdownFilesForPath);
@@ -631,10 +805,12 @@ export const mockedInstallNativeEditorContextMenu = vi.mocked(installNativeEdito
 export const mockedOpenSettingsWindow = vi.mocked(openSettingsWindow);
 export const mockedOpenNativeExternalUrl = vi.mocked(openNativeExternalUrl);
 export const mockedCloseNativeWindow = vi.mocked(closeNativeWindow);
+export const mockedToggleNativeWindowFullscreen = vi.mocked(toggleNativeWindowFullscreen);
 export const mockedExitNativeApp = vi.mocked(exitNativeApp);
 export const mockedListenNativeAppExitRequested = vi.mocked(listenNativeAppExitRequested);
 export const mockedListenNativeWindowCloseRequested = vi.mocked(listenNativeWindowCloseRequested);
 export const mockedCheckNativeAppUpdate = vi.mocked(checkNativeAppUpdate);
+export const mockedResolveDesktopOsVersion = vi.mocked(resolveDesktopOsVersion);
 export const mockedResolveDesktopPlatform = vi.mocked(resolveDesktopPlatform);
 export const mockedConsumeWelcomeDocumentState = vi.mocked(consumeWelcomeDocumentState);
 export const mockedCreateAiAgentSessionId = vi.mocked(createAiAgentSessionId);
@@ -649,9 +825,11 @@ export const mockedGetStoredCustomThemeCss = vi.mocked(getStoredCustomThemeCss);
 export const mockedGetStoredEditorPreferences = vi.mocked(getStoredEditorPreferences);
 export const mockedGetStoredExportSettings = vi.mocked(getStoredExportSettings);
 export const mockedGetStoredLanguage = vi.mocked(getStoredLanguage);
+export const mockedGetStoredNetworkSettings = vi.mocked(getStoredNetworkSettings);
 export const mockedGetStoredRecentMarkdownFiles = vi.mocked(getStoredRecentMarkdownFiles);
 export const mockedGetStoredRecentMarkdownFolders = vi.mocked(getStoredRecentMarkdownFolders);
 export const mockedGetStoredTheme = vi.mocked(getStoredTheme);
+export const mockedGetStoredThemePreferences = vi.mocked(getStoredThemePreferences);
 export const mockedGetStoredWebSearchSettings = vi.mocked(getStoredWebSearchSettings);
 export const mockedGetStoredWorkspaceState = vi.mocked(getStoredWorkspaceState);
 export const mockedInitializeStoredAiAgentSession = vi.mocked(initializeStoredAiAgentSession);
@@ -670,12 +848,15 @@ export const mockedSaveStoredCustomThemeCss = vi.mocked(saveStoredCustomThemeCss
 export const mockedSaveStoredEditorPreferences = vi.mocked(saveStoredEditorPreferences);
 export const mockedSaveStoredExportSettings = vi.mocked(saveStoredExportSettings);
 export const mockedSaveStoredLanguage = vi.mocked(saveStoredLanguage);
+export const mockedSaveStoredNetworkSettings = vi.mocked(saveStoredNetworkSettings);
 export const mockedSaveStoredRecentMarkdownFile = vi.mocked(saveStoredRecentMarkdownFile);
 export const mockedSaveStoredRecentMarkdownFolder = vi.mocked(saveStoredRecentMarkdownFolder);
 export const mockedSaveStoredTheme = vi.mocked(saveStoredTheme);
+export const mockedSaveStoredThemePreferences = vi.mocked(saveStoredThemePreferences);
 export const mockedSaveStoredWorkspaceState = vi.mocked(saveStoredWorkspaceState);
 export const mockedSetStoredAiAgentSessionArchived = vi.mocked(setStoredAiAgentSessionArchived);
 export const mockedNormalizeBackupSettings = vi.mocked(normalizeBackupSettings);
+export const mockedNormalizeNetworkSettings = vi.mocked(normalizeNetworkSettings);
 export const mockedNormalizeSyncSettings = vi.mocked(normalizeSyncSettings);
 export const mockedListenAppAiSettingsChanged = vi.mocked(listenAppAiSettingsChanged);
 export const mockedListenAppBackupSettingsChanged = vi.mocked(listenAppBackupSettingsChanged);
@@ -781,6 +962,7 @@ export function installAppTestHarness() {
     mockedDeleteNativeMarkdownTreeFile.mockReset();
     mockedDetectNativePandocPath.mockReset();
     mockedInstallNativeMarkdownFileDrop.mockReset();
+    mockedOpenNativeContainingFolder.mockReset();
     mockedOpenNativeMarkdownFolder.mockReset();
     mockedOpenNativeMarkdownFolderInNewWindow.mockReset();
     mockedOpenNativeMarkdownFileInNewWindow.mockReset();
@@ -812,10 +994,13 @@ export function installAppTestHarness() {
     mockedInstallNativeEditorContextMenu.mockReset();
     mockedOpenNativeExternalUrl.mockReset();
     mockedCloseNativeWindow.mockReset();
+    mockedShowNativeWindow.mockReset();
+    mockedShowNativeAppAbout.mockReset();
     mockedExitNativeApp.mockReset();
     mockedListenNativeAppExitRequested.mockReset();
     mockedListenNativeWindowCloseRequested.mockReset();
     mockedCheckNativeAppUpdate.mockReset();
+    mockedResolveDesktopOsVersion.mockReset();
     mockedResolveDesktopPlatform.mockReset();
     mockedOpenSettingsWindow.mockReset();
     mockedGetStoredLanguage.mockReset();
@@ -830,7 +1015,9 @@ export function installAppTestHarness() {
     mockedGetStoredCustomThemeCss.mockReset();
     mockedGetStoredEditorPreferences.mockReset();
     mockedGetStoredExportSettings.mockReset();
+    mockedGetStoredNetworkSettings.mockReset();
     mockedGetStoredTheme.mockReset();
+    mockedGetStoredThemePreferences.mockReset();
     mockedGetStoredWorkspaceState.mockReset();
     mockedInitializeStoredAiAgentSession.mockReset();
     mockedListStoredAiAgentSessions.mockReset();
@@ -839,6 +1026,7 @@ export function installAppTestHarness() {
     mockedRemoveStoredRecentMarkdownFolder.mockReset();
     mockedResetWelcomeDocumentState.mockReset();
     mockedNormalizeBackupSettings.mockReset();
+    mockedNormalizeNetworkSettings.mockReset();
     mockedNormalizeSyncSettings.mockReset();
     mockedSaveStoredAiAgentPreferences.mockReset();
     mockedSaveStoredAiAgentSession.mockReset();
@@ -850,9 +1038,11 @@ export function installAppTestHarness() {
     mockedSaveStoredEditorPreferences.mockReset();
     mockedSaveStoredExportSettings.mockReset();
     mockedSaveStoredLanguage.mockReset();
+    mockedSaveStoredNetworkSettings.mockReset();
     mockedSaveStoredRecentMarkdownFile.mockReset();
     mockedSaveStoredRecentMarkdownFolder.mockReset();
     mockedSaveStoredTheme.mockReset();
+    mockedSaveStoredThemePreferences.mockReset();
     mockedSaveStoredWorkspaceState.mockReset();
     mockedSetStoredAiAgentSessionArchived.mockReset();
     mockedListenAppAiSettingsChanged.mockReset();
@@ -876,29 +1066,60 @@ export function installAppTestHarness() {
     mockedChatCompletion.mockReset();
     mockedGenerateAiAgentSessionTitle.mockReset();
     mockedDownloadNativeWebImage.mockReset();
+    mockedOpenNativeLocalImages.mockReset();
+    mockedSaveNativeClipboardImage.mockReset();
+    mockedGetNativeShellCommandStatus.mockReset();
+    mockedInstallNativeShellCommand.mockReset();
+    mockedUninstallNativeShellCommand.mockReset();
     document.documentElement.removeAttribute("data-theme");
+    document.documentElement.removeAttribute("data-webkit-scroll-workaround");
     document.documentElement.removeAttribute("data-window");
     document.getElementById("markra-custom-theme-style")?.remove();
     mockedWatchNativeMarkdownFile.mockResolvedValue(() => {});
     mockedWatchNativeMarkdownTree.mockResolvedValue(() => {});
     mockedListNativeMarkdownFileHistory.mockResolvedValue([]);
     mockedReadNativeMarkdownFileHistory.mockRejectedValue(new Error("markdown history file is not mocked"));
+    mockedReadNativeLocalImageFile.mockRejectedValue(new Error("local image file is not mocked"));
     mockedListNativeMarkdownFilesForPath.mockResolvedValue([]);
     mockedSearchNativeMarkdownFilesForPath.mockResolvedValue(null);
     mockedTakeNativeOpenedMarkdownPaths.mockResolvedValue([]);
     mockedInstallNativeMarkdownFileDrop.mockResolvedValue(() => {});
+    mockedOpenNativeContainingFolder.mockResolvedValue(undefined);
     mockedListenNativeOpenedMarkdownPaths.mockResolvedValue(() => {});
     mockedInstallNativeApplicationMenu.mockResolvedValue(() => {});
     mockedInstallNativeEditorContextMenu.mockResolvedValue(() => {});
     mockedOpenNativeExternalUrl.mockResolvedValue(undefined);
     mockedCloseNativeWindow.mockResolvedValue(undefined);
+    mockedShowNativeWindow.mockResolvedValue(undefined);
+    mockedShowNativeAppAbout.mockResolvedValue(undefined);
     mockedExitNativeApp.mockResolvedValue(undefined);
     mockedListenNativeAppExitRequested.mockResolvedValue(() => {});
     mockedListenNativeWindowCloseRequested.mockResolvedValue(() => {});
     mockedDownloadNativeWebImage.mockResolvedValue(new File([new Uint8Array([1, 2, 3])], "web-image.png", {
       type: "image/png"
     }));
+    mockedOpenNativeLocalImages.mockResolvedValue([]);
+    mockedSaveNativeClipboardImage.mockResolvedValue({
+      alt: "Imported image",
+      src: "assets/imported-image.png"
+    });
+    mockedGetNativeShellCommandStatus.mockResolvedValue({
+      commandPath: "/mock-bin/markra",
+      targetPath: "/mock-app/markra",
+      status: "missing"
+    });
+    mockedInstallNativeShellCommand.mockResolvedValue({
+      commandPath: "/mock-bin/markra",
+      targetPath: "/mock-app/markra",
+      status: "installed"
+    });
+    mockedUninstallNativeShellCommand.mockResolvedValue({
+      commandPath: "/mock-bin/markra",
+      targetPath: "/mock-app/markra",
+      status: "missing"
+    });
     mockedCheckNativeAppUpdate.mockResolvedValue(null);
+    mockedResolveDesktopOsVersion.mockReturnValue(null);
     mockedResolveDesktopPlatform.mockReturnValue("macos");
     mockedOpenSettingsWindow.mockResolvedValue(undefined);
     mockedReadNativeMarkdownImageFile.mockResolvedValue({
@@ -991,15 +1212,26 @@ export function installAppTestHarness() {
       providerId: "local-bing",
       searxngApiHost: ""
     });
+    mockedGetStoredNetworkSettings.mockResolvedValue({
+      bypassLocalAddresses: true,
+      proxyEnabled: false,
+      proxyUrl: ""
+    });
     mockedGetStoredAiAgentSessionSummary.mockResolvedValue(null);
     mockedGetStoredEditorPreferences.mockResolvedValue({
       aiQuickActionPrompts: testAiQuickActionPrompts,
+      autoRevealActiveFile: true,
+      autoSaveEnabled: true,
+      autoSaveIntervalMinutes: 10,
       autoUpdateEnabled: true,
       bodyFontSize: 16,
       clipboardImageFolder: "assets",
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
+      editorFontFamily: { family: null, source: "theme" },
       extendedSyntax: {
         githubAlerts: true,
         highlight: true
@@ -1038,15 +1270,18 @@ export function installAppTestHarness() {
       suggestAiPanelForComplexInlinePrompts: false,
       showDocumentTabs: true,
       splitVisualPanePercent: 50,
+      spellcheckEnabled: false,
+      spellcheckIgnoredWords: [],
+      spellcheckLanguage: "en",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },
-        { id: "splitMode", visible: true },
         { id: "history", visible: true },
         { id: "save", visible: true },
         { id: "theme", visible: true }
       ],
-      showWordCount: true
+      showWordCount: true,
+      wrapCodeBlocks: true
     });
     mockedGetStoredExportSettings.mockResolvedValue({
       pandocArgs: "",
@@ -1116,10 +1351,18 @@ export function installAppTestHarness() {
       intervalMinutes: 0,
       lastSyncAt: null,
       provider: "webdav",
-      remotePath: ""
+      remotePath: "markra"
     });
-    mockedGetStoredCustomThemeCss.mockResolvedValue(":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }");
+    mockedGetStoredCustomThemeCss.mockResolvedValue({
+      dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+      light: ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"
+    });
     mockedGetStoredTheme.mockResolvedValue("light");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "light",
+      darkTheme: "dark",
+      lightTheme: "light"
+    });
     mockedGetStoredWorkspaceState.mockResolvedValue({
       aiAgentSessionId: "session-app",
       filePath: null,
@@ -1134,6 +1377,12 @@ export function installAppTestHarness() {
       intervalMinutes: 0,
       lastBackupAt: null,
       targetPath: "",
+      ...(typeof settings === "object" && settings !== null ? settings : {})
+    }));
+    mockedNormalizeNetworkSettings.mockImplementation((settings) => ({
+      bypassLocalAddresses: true,
+      proxyEnabled: false,
+      proxyUrl: "",
       ...(typeof settings === "object" && settings !== null ? settings : {})
     }));
     mockedNormalizeSyncSettings.mockImplementation((settings) => {
@@ -1169,9 +1418,11 @@ export function installAppTestHarness() {
     mockedSaveStoredAiAgentSessionTitle.mockResolvedValue(undefined);
     mockedSaveStoredAiSettings.mockResolvedValue(undefined);
     mockedSaveStoredLanguage.mockResolvedValue(undefined);
+    mockedSaveStoredNetworkSettings.mockResolvedValue(undefined);
     mockedSaveStoredRecentMarkdownFile.mockResolvedValue([]);
     mockedSaveStoredRecentMarkdownFolder.mockResolvedValue([]);
     mockedSaveStoredTheme.mockResolvedValue(undefined);
+    mockedSaveStoredThemePreferences.mockResolvedValue(undefined);
     mockedSaveStoredWorkspaceState.mockResolvedValue(undefined);
     mockedSetStoredAiAgentSessionArchived.mockResolvedValue(undefined);
     mockedListenAppLanguageChanged.mockResolvedValue(() => {});

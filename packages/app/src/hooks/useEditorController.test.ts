@@ -1,4 +1,6 @@
 import {
+  markdownImageInsertionForSelection,
+  markdownLinkInsertionForSelection,
   scrollElementToContainerTop,
   scrollElementsAboveContainerBottomInset,
   selectionAnchorFromEditorView
@@ -125,6 +127,59 @@ describe("editor controller scrolling", () => {
 
     expect(scrollElementsAboveContainerBottomInset([target], container, 200, 24)).toBe(false);
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+});
+
+describe("editor controller link insertion", () => {
+  it("uses a selected URL as both the link label and href", () => {
+    expect(markdownLinkInsertionForSelection("https://example.test/articles/about")).toEqual({
+      href: "https://example.test/articles/about",
+      kind: "link",
+      label: "https://example.test/articles/about",
+      selectionFromOffset: 0,
+      selectionToOffset: "https://example.test/articles/about".length
+    });
+  });
+
+  it("keeps non-URL selections as an editable markdown link snippet", () => {
+    expect(markdownLinkInsertionForSelection("Synthetic label")).toEqual({
+      insertedText: "[Synthetic label](https://)",
+      kind: "snippet",
+      selectionFromOffset: 1,
+      selectionToOffset: "[Synthetic label".length
+    });
+  });
+
+  it("places the cursor after the placeholder label for empty link snippets", () => {
+    expect(markdownLinkInsertionForSelection("")).toEqual({
+      cursorOffset: "[text".length,
+      insertedText: "[text](https://)",
+      kind: "snippet"
+    });
+  });
+});
+
+describe("editor controller image insertion", () => {
+  it("uses a local asset path placeholder and selects the image source", () => {
+    expect(markdownImageInsertionForSelection("Synthetic alt")).toEqual({
+      alt: "Synthetic alt",
+      insertedText: "![Synthetic alt](assets/image.png)",
+      selectionFromOffset: "![Synthetic alt](".length,
+      selectionToOffset: "![Synthetic alt](assets/image.png".length,
+      src: "assets/image.png"
+    });
+  });
+
+  it("escapes selected text before using it as image alt markdown", () => {
+    const insertion = markdownImageInsertionForSelection(String.raw`A ] bracket \ slash`);
+
+    expect(insertion).toEqual({
+      alt: String.raw`A ] bracket \ slash`,
+      insertedText: String.raw`![A \] bracket \\ slash](assets/image.png)`,
+      selectionFromOffset: String.raw`![A \] bracket \\ slash](`.length,
+      selectionToOffset: String.raw`![A \] bracket \\ slash](assets/image.png`.length,
+      src: "assets/image.png"
+    });
   });
 });
 

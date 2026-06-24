@@ -30,7 +30,7 @@ env:
   NODE_VERSION: 24
   PNPM_VERSION: 10.30.3
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
-  TAURI_UPDATER_ENDPOINT: https://github.com/murongg/markra/releases/latest/download/latest.json
+  TAURI_UPDATER_ENDPOINT: https://github.com/markrahq/markra/releases/latest/download/latest.json
 
 jobs:
   build:
@@ -110,6 +110,7 @@ jobs:
           const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
           const desktopDir = process.env.DESKTOP_DIR;
           const desktopPackageJson = JSON.parse(fs.readFileSync(`${desktopDir}/package.json`, "utf8"));
+          const webPackageJson = JSON.parse(fs.readFileSync("apps/web/package.json", "utf8"));
           const tauriConfig = JSON.parse(fs.readFileSync(`${desktopDir}/src-tauri/tauri.conf.json`, "utf8"));
           const cargoToml = fs.readFileSync(`${desktopDir}/src-tauri/Cargo.toml`, "utf8");
           const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
@@ -122,6 +123,10 @@ jobs:
 
           if (desktopPackageJson.version !== packageJson.version) {
             throw new Error(`Desktop package version ${desktopPackageJson.version} does not match package version ${packageJson.version}.`);
+          }
+
+          if (webPackageJson.version !== packageJson.version) {
+            throw new Error(`Web package version ${webPackageJson.version} does not match package version ${packageJson.version}.`);
           }
 
           if (tauriConfig.version !== packageJson.version) {

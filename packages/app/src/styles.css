@@ -171,6 +171,7 @@
   :root {
     --bg-primary: #ffffff;
     --bg-secondary: #fafafa;
+    --bg-chrome: color-mix(in oklab, var(--bg-secondary) 82%, var(--bg-primary));
     --bg-code: #f8f8f8;
     --bg-hover: #f5f5f5;
     --bg-active: #eeeeee;
@@ -652,6 +653,25 @@
     height: 0;
   }
 
+  html[data-webkit-scroll-workaround="macos-27"],
+  html[data-webkit-scroll-workaround="macos-27"] * {
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    scrollbar-width: thin;
+  }
+
+  html[data-webkit-scroll-workaround="macos-27"] *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  html[data-webkit-scroll-workaround="macos-27"] *::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-color: var(--scrollbar-thumb);
+    background-clip: content-box;
+  }
+
   html,
   body,
   #root {
@@ -706,6 +726,24 @@
 
   .document-tabs-scroll::-webkit-scrollbar-thumb:active {
     background-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+
+  .editor-content-slot .paper-scroll {
+    height: calc(100% - 2.5rem);
+    margin-top: 2.5rem;
+  }
+
+  .editor-content-slot .markdown-paper,
+  .editor-content-slot .markdown-source-paper {
+    min-height: calc(100vh - 2.5rem);
+    padding-top: 1rem;
+  }
+
+  @media (max-width: 900px) {
+    .editor-content-slot .markdown-paper,
+    .editor-content-slot .markdown-source-paper {
+      padding-top: 0;
+    }
   }
 
   .markra-slash-menu {
@@ -789,6 +827,7 @@
   .markdown-paper .ProseMirror {
     @apply min-h-[calc(100vh-176px)] outline-none;
     cursor: var(--editor-text-cursor);
+    font-family: var(--editor-font-family);
   }
 
   .markdown-paper .ProseMirror {
@@ -948,82 +987,24 @@
     user-select: none;
   }
 
-  .markdown-source-highlight code {
-    font-family: inherit;
-  }
-
-  .markdown-source-input {
-    -webkit-text-fill-color: transparent;
-    caret-color: var(--accent);
-    cursor: var(--editor-text-cursor);
-  }
-
-  .markdown-source-input::selection {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
-    -webkit-text-fill-color: transparent;
-  }
-
-  .markra-source-search-transparent {
-    color: transparent;
-  }
-
-  .markra-source-search-match,
+  .markra-cm-source-search-match,
   .markra-search-match {
     border-radius: 2px;
     background: color-mix(in srgb, var(--accent) 16%, transparent);
   }
 
-  .markra-source-search-match {
-    color: transparent;
-  }
-
-  .markra-source-search-match-current,
+  .markra-cm-source-search-match-current,
   .markra-search-match-current {
     background: color-mix(in srgb, var(--accent) 30%, transparent);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
   }
 
-  .markdown-source-token-muted {
-    color: color-mix(in srgb, var(--text-secondary) 62%, transparent);
-  }
-
-  .markdown-source-token-heading-marker,
-  .markdown-source-token-list-marker,
-  .markdown-source-token-quote-marker {
-    color: var(--text-md-char);
-    font-weight: 720;
-  }
-
-  .markdown-source-token-heading {
-    color: var(--text-heading);
-    font-weight: 680;
-  }
-
-  .markdown-source-token-code-fence,
-  .markdown-source-token-code-info,
-  .markdown-source-token-inline-code {
-    color: oklch(45% 0.15 258);
-  }
-
-  .markdown-source-token-code {
-    color: oklch(43% 0.13 151);
-  }
-
-  .markdown-source-token-callout {
-    color: color-mix(in srgb, var(--accent-hover) 82%, var(--text-primary));
-    font-weight: 700;
-  }
-
-  .markdown-source-token-link {
-    color: var(--link-color);
-  }
-
-  .markdown-source-token-emphasis {
-    color: oklch(42% 0.14 29);
-  }
-
-  .markdown-source-token-rule {
-    color: var(--text-md-char);
+  .markra-spellcheck-error {
+    text-decoration-line: underline;
+    text-decoration-style: wavy;
+    text-decoration-color: var(--danger);
+    text-decoration-thickness: 1.2px;
+    text-underline-offset: 3px;
   }
 
   .markdown-paper {
@@ -1612,6 +1593,11 @@
     line-height: 1;
   }
 
+  .markdown-paper .markra-heading-level-list [data-heading-level="paragraph"] {
+    grid-column: 1 / -1;
+    padding-inline: 0.5rem;
+  }
+
   .markdown-paper .markra-heading-level-list [role="option"]:hover,
   .markdown-paper .markra-heading-level-list [role="option"]:focus-visible {
     background: var(--editor-bg-secondary);
@@ -1860,6 +1846,8 @@
   .markdown-paper blockquote.markra-callout p {
     @apply mb-3;
     color: var(--editor-text-primary);
+    cursor: text;
+    min-height: 1lh;
   }
 
   .markdown-paper blockquote.markra-callout p:first-of-type {
@@ -1877,6 +1865,14 @@
   .markdown-paper ul {
     @apply mt-3 mb-6 list-disc pl-[1.4em] marker:text-(--text-secondary);
     color: var(--editor-text-primary);
+  }
+
+  .markdown-paper ul ul {
+    list-style-type: circle;
+  }
+
+  .markdown-paper ul ul ul {
+    list-style-type: square;
   }
 
   .markdown-paper ol {
@@ -2122,6 +2118,25 @@
     background: var(--bg-hover);
     box-shadow: none;
     color: var(--text-heading);
+  }
+
+  .markdown-paper .markra-table-delete-table {
+    @apply static size-6 rounded-md border-transparent text-[0] shadow-none;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-secondary);
+  }
+
+  .markdown-paper .markra-table-delete-table:hover,
+  .markdown-paper .markra-table-delete-table:focus-visible {
+    background: color-mix(in srgb, oklch(63.7% 0.237 25.331) 10%, transparent);
+    border-color: color-mix(in srgb, oklch(63.7% 0.237 25.331) 70%, transparent);
+    box-shadow: none;
+    color: oklch(57.7% 0.245 27.325);
+  }
+
+  .markdown-paper .markra-table-delete-table-icon {
+    @apply size-3.5;
   }
 
   .markdown-paper .markra-table-align-icon {
@@ -2383,6 +2398,14 @@
     background: color-mix(in srgb, var(--accent) 28%, transparent);
   }
 
+  .markdown-paper .ProseMirror-hideselection .markra-image-node-source {
+    caret-color: var(--text-primary) !important;
+  }
+
+  .markdown-paper .ProseMirror-hideselection .markra-image-node-source::selection {
+    background: color-mix(in srgb, var(--accent) 28%, transparent) !important;
+  }
+
   .markdown-paper .markra-image-node-source-invalid .markra-image-node-source {
     @apply text-red-600;
   }
@@ -2467,14 +2490,9 @@
     display: inline;
     overflow: visible;
     background: transparent;
-    color: transparent;
-    font-size: 0;
-    line-height: 0;
-  }
-
-  .markdown-paper .markra-math-source-active[data-type="hardbreak"]::after {
-    content: "\A";
-    white-space: pre;
+    color: inherit;
+    font-size: inherit;
+    line-height: inherit;
   }
 
   .markdown-paper .markra-math-token-delimiter {
@@ -3005,6 +3023,15 @@
     white-space: pre-wrap;
   }
 
+  .markdown-paper[data-code-block-wrap="false"] .markra-code-block pre {
+    overflow-x: auto;
+  }
+
+  .markdown-paper[data-code-block-wrap="false"] .markra-code-block code {
+    overflow-wrap: normal;
+    white-space: pre;
+  }
+
   .markdown-paper .hljs-keyword,
   .markdown-paper .hljs-selector-tag,
   .markdown-paper .hljs-literal {
@@ -3060,7 +3087,18 @@
   }
 
   .markdown-paper hr {
-    @apply my-8 border-0 border-t border-(--border-default);
+    @apply my-5 border-0;
+    height: 12px;
+    cursor: pointer;
+    background: linear-gradient(var(--border-default), var(--border-default)) center / 100% 1px no-repeat;
+  }
+
+  .markdown-paper hr:hover {
+    background: linear-gradient(color-mix(in srgb, var(--border-default) 72%, var(--text-secondary)), color-mix(in srgb, var(--border-default) 72%, var(--text-secondary))) center / 100% 2px no-repeat;
+  }
+
+  .markdown-paper hr.ProseMirror-selectednode {
+    outline: none;
   }
 
   .ai-chat-markdown {

@@ -41,6 +41,7 @@ import {
   type TitlebarActionId,
   type TitlebarActionPreference
 } from "../lib/settings/app-settings";
+import type { NativeMenuHandlers } from "../lib/tauri/menu";
 import { resolveDesktopPlatform, type DesktopPlatform } from "../lib/platform";
 import { t, type AppLanguage } from "@markra/shared";
 import { MacWindowControls } from "./MacWindowControls";
@@ -48,6 +49,9 @@ import {
   SortableTitlebarAction,
   type SortableTitlebarActionRenderProps
 } from "./SortableTitlebarAction";
+import { WindowsNativeTitleBar } from "./WindowsNativeTitleBar";
+
+type EditorViewMode = "visual" | "source" | "split";
 
 type NativeTitleBarProps = {
   aiAgentOpen: boolean;
@@ -60,6 +64,7 @@ type NativeTitleBarProps = {
   markdownFilesOpen: boolean;
   markdownFilesResizing?: boolean;
   markdownFilesWidth?: number;
+  menuHandlers?: NativeMenuHandlers;
   nativeWindowChrome?: boolean;
   platform?: DesktopPlatform;
   quickCreateMarkdownFileVisible?: boolean;
@@ -72,16 +77,22 @@ type NativeTitleBarProps = {
   titlebarActions?: readonly TitlebarActionPreference[];
   titleContent?: ReactNode;
   onCreateMarkdownFile?: () => unknown;
+  onExitApp?: () => unknown;
   onOpenMarkdown: () => unknown;
   onOpenMarkdownFolder?: () => unknown;
+  onOpenSettings?: () => unknown;
   onSaveMarkdown: () => unknown;
+  onSelectEditorMode?: (mode: EditorViewMode) => unknown;
   onShowDocumentHistory?: () => unknown;
+  onShowAbout?: () => unknown;
   onTitlebarActionsChange?: (actions: TitlebarActionPreference[]) => unknown;
   onToggleAiAgent: () => unknown;
   onToggleMarkdownFiles: () => unknown;
   onToggleSplitMode?: () => unknown;
   onToggleSourceMode?: () => unknown;
   onToggleTheme: () => unknown;
+  onToggleWindowMaximized?: () => unknown;
+  workspaceName?: string;
 };
 
 const dimTitlebarIconButtonClassName =
@@ -103,6 +114,7 @@ export function NativeTitleBar({
   markdownFilesOpen,
   markdownFilesResizing = false,
   markdownFilesWidth = 288,
+  menuHandlers,
   nativeWindowChrome = true,
   platform = resolveDesktopPlatform(),
   quickCreateMarkdownFileVisible = false,
@@ -115,16 +127,22 @@ export function NativeTitleBar({
   titlebarActions,
   titleContent,
   onCreateMarkdownFile,
+  onExitApp,
   onOpenMarkdown,
   onOpenMarkdownFolder,
+  onOpenSettings,
   onSaveMarkdown,
+  onSelectEditorMode,
   onShowDocumentHistory,
+  onShowAbout,
   onTitlebarActionsChange,
   onToggleAiAgent,
   onToggleMarkdownFiles,
   onToggleSplitMode,
   onToggleSourceMode,
-  onToggleTheme
+  onToggleTheme,
+  onToggleWindowMaximized,
+  workspaceName
 }: NativeTitleBarProps) {
   const openMenuRef = useRef<HTMLDivElement | null>(null);
   const draggingActionIdRef = useRef<TitlebarActionId | null>(null);
@@ -132,6 +150,7 @@ export function NativeTitleBar({
   const [openMenuVisible, setOpenMenuVisible] = useState(false);
   const label = (key: Parameters<typeof t>[1]) => t(language, key);
   const themeActionLabel = theme === "dark" ? label("app.switchToLightTheme") : label("app.switchToDarkTheme");
+  const editorViewMode = splitMode ? "split" : sourceMode ? "source" : "visual";
   const openChoiceMenuAvailable = Boolean(onOpenMarkdownFolder) && (!nativeWindowChrome || platform !== "macos");
   const openChoiceMenuAlignmentClassName = platform === "windows" ? "right-0" : "left-0";
   const titlebarSideSlotWidth = 164;
@@ -225,7 +244,28 @@ export function NativeTitleBar({
     event.stopPropagation();
     runOpenAction(action);
   };
+  const selectEditorViewMode = (mode: EditorViewMode) => {
+    if (mode === editorViewMode) return;
 
+    if (onSelectEditorMode) {
+      onSelectEditorMode(mode);
+      return;
+    }
+
+    if (mode === "visual") {
+      if (splitMode) onToggleSplitMode?.();
+      else if (sourceMode) onToggleSourceMode?.();
+      return;
+    }
+
+    if (mode === "source") {
+      if (splitMode) onToggleSplitMode?.();
+      if (!sourceMode) onToggleSourceMode?.();
+      return;
+    }
+
+    if (!splitMode) onToggleSplitMode?.();
+  };
   const renderFixedOpenAction = (className = dimTitlebarIconButtonClassName) => {
     if (!openChoiceMenuAvailable || !onOpenMarkdownFolder) {
       return (
@@ -326,54 +366,33 @@ export function NativeTitleBar({
     }
 
     if (id === "sourceMode") {
-      if (!onToggleSourceMode) return null;
+      if (!onSelectEditorMode && !onToggleSourceMode && !onToggleSplitMode) return null;
 
-      return sourceMode ? (
-        <IconButton
-          className={mergeClassNames(
-            "bg-(--bg-active) text-(--text-heading) opacity-100 disabled:opacity-35",
-            sortable.actionClassName
-          )}
-          disabled={sourceModeDisabled}
-          label={label("app.switchToVisualMode")}
-          onClick={(event) => handleTitlebarActionClick("sourceMode", event, onToggleSourceMode)}
-          {...sortable.actionAttributes}
-          {...sortable.actionListeners}
-        >
-          <Eye aria-hidden="true" size={15} />
-        </IconButton>
-      ) : (
-        <IconButton
-          className={mergeClassNames("disabled:opacity-35", sortable.actionClassName)}
-          disabled={sourceModeDisabled}
-          label={label("app.switchToSourceMode")}
-          onClick={(event) => handleTitlebarActionClick("sourceMode", event, onToggleSourceMode)}
-          {...sortable.actionAttributes}
-          {...sortable.actionListeners}
-        >
-          <Code2 aria-hidden="true" size={15} />
-        </IconButton>
-      );
-    }
-
-    if (id === "splitMode") {
-      if (!onToggleSplitMode) return null;
-
+      const editorViewModeOptions = [
+        { Icon: Eye, label: label("app.editorViewPreview"), mode: "visual" as const },
+        { Icon: Code2, label: label("app.editorViewSource"), mode: "source" as const },
+        { Icon: PanelRight, label: label("app.editorViewSplit"), mode: "split" as const }
+      ];
+      const currentEditorViewModeOption =
+        editorViewModeOptions.find((option) => option.mode === editorViewMode) ?? editorViewModeOptions[0]!;
+      const CurrentIcon = currentEditorViewModeOption.Icon;
+      const nextEditorViewMode = editorViewMode === "visual" ? "source" : editorViewMode === "source" ? "split" : "visual";
       return (
         <IconButton
           className={mergeClassNames(
-            splitMode ? "bg-(--bg-active) text-(--text-heading) opacity-100" : "",
+            editorViewMode === "visual" ? "" : "bg-(--bg-active) text-(--text-heading) opacity-100",
             "disabled:opacity-35",
             sortable.actionClassName
           )}
           disabled={sourceModeDisabled}
-          label={splitMode ? label("app.closeSplitMode") : label("app.switchToSplitMode")}
-          pressed={splitMode}
-          onClick={(event) => handleTitlebarActionClick("splitMode", event, onToggleSplitMode)}
+          label={`${label("app.editorViewMode")}: ${currentEditorViewModeOption.label}`}
+          onClick={(event) => {
+            handleTitlebarActionClick("sourceMode", event, () => selectEditorViewMode(nextEditorViewMode));
+          }}
           {...sortable.actionAttributes}
           {...sortable.actionListeners}
         >
-          <PanelRight aria-hidden="true" size={15} />
+          <CurrentIcon aria-hidden="true" size={15} />
         </IconButton>
       );
     }
@@ -468,19 +487,11 @@ export function NativeTitleBar({
       : "transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]"
   }`;
   const titlebarSurfaceClassName = "bg-(--bg-primary)";
-  const titlebarSurfaceStyle: CSSProperties | undefined = nativeWindowChrome && markdownFilesOpen
-    ? {
-      background: `linear-gradient(to right, var(--bg-secondary) 0 ${markdownFilesWidth}px, var(--bg-primary) ${markdownFilesWidth}px 100%)`
-    }
-    : undefined;
-  const windowsTitlebarActionsStyle: CSSProperties | undefined = aiAgentOpen
-    ? { transform: `translateX(-${aiAgentWidth}px)` }
-    : undefined;
-  const windowsTitlebarActionsTransitionClassName = aiAgentResizing
+  const titlebarSidebarWidth = nativeWindowChrome && markdownFilesOpen ? markdownFilesWidth : 0;
+  const titlebarSidebarWidthTransitionClassName = markdownFilesResizing
     ? "transition-none"
-    : "transition-[opacity,background-color,color,transform] duration-150 ease-out";
+    : "transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
   const titlebarGridStyle: CSSProperties = {
-    ...(titlebarSurfaceStyle ?? {}),
     ...(!nativeWindowChrome && markdownFilesOpen ? { left: markdownFilesWidth + 1 } : {}),
     gridTemplateColumns: nativeWindowChrome
       ? `${titlebarSideSlotWidth}px minmax(0,1fr) ${titlebarSideSlotWidth}px`
@@ -492,12 +503,17 @@ export function NativeTitleBar({
       {titleContent}
     </div>
   );
-  const renderMarkdownFilesDivider = () => nativeWindowChrome && markdownFilesOpen ? (
+  const renderTitlebarSidebarSurface = () => nativeWindowChrome ? (
     <span
       aria-hidden="true"
-      className="native-titlebar-sidebar-divider pointer-events-none absolute top-0 bottom-0 z-30 w-px bg-(--border-default)"
-      style={{ left: Math.max(0, markdownFilesWidth - 1) }}
-    />
+      className={`native-titlebar-sidebar-surface pointer-events-none absolute top-0 bottom-0 left-0 z-0 bg-(--bg-secondary) ${titlebarSidebarWidthTransitionClassName}`}
+      style={{ width: titlebarSidebarWidth }}
+    >
+      <span
+        aria-hidden="true"
+        className="native-titlebar-sidebar-divider pointer-events-none absolute top-0 right-0 bottom-0 w-px bg-(--border-default) opacity-100"
+      />
+    </span>
   ) : null;
   const renderTitlebarSidebarDragFill = () => {
     if (!nativeWindowChrome || !markdownFilesOpen || !titleContent) return null;
@@ -516,42 +532,44 @@ export function NativeTitleBar({
   };
 
   if (platform === "windows") {
-    if (titleContent) {
-      const windowsTitlebarStyle: CSSProperties = {
-        ...(markdownFilesOpen ? { left: markdownFilesWidth + 1 } : {}),
-        gridTemplateColumns: aiAgentOpen
-          ? `minmax(0,1fr) ${titlebarSideSlotWidth}px ${aiAgentWidth}px`
-          : `minmax(0,1fr) ${titlebarSideSlotWidth}px`
-      };
-
-      return (
-        <header
-          className={`native-titlebar group/titlebar fixed inset-x-0 top-0 z-10 grid h-10 grid-cols-[minmax(0,1fr)_164px] select-none items-center ${titlebarSurfaceClassName} [-webkit-user-select:none]`}
-          style={windowsTitlebarStyle}
-          aria-label={label("app.windowDragRegion")}
-        >
-          {renderTitleContent("native-title-slot min-w-0 h-10 pr-3 pl-4")}
-          <div
-            className={`windows-titlebar-actions relative z-10 flex h-10 items-center justify-end gap-0.5 pr-3.5 text-(--text-secondary) opacity-40 ${windowsTitlebarActionsTransitionClassName} hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none`}
-          >
-            {renderDocumentActions("document-actions relative flex h-10 items-center justify-end gap-0.5")}
-          </div>
-        </header>
-      );
-    }
-
     return (
-      <header
-        className="native-titlebar fixed top-0 right-3.5 z-10 flex h-10 w-auto select-none items-center justify-end [-webkit-user-select:none]"
-        aria-label={label("app.windowDragRegion")}
-      >
-        <div
-          className={`windows-titlebar-actions flex h-10 items-center justify-end gap-0.5 text-(--text-secondary) opacity-40 ${windowsTitlebarActionsTransitionClassName} hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none`}
-          style={windowsTitlebarActionsStyle}
-        >
-          {renderDocumentActions("document-actions relative flex h-10 items-center justify-end gap-0.5")}
-        </div>
-      </header>
+      <WindowsNativeTitleBar
+        aiAgentOpen={aiAgentOpen}
+        aiAgentResizing={aiAgentResizing}
+        aiAgentWidth={aiAgentWidth}
+        dirty={dirty}
+        documentKind={documentKind}
+        documentName={documentName}
+        historyDisabled={historyDisabled}
+        label={label}
+        markdownFilesOpen={markdownFilesOpen}
+        markdownFilesResizing={markdownFilesResizing}
+        markdownFilesWidth={markdownFilesWidth}
+        menuHandlers={menuHandlers}
+        nativeWindowChrome={nativeWindowChrome}
+        saveDisabled={saveDisabled}
+        sourceMode={sourceMode}
+        sourceModeDisabled={sourceModeDisabled}
+        themeActionLabel={themeActionLabel}
+        titlebarSideSlotWidth={titlebarSideSlotWidth}
+        titleContent={titleContent}
+        workspaceName={workspaceName}
+        renderDocumentActions={renderDocumentActions}
+        renderTitleContent={renderTitleContent}
+        onCreateMarkdownFile={onCreateMarkdownFile}
+        onExitApp={onExitApp}
+        onOpenMarkdown={onOpenMarkdown}
+        onOpenMarkdownFolder={onOpenMarkdownFolder}
+        onOpenSettings={onOpenSettings}
+        onSaveMarkdown={onSaveMarkdown}
+        onShowAbout={onShowAbout}
+        onShowDocumentHistory={onShowDocumentHistory}
+        onToggleAiAgent={onToggleAiAgent}
+        onToggleMarkdownFiles={onToggleMarkdownFiles}
+        onToggleSourceMode={onToggleSourceMode}
+        onToggleTheme={onToggleTheme}
+        onToggleWindowMaximized={onToggleWindowMaximized}
+      />
     );
   }
 
@@ -587,7 +605,7 @@ export function NativeTitleBar({
       aria-label={label("app.windowDragRegion")}
       data-tauri-drag-region={nativeWindowChrome && !titleContent ? true : undefined}
     >
-      {renderMarkdownFilesDivider()}
+      {renderTitlebarSidebarSurface()}
       {renderTitlebarSidebarDragFill()}
       <div
         className={`titlebar-spacer relative z-20 flex h-10 items-center gap-1 ${titlebarLeftPaddingClassName}`}
@@ -629,7 +647,7 @@ export function NativeTitleBar({
           style={{ transform: titleTransform }}
         >
           <TitleIcon aria-hidden="true" size={15} />
-          <span className="min-w-0 truncate" data-tauri-drag-region={nativeWindowChrome ? true : undefined}>
+          <span className="min-w-0 truncate leading-5" data-tauri-drag-region={nativeWindowChrome ? true : undefined}>
             {documentName}
           </span>
           {dirty ? (

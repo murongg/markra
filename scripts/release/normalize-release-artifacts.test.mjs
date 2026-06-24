@@ -61,6 +61,13 @@ test("release workflow uses arm64 in Apple Silicon file names while keeping the 
   assert.doesNotMatch(appleSiliconEntry, /asset_arch:\s*aarch64/);
 });
 
+test("release workflow validates the web package version", () => {
+  const validateStep = readReleaseStep("Validate release version");
+
+  assert.match(validateStep, /apps\/web\/package\.json/);
+  assert.match(validateStep, /Web package version/);
+});
+
 test("release workflow excludes Wayland client from Linux AppImage bundling", () => {
   const buildStep = readReleaseStep("Build and bundle app");
   const rebuildStep = readReleaseStep("Rebuild Linux AppImage library policy");

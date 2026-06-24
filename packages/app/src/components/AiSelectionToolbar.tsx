@@ -5,6 +5,7 @@ import {
   Check,
   Code2,
   Copy,
+  Eraser,
   FileText,
   Heading,
   Heading1,
@@ -20,6 +21,7 @@ import {
   List,
   ListOrdered,
   PenLine,
+  Pilcrow,
   Plus,
   Quote,
   Sparkles,
@@ -60,7 +62,16 @@ type HeadingLevelOption = {
   icon: LucideIcon;
   label: string;
   level: SelectionHeadingLevel;
+  type: "heading";
 };
+
+type ParagraphLevelOption = {
+  icon: LucideIcon;
+  labelKey: I18nKey;
+  type: "paragraph";
+};
+
+type HeadingMenuOption = HeadingLevelOption | ParagraphLevelOption;
 
 type AiSelectionToolbarProps = {
   anchor: SelectionAnchor | null;
@@ -72,6 +83,7 @@ type AiSelectionToolbarProps = {
   activeHeadingLevel?: SelectionHeadingLevel | null;
   quickActionPrompts?: AiQuickActionPrompts;
   onCopySelection: () => unknown;
+  onDismiss?: () => unknown;
   onInsertLink: () => unknown;
   onOpenCommand: () => unknown;
   onRunFormattingAction: (action: SelectionFormattingToolbarAction) => unknown;
@@ -131,6 +143,11 @@ const basicSelectionActions: BasicSelectionAction[] = [
     labelKey: "menu.highlight"
   },
   {
+    action: "clearFormatting",
+    icon: Eraser,
+    labelKey: "menu.clearFormatting"
+  },
+  {
     action: "quote",
     icon: Quote,
     labelKey: "menu.quote"
@@ -159,8 +176,17 @@ const headingLevelIcons: Record<SelectionHeadingLevel, LucideIcon> = {
 const headingLevelOptions: HeadingLevelOption[] = selectionHeadingLevels.map((level) => ({
   icon: headingLevelIcons[level],
   label: `H${level}`,
-  level
+  level,
+  type: "heading"
 }));
+const headingMenuOptions: HeadingMenuOption[] = [
+  {
+    icon: Pilcrow,
+    labelKey: "menu.paragraph",
+    type: "paragraph"
+  },
+  ...headingLevelOptions
+];
 
 export function AiSelectionToolbar({
   anchor,
@@ -172,6 +198,7 @@ export function AiSelectionToolbar({
   activeHeadingLevel = null,
   quickActionPrompts = defaultAiQuickActionPrompts,
   onCopySelection,
+  onDismiss,
   onInsertLink,
   onOpenCommand,
   onRunFormattingAction,
@@ -180,6 +207,7 @@ export function AiSelectionToolbar({
 }: AiSelectionToolbarProps) {
   const [headingLevelMenuOpen, setHeadingLevelMenuOpen] = useState(false);
   const [headingLevelMenuStyle, setHeadingLevelMenuStyle] = useState<CSSProperties | null>(null);
+  const toolbarRef = useRef<HTMLElement | null>(null);
   const headingLevelButtonRef = useRef<HTMLButtonElement | null>(null);
   const headingLevelMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -187,7 +215,7 @@ export function AiSelectionToolbar({
     setHeadingLevelMenuStyle(
       anchoredPopoverStyle(button, headingLevelMenuRef.current, {
         fallbackSize: {
-          height: 76,
+          height: 112,
           width: 112
         },
         gap: 4
@@ -247,6 +275,25 @@ export function AiSelectionToolbar({
     };
   }, [headingLevelMenuOpen]);
 
+  useEffect(() => {
+    if (!open || !anchor || !onDismiss) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+
+      if (toolbarRef.current?.contains(target) || headingLevelMenuRef.current?.contains(target)) return;
+
+      onDismiss();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [anchor, onDismiss, open]);
+
   if (!open || !anchor) return null;
 
   const label = (key: I18nKey) => t(language, key);
@@ -275,9 +322,10 @@ export function AiSelectionToolbar({
             role="menu"
             aria-label={label("menu.headingLevel")}
           >
-            {headingLevelOptions.map((option) => {
+            {headingMenuOptions.map((option) => {
               const HeadingLevelIcon = option.icon;
-              const selected = option.level === activeHeadingLevel;
+              const optionLabel = option.type === "paragraph" ? label(option.labelKey) : option.label;
+              const selected = option.type === "heading" && option.level === activeHeadingLevel;
 
               return (
                 <button
@@ -286,14 +334,19 @@ export function AiSelectionToolbar({
                       ? "bg-(--accent-soft) text-(--accent) hover:bg-(--accent-soft)"
                       : "bg-transparent text-(--text-primary) hover:bg-(--bg-hover) hover:text-(--text-heading) focus-visible:bg-(--bg-hover) focus-visible:text-(--text-heading)"
                   }`}
-                  key={option.level}
+                  key={option.type === "paragraph" ? "paragraph" : option.level}
                   type="button"
                   role="menuitemradio"
-                  aria-label={option.label}
+                  aria-label={optionLabel}
                   aria-checked={selected}
-                  title={option.label}
+                  title={optionLabel}
                   onClick={() => {
                     setHeadingLevelMenuOpen(false);
+                    if (option.type === "paragraph") {
+                      onRunFormattingAction("paragraph");
+                      return;
+                    }
+
                     onSetHeadingLevel(option.level);
                   }}
                 >
@@ -309,6 +362,7 @@ export function AiSelectionToolbar({
   return (
     <section
       className="ai-selection-toolbar pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-full animate-[markra-ai-float-in_160ms_ease-out_both] motion-reduce:animate-none"
+      ref={toolbarRef}
       style={style}
       role="toolbar"
       aria-label={label("app.aiQuickActions")}

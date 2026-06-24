@@ -1,6 +1,6 @@
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { saveStoredWorkspaceState } from "@markra/app/settings";
+import { getStoredNetworkSettings, saveStoredWorkspaceState } from "@markra/app/settings";
 import { listNativeEditorWindowRestoreStates } from "./window";
 import { checkNativeAppUpdate } from "./updater";
 
@@ -13,6 +13,7 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 }));
 
 vi.mock("@markra/app/settings", () => ({
+  getStoredNetworkSettings: vi.fn(),
   saveStoredWorkspaceState: vi.fn()
 }));
 
@@ -21,6 +22,7 @@ vi.mock("./window", () => ({
 }));
 
 const mockedCheck = vi.mocked(check);
+const mockedGetStoredNetworkSettings = vi.mocked(getStoredNetworkSettings);
 const mockedRelaunch = vi.mocked(relaunch);
 const mockedSaveStoredWorkspaceState = vi.mocked(saveStoredWorkspaceState);
 const mockedListNativeEditorWindowRestoreStates = vi.mocked(listNativeEditorWindowRestoreStates);
@@ -28,11 +30,17 @@ const mockedListNativeEditorWindowRestoreStates = vi.mocked(listNativeEditorWind
 describe("native app updater", () => {
   beforeEach(() => {
     mockedCheck.mockReset();
+    mockedGetStoredNetworkSettings.mockReset();
     mockedRelaunch.mockReset();
     mockedSaveStoredWorkspaceState.mockReset();
     mockedListNativeEditorWindowRestoreStates.mockReset();
     mockedListNativeEditorWindowRestoreStates.mockResolvedValue([]);
     mockedSaveStoredWorkspaceState.mockResolvedValue(undefined);
+    mockedGetStoredNetworkSettings.mockResolvedValue({
+      bypassLocalAddresses: true,
+      proxyEnabled: false,
+      proxyUrl: ""
+    });
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
@@ -51,6 +59,23 @@ describe("native app updater", () => {
     expect(mockedCheck).toHaveBeenCalledTimes(1);
     expect(mockedCheck).toHaveBeenCalledWith({
       proxy: "http://127.0.0.1:7890"
+    });
+  });
+
+  it("checks for updates through the configured app proxy first", async () => {
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    mockedGetStoredNetworkSettings.mockResolvedValueOnce({
+      bypassLocalAddresses: true,
+      proxyEnabled: true,
+      proxyUrl: "socks5://127.0.0.1:1080"
+    });
+    mockedCheck.mockResolvedValue(null);
+
+    await expect(checkNativeAppUpdate()).resolves.toBeNull();
+
+    expect(mockedCheck).toHaveBeenCalledTimes(1);
+    expect(mockedCheck).toHaveBeenCalledWith({
+      proxy: "socks5://127.0.0.1:1080"
     });
   });
 

@@ -5,6 +5,7 @@ import { exit } from "@tauri-apps/plugin-process";
 import {
   closeNativeWindow,
   exitNativeApp,
+  getCurrentNativeWindowLabel,
   listenNativeAppExitRequested,
   listenNativeWindowCloseRequested,
   listenNativeSettingsWindowTarget,
@@ -12,6 +13,8 @@ import {
   minimizeNativeWindow,
   openSettingsWindow,
   setNativeEditorWindowRestoreState,
+  showNativeWindow,
+  toggleNativeWindowFullscreen,
   toggleNativeWindowMaximized
 } from "./window";
 
@@ -105,12 +108,56 @@ describe("native window actions", () => {
   });
 
   it("minimizes the current Tauri window", async () => {
-    const minimize = vi.fn().mockResolvedValue(undefined);
-    mockedGetCurrentWindow.mockReturnValue({ minimize } as unknown as ReturnType<typeof getCurrentWindow>);
+    mockedInvoke.mockResolvedValue(undefined);
 
     await minimizeNativeWindow();
 
-    expect(minimize).toHaveBeenCalledTimes(1);
+    expect(mockedInvoke).toHaveBeenCalledWith("minimize_current_window");
+    expect(mockedGetCurrentWindow).not.toHaveBeenCalled();
+  });
+
+  it("shows the current Tauri window", async () => {
+    const isVisible = vi.fn().mockResolvedValue(false);
+    const show = vi.fn().mockResolvedValue(undefined);
+    const setFocus = vi.fn().mockResolvedValue(undefined);
+    mockedGetCurrentWindow.mockReturnValue({ isVisible, show, setFocus } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await showNativeWindow();
+
+    expect(isVisible).toHaveBeenCalledTimes(1);
+    expect(show).toHaveBeenCalledTimes(1);
+    expect(setFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show an already visible Tauri window again", async () => {
+    const isVisible = vi.fn().mockResolvedValue(true);
+    const show = vi.fn().mockResolvedValue(undefined);
+    const setFocus = vi.fn().mockResolvedValue(undefined);
+    mockedGetCurrentWindow.mockReturnValue({ isVisible, show, setFocus } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await showNativeWindow();
+
+    expect(isVisible).toHaveBeenCalledTimes(1);
+    expect(show).not.toHaveBeenCalled();
+    expect(setFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the current Tauri window label", async () => {
+    mockedGetCurrentWindow.mockReturnValue({ label: "markra-editor-1" } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await expect(getCurrentNativeWindowLabel()).resolves.toBe("markra-editor-1");
+  });
+
+  it("keeps the window show action successful when focusing fails", async () => {
+    const isVisible = vi.fn().mockResolvedValue(false);
+    const show = vi.fn().mockResolvedValue(undefined);
+    const setFocus = vi.fn().mockRejectedValue(new Error("focus denied"));
+    mockedGetCurrentWindow.mockReturnValue({ isVisible, show, setFocus } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await expect(showNativeWindow()).resolves.toBeUndefined();
+
+    expect(show).toHaveBeenCalledTimes(1);
+    expect(setFocus).toHaveBeenCalledTimes(1);
   });
 
   it("toggles the current Tauri window maximized state", async () => {
@@ -122,11 +169,24 @@ describe("native window actions", () => {
     expect(toggleMaximize).toHaveBeenCalledTimes(1);
   });
 
+  it("toggles the current Tauri window fullscreen state", async () => {
+    const isFullscreen = vi.fn().mockResolvedValue(false);
+    const setFullscreen = vi.fn().mockResolvedValue(undefined);
+    mockedGetCurrentWindow.mockReturnValue({ isFullscreen, setFullscreen } as unknown as ReturnType<typeof getCurrentWindow>);
+
+    await toggleNativeWindowFullscreen();
+
+    expect(isFullscreen).toHaveBeenCalledTimes(1);
+    expect(setFullscreen).toHaveBeenCalledWith(true);
+  });
+
   it("skips native calls outside Tauri", async () => {
     Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 
     await closeNativeWindow();
     await minimizeNativeWindow();
+    await showNativeWindow();
+    await toggleNativeWindowFullscreen();
     await toggleNativeWindowMaximized();
 
     expect(mockedGetCurrentWindow).not.toHaveBeenCalled();

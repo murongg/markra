@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
 
+use crate::network::{apply_network_settings, NetworkSettings};
+
 const AI_PROVIDER_REQUEST_TIMEOUT_SECS: u64 = 20;
 const AI_CHAT_REQUEST_TIMEOUT_SECS: u64 = 60;
 
@@ -14,6 +16,7 @@ const AI_CHAT_REQUEST_TIMEOUT_SECS: u64 = 60;
 pub(crate) struct AiProviderJsonRequest {
     headers: HashMap<String, String>,
     method: String,
+    network: Option<NetworkSettings>,
     url: String,
 }
 
@@ -22,6 +25,7 @@ pub(crate) struct AiProviderJsonRequest {
 pub(crate) struct ChatCompletionRequest {
     body: String,
     headers: HashMap<String, String>,
+    network: Option<NetworkSettings>,
     url: String,
 }
 
@@ -66,10 +70,12 @@ async fn execute_ai_provider_json_request(
 ) -> Result<AiProviderJsonResponse, String> {
     let url = validated_ai_provider_url(&request)?;
     let headers = header_map_from_request(&request)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(AI_PROVIDER_REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = apply_network_settings(
+        reqwest::Client::builder().timeout(Duration::from_secs(AI_PROVIDER_REQUEST_TIMEOUT_SECS)),
+        request.network.as_ref(),
+    )?
+    .build()
+    .map_err(|error| error.to_string())?;
 
     let response = client
         .get(url)
@@ -89,10 +95,12 @@ async fn execute_native_chat_request(
 ) -> Result<AiProviderJsonResponse, String> {
     let url = validated_http_url(&request.url)?;
     let headers = parse_headers(&request.headers)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(AI_CHAT_REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = apply_network_settings(
+        reqwest::Client::builder().timeout(Duration::from_secs(AI_CHAT_REQUEST_TIMEOUT_SECS)),
+        request.network.as_ref(),
+    )?
+    .build()
+    .map_err(|error| error.to_string())?;
 
     let response = client
         .post(url)
@@ -114,10 +122,12 @@ async fn execute_native_chat_stream_request(
 ) -> Result<AiProviderJsonResponse, String> {
     let url = validated_http_url(&request.url)?;
     let headers = parse_headers(&request.headers)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(AI_CHAT_REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = apply_network_settings(
+        reqwest::Client::builder().timeout(Duration::from_secs(AI_CHAT_REQUEST_TIMEOUT_SECS)),
+        request.network.as_ref(),
+    )?
+    .build()
+    .map_err(|error| error.to_string())?;
 
     let mut response = client
         .post(url)
@@ -251,6 +261,7 @@ mod tests {
         AiProviderJsonRequest {
             headers: HashMap::new(),
             method: method.to_string(),
+            network: None,
             url: url.to_string(),
         }
     }

@@ -1,30 +1,41 @@
 mod ai_http;
 mod app_exit;
 mod backup;
+mod clipboard;
 mod external_urls;
+mod fonts;
 mod image_upload;
 mod language;
 mod markdown_files;
 mod menu;
 mod menu_labels;
+mod network;
 mod opened_files;
 mod remote_sync;
+mod shell_command;
+mod spellcheck_dictionary;
+mod text_file;
 mod watcher;
 mod web_http;
 mod window_state;
 mod windows;
 
+use std::{path::Path, time::Duration};
+
 use ai_http::{request_ai_provider_json, request_native_chat, request_native_chat_stream};
 use app_exit::handle_app_exit_requested;
 use backup::backup_markdown_folder;
+use clipboard::read_clipboard_text;
 use external_urls::open_external_url;
+use fonts::list_system_font_families;
 use image_upload::{upload_picgo_image, upload_s3_image, upload_webdav_image};
 use markdown_files::{
     check_pandoc_available, create_markdown_tree_file, create_markdown_tree_folder,
     delete_markdown_template_file, delete_markdown_tree_file, detect_pandoc_path,
     export_pandoc_file, export_pdf_file, list_markdown_file_history, list_markdown_files_for_path,
-    move_markdown_tree_file, open_markdown_file_in_new_window, open_markdown_folder_in_new_window,
-    open_markdown_path, read_markdown_file, read_markdown_file_history, read_markdown_image_file,
+    move_markdown_tree_file, open_containing_folder, open_markdown_file_in_new_window,
+    open_markdown_folder_in_new_window, open_markdown_path, read_local_image_file,
+    read_markdown_file, read_markdown_file_history, read_markdown_image_file,
     read_markdown_template_file, rename_markdown_tree_file, resolve_markdown_path,
     save_clipboard_image, search_markdown_files_for_path, write_markdown_file,
     write_markdown_template_file,
@@ -34,14 +45,21 @@ use menu::{
     emit_native_menu_command_payload, install_application_menu, is_native_new_window_command,
     is_native_settings_window_command, native_menu_command_from_id,
     remember_native_menu_webview_window, remember_native_menu_window_from_event,
-    NativeApplicationMenuState, NativeMenuTargetState,
+    show_native_app_about, NativeApplicationMenuState, NativeMenuTargetState,
 };
 use opened_files::{
-    opened_markdown_paths_from_args, opened_markdown_paths_from_urls, queue_opened_markdown_paths,
-    take_opened_markdown_paths, OpenedMarkdownPathsState,
+    opened_markdown_paths_from_args, opened_markdown_paths_from_args_with_cwd,
+    opened_markdown_paths_from_urls, queue_opened_markdown_paths, take_opened_markdown_paths,
+    OpenedMarkdownPathsState,
 };
 use remote_sync::sync_webdav_markdown_folder;
+use shell_command::{get_shell_command_status, install_shell_command, uninstall_shell_command};
+use spellcheck_dictionary::{
+    delete_spellcheck_dictionary, get_spellcheck_dictionary_status, load_spellcheck_dictionary,
+};
 use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
+use text_file::{read_text_file, write_text_file};
 use watcher::{
     unwatch_markdown_file, unwatch_markdown_tree, watch_markdown_file, watch_markdown_tree,
     MarkdownFileWatcherState, MarkdownTreeWatcherState,
@@ -53,9 +71,89 @@ use window_state::{
 };
 use windows::{
     apply_main_window_chrome, apply_webview_window_chrome, apply_window_event_chrome,
-    open_blank_editor_window, open_settings_window, spawn_blank_editor_window,
+    editor_window_url_for_folder, editor_window_url_for_path, minimize_current_window,
+    open_blank_editor_window, open_settings_window, spawn_blank_editor_window, spawn_editor_window,
     spawn_settings_window,
 };
+
+const STARTUP_WINDOW_NATIVE_REVEAL_FALLBACK_MS: u64 = 2400;
+
+fn window_state_restore_flags() -> StateFlags {
+    StateFlags::all() - StateFlags::VISIBLE - StateFlags::DECORATIONS
+}
+
+fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn editor_window_urls_for_opened_markdown_paths(paths: &[String]) -> Vec<String> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            let opened_path = Path::new(path);
+            if opened_path.is_dir() {
+                return Some(editor_window_url_for_folder(path));
+            }
+
+            if opened_path.is_file() {
+                return Some(editor_window_url_for_path(path));
+            }
+
+            None
+        })
+        .collect()
+}
+
+fn reveal_or_open_markdown_paths<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    paths: Vec<String>,
+    reveal_when_empty: bool,
+) {
+    if paths.is_empty() && !reveal_when_empty {
+        return;
+    }
+
+    if app.get_webview_window("main").is_some() {
+        queue_opened_markdown_paths(app, paths);
+        focus_main_window(app);
+        return;
+    }
+
+    let urls = editor_window_urls_for_opened_markdown_paths(&paths);
+    if urls.is_empty() {
+        spawn_blank_editor_window(app.clone());
+        return;
+    }
+
+    for url in urls {
+        spawn_editor_window(app.clone(), url);
+    }
+}
+
+fn show_main_window_if_hidden<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            return;
+        }
+
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn spawn_startup_window_reveal_fallback<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let app = app.clone();
+
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(
+            STARTUP_WINDOW_NATIVE_REVEAL_FALLBACK_MS,
+        ));
+        show_main_window_if_hidden(&app);
+    });
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -68,7 +166,20 @@ pub fn run() {
         .manage(EditorWindowRestoreState::default());
 
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        reveal_or_open_markdown_paths(
+            app,
+            opened_markdown_paths_from_args_with_cwd(args, std::path::PathBuf::from(cwd)),
+            true,
+        );
+    }));
+
+    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::default()
+            .with_state_flags(window_state_restore_flags())
+            .build(),
+    );
 
     builder
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -78,11 +189,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             apply_main_window_chrome(app);
+            spawn_startup_window_reveal_fallback(&app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 remember_native_menu_webview_window(&window);
             }
             let paths = opened_markdown_paths_from_args(std::env::args());
-            queue_opened_markdown_paths(&app.handle(), paths);
+            reveal_or_open_markdown_paths(&app.handle(), paths, false);
             Ok(())
         })
         .on_page_load(|webview, _| {
@@ -119,21 +231,27 @@ pub fn run() {
             create_markdown_tree_file,
             create_markdown_tree_folder,
             install_application_menu,
+            show_native_app_about,
             rename_markdown_tree_file,
             move_markdown_tree_file,
             delete_markdown_tree_file,
             open_markdown_file_in_new_window,
             open_markdown_folder_in_new_window,
+            open_containing_folder,
             open_markdown_path,
             resolve_markdown_path,
             read_markdown_file,
+            read_text_file,
             list_markdown_file_history,
             read_markdown_file_history,
             read_markdown_image_file,
+            read_local_image_file,
             read_markdown_template_file,
             write_markdown_template_file,
             delete_markdown_template_file,
             save_clipboard_image,
+            read_clipboard_text,
+            minimize_current_window,
             open_blank_editor_window,
             open_settings_window,
             open_external_url,
@@ -148,6 +266,7 @@ pub fn run() {
             upload_s3_image,
             upload_webdav_image,
             write_markdown_file,
+            write_text_file,
             export_pdf_file,
             check_pandoc_available,
             detect_pandoc_path,
@@ -157,8 +276,15 @@ pub fn run() {
             watch_markdown_tree,
             unwatch_markdown_tree,
             take_opened_markdown_paths,
+            get_shell_command_status,
+            install_shell_command,
+            uninstall_shell_command,
             set_editor_window_restore_state,
-            list_editor_window_restore_states
+            list_editor_window_restore_states,
+            list_system_font_families,
+            delete_spellcheck_dictionary,
+            get_spellcheck_dictionary_status,
+            load_spellcheck_dictionary
         ])
         .build(tauri::generate_context!())
         .expect("error while building Markra")
@@ -228,8 +354,117 @@ mod tests {
 
         let lib_source = include_str!("lib.rs");
         assert!(
-            lib_source.contains("tauri_plugin_window_state::Builder::default().build()"),
+            lib_source.contains("tauri_plugin_window_state::Builder::default()")
+                && lib_source.contains(".with_state_flags(window_state_restore_flags())"),
             "Tauri builder should register the window state restore plugin"
+        );
+    }
+
+    #[test]
+    fn desktop_window_state_restore_does_not_auto_show_window() {
+        let flags = crate::window_state_restore_flags();
+
+        assert!(
+            !flags.contains(tauri_plugin_window_state::StateFlags::VISIBLE),
+            "window-state should not restore visibility before the frontend startup reveal"
+        );
+    }
+
+    #[test]
+    fn desktop_window_state_restore_does_not_restore_decorations() {
+        let flags = crate::window_state_restore_flags();
+
+        assert!(
+            !flags.contains(tauri_plugin_window_state::StateFlags::DECORATIONS),
+            "window-state should not restore old native decorations over the configured window chrome"
+        );
+    }
+
+    #[test]
+    fn desktop_registers_native_startup_window_reveal_fallback() {
+        let lib_source = include_str!("lib.rs");
+        let fallback_registration =
+            ["spawn_startup_window", "_reveal_fallback(&app.handle())"].concat();
+
+        assert!(
+            lib_source.contains(&fallback_registration),
+            "Tauri setup should register a native startup reveal fallback so hidden dev windows cannot stay Dock-only"
+        );
+    }
+
+    #[test]
+    fn cli_opened_paths_can_fallback_to_editor_window_urls() {
+        let root = std::env::temp_dir().join(format!(
+            "markra-cli-window-fallback-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("test folder should be created");
+        let markdown_file = root.join("notes.md");
+        std::fs::write(&markdown_file, "# Notes").expect("markdown file should be created");
+
+        let urls = super::editor_window_urls_for_opened_markdown_paths(&[
+            root.to_string_lossy().to_string(),
+            markdown_file.to_string_lossy().to_string(),
+        ]);
+
+        assert_eq!(
+            urls,
+            vec![
+                crate::windows::editor_window_url_for_folder(&root.to_string_lossy()),
+                crate::windows::editor_window_url_for_path(&markdown_file.to_string_lossy()),
+            ]
+        );
+
+        std::fs::remove_dir_all(root).expect("test folder should be removed");
+    }
+
+    #[test]
+    fn desktop_reveals_initial_cli_opened_paths_natively() {
+        let lib_source = include_str!("lib.rs");
+
+        assert!(
+            lib_source.contains("reveal_or_open_markdown_paths(&app.handle(), paths, false);"),
+            "initial CLI-opened paths should trigger a native window reveal instead of only being queued"
+        );
+    }
+
+    #[test]
+    fn desktop_registers_native_about_command() {
+        let lib_source = include_str!("lib.rs");
+        let command_name = ["show", "_native_app", "_about"].concat();
+        let registration = format!("{command_name},");
+        let handler_source = &lib_source[lib_source
+            .find("tauri::generate_handler![")
+            .expect("Tauri invoke handler should be registered")..];
+
+        assert!(
+            handler_source.contains(&registration),
+            "Windows self-drawn app menu should be able to open the system-native About panel"
+        );
+    }
+
+    #[test]
+    fn desktop_registers_single_instance_plugin_before_other_plugins() {
+        let manifest = include_str!("../Cargo.toml");
+        assert!(
+            manifest.contains("tauri-plugin-single-instance"),
+            "desktop manifest should include the single instance plugin"
+        );
+
+        let lib_source = include_str!("lib.rs");
+        let single_instance_index = lib_source
+            .find("tauri_plugin_single_instance::init")
+            .expect("Tauri builder should register the single instance plugin");
+        let store_plugin_index = lib_source
+            .find("tauri_plugin_store::Builder")
+            .expect("Tauri builder should register the store plugin");
+
+        assert!(
+            single_instance_index < store_plugin_index,
+            "single instance plugin should be registered before other plugins"
         );
     }
 

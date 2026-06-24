@@ -14,6 +14,12 @@ export type NativeMarkdownFile = {
   sizeBytes?: number;
 };
 
+export type NativeSettingsFile = {
+  path: string;
+  name: string;
+  content: string;
+};
+
 export type NativeMarkdownFileHistoryEntry = {
   id: string;
   createdAt: number;
@@ -49,6 +55,11 @@ export type NativeMarkdownOpenTarget =
       folder: NativeMarkdownFolder;
     };
 
+export type NativeMarkdownDropPoint = {
+  left: number;
+  top: number;
+};
+
 export type CreateNativeMarkdownTreeFileOptions = {
   contents?: string | null;
   parentPath?: string | null;
@@ -64,9 +75,16 @@ export type NativeMarkdownDroppedTarget =
       kind: "folder";
       path: string;
       name: string;
+    }
+  | {
+      kind: "image";
+      path: string;
+      name: string;
+      point?: NativeMarkdownDropPoint;
     };
 
 export type SaveNativeMarkdownFileInput = {
+  defaultDirectory?: string | null;
   historyCursorId?: string;
   path: string | null;
   skipHistorySnapshot?: boolean;
@@ -80,6 +98,11 @@ export type SaveNativeHtmlFileInput = {
 };
 
 export type SaveNativePdfFileInput = {
+  suggestedName: string;
+  contents: string;
+};
+
+export type SaveNativeSettingsFileInput = {
   suggestedName: string;
   contents: string;
 };
@@ -106,6 +129,11 @@ export type SavedNativeHtmlFile = {
 };
 
 export type SavedNativePdfFile = {
+  path: string;
+  name: string;
+};
+
+export type SavedNativeSettingsFile = {
   path: string;
   name: string;
 };
@@ -244,6 +272,10 @@ export function readNativeMarkdownImageFile(input: ReadNativeMarkdownImageInput)
   return getAppRuntime().files.readMarkdownImageFile(input);
 }
 
+export function readNativeLocalImageFile(path: string) {
+  return getAppRuntime().files.readLocalImageFile(path);
+}
+
 export function listNativeMarkdownFilesForPath(path: string) {
   return getAppRuntime().files.listMarkdownFilesForPath(path);
 }
@@ -272,6 +304,10 @@ export function deleteNativeMarkdownTreeFile(rootPath: string, path: string) {
   return getAppRuntime().files.deleteMarkdownTreeFile(rootPath, path);
 }
 
+export function openNativeContainingFolder(path: string) {
+  return getAppRuntime().files.openContainingFolder(path);
+}
+
 export function confirmNativeMarkdownFileDelete(
   fileName: string,
   labels: { cancelLabel: string; message: string; okLabel: string }
@@ -298,8 +334,16 @@ export function openNativeMarkdownFile(labels?: NativeMarkdownPickerLabels) {
   return getAppRuntime().files.openMarkdownFile(labels);
 }
 
+export function openNativeLocalImages(labels?: NativeMarkdownPickerLabels) {
+  return getAppRuntime().files.openLocalImages(labels);
+}
+
 export function openNativeMarkdownPath(labels?: NativeMarkdownPickerLabels) {
   return getAppRuntime().files.openMarkdownPath(labels);
+}
+
+export function openNativeSettingsFile(labels?: NativeMarkdownPickerLabels) {
+  return getAppRuntime().files.openSettingsFile(labels);
 }
 
 export function resolveNativeMarkdownPath(path: string) {
@@ -320,6 +364,10 @@ export function saveNativeHtmlFile(input: SaveNativeHtmlFileInput) {
 
 export function saveNativePdfFile(input: SaveNativePdfFileInput) {
   return getAppRuntime().files.savePdfFile(input);
+}
+
+export function saveNativeSettingsFile(input: SaveNativeSettingsFileInput) {
+  return getAppRuntime().files.saveSettingsFile(input);
 }
 
 export function saveNativePandocFile(input: SaveNativePandocFileInput) {

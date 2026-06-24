@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::markdown_files::markdown_open_path_for_path;
@@ -16,11 +16,40 @@ struct OpenedMarkdownPathsPayload {
 
 fn opened_markdown_path_from_path(path: PathBuf) -> Option<String> {
     markdown_open_path_for_path(&path).ok()?;
-    Some(path.to_string_lossy().to_string())
+    Some(
+        path.canonicalize()
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string(),
+    )
+}
+
+fn launch_arg_path(arg: &str, cwd: Option<&Path>) -> PathBuf {
+    let path = PathBuf::from(arg);
+    if path.is_absolute() {
+        return path;
+    }
+
+    cwd.map_or(path.clone(), |cwd| cwd.join(path))
 }
 
 pub(crate) fn opened_markdown_paths_from_args(
     args: impl IntoIterator<Item = String>,
+) -> Vec<String> {
+    let cwd = std::env::current_dir().ok();
+    opened_markdown_paths_from_args_with_optional_cwd(args, cwd.as_deref())
+}
+
+pub(crate) fn opened_markdown_paths_from_args_with_cwd(
+    args: impl IntoIterator<Item = String>,
+    cwd: impl AsRef<Path>,
+) -> Vec<String> {
+    opened_markdown_paths_from_args_with_optional_cwd(args, Some(cwd.as_ref()))
+}
+
+fn opened_markdown_paths_from_args_with_optional_cwd(
+    args: impl IntoIterator<Item = String>,
+    cwd: Option<&Path>,
 ) -> Vec<String> {
     args.into_iter()
         .skip(1)
@@ -30,7 +59,7 @@ pub(crate) fn opened_markdown_paths_from_args(
                 return None;
             }
 
-            opened_markdown_path_from_path(PathBuf::from(trimmed))
+            opened_markdown_path_from_path(launch_arg_path(trimmed, cwd))
         })
         .collect()
 }
@@ -110,8 +139,47 @@ mod tests {
         assert_eq!(
             paths,
             vec![
-                markdown_file.to_string_lossy().to_string(),
-                text_file.to_string_lossy().to_string()
+                markdown_file
+                    .canonicalize()
+                    .expect("markdown file should canonicalize")
+                    .to_string_lossy()
+                    .to_string(),
+                text_file
+                    .canonicalize()
+                    .expect("text file should canonicalize")
+                    .to_string_lossy()
+                    .to_string()
+            ]
+        );
+
+        fs::remove_dir_all(root).expect("test folder should be removed");
+    }
+
+    #[test]
+    fn resolves_relative_launch_arguments_from_the_invoking_working_directory() {
+        let root = test_root("relative-args");
+        fs::create_dir_all(&root).expect("test folder should be created");
+        let markdown_file = root.join("notes.md");
+        fs::write(&markdown_file, "# Notes").expect("markdown file should be created");
+
+        let paths = opened_markdown_paths_from_args_with_cwd(
+            [
+                "/Applications/Markra.app/Contents/MacOS/markra".to_string(),
+                ".".to_string(),
+                "notes.md".to_string(),
+            ],
+            &root,
+        );
+        let root = root.canonicalize().expect("test root should canonicalize");
+        let markdown_file = markdown_file
+            .canonicalize()
+            .expect("markdown file should canonicalize");
+
+        assert_eq!(
+            paths,
+            vec![
+                root.to_string_lossy().to_string(),
+                markdown_file.to_string_lossy().to_string()
             ]
         );
 
@@ -135,7 +203,14 @@ mod tests {
 
         let paths = opened_markdown_paths_from_urls(&[markdown_url, unsupported_url, remote_url]);
 
-        assert_eq!(paths, vec![markdown_file.to_string_lossy().to_string()]);
+        assert_eq!(
+            paths,
+            vec![markdown_file
+                .canonicalize()
+                .expect("markdown file should canonicalize")
+                .to_string_lossy()
+                .to_string()]
+        );
 
         fs::remove_dir_all(root).expect("test folder should be removed");
     }

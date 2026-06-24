@@ -4,6 +4,9 @@ import { useApplicationShortcuts, useNativeMenuHandlers } from "./useNativeBindi
 
 describe("useNativeMenuHandlers", () => {
   const baseOptions = {
+    importLocalImages: vi.fn(),
+    insertMarkdownImage: vi.fn(),
+    insertMarkdownLink: vi.fn(),
     insertMarkdownSnippet: vi.fn(),
     insertMarkdownTable: vi.fn(),
     openDocument: vi.fn(),
@@ -14,10 +17,15 @@ describe("useNativeMenuHandlers", () => {
   };
 
   it("routes the insert table menu command to the editor table insertion", () => {
+    const insertMarkdownLink = vi.fn();
+    const insertMarkdownImage = vi.fn();
     const insertMarkdownSnippet = vi.fn();
     const insertMarkdownTable = vi.fn();
     const { result } = renderHook(() =>
       useNativeMenuHandlers({
+        importLocalImages: vi.fn(),
+        insertMarkdownImage,
+        insertMarkdownLink,
         insertMarkdownSnippet,
         insertMarkdownTable,
         openDocument: vi.fn(),
@@ -31,6 +39,62 @@ describe("useNativeMenuHandlers", () => {
     result.current.insertTable?.();
 
     expect(insertMarkdownTable).toHaveBeenCalledTimes(1);
+    expect(insertMarkdownImage).not.toHaveBeenCalled();
+    expect(insertMarkdownLink).not.toHaveBeenCalled();
+    expect(insertMarkdownSnippet).not.toHaveBeenCalled();
+  });
+
+  it("routes the insert image menu command to the editor image insertion", () => {
+    const importLocalImages = vi.fn();
+    const insertMarkdownImage = vi.fn();
+    const insertMarkdownSnippet = vi.fn();
+    const { result } = renderHook(() =>
+      useNativeMenuHandlers({
+        ...baseOptions,
+        importLocalImages,
+        insertMarkdownImage,
+        insertMarkdownSnippet
+      })
+    );
+
+    result.current.insertImage?.();
+
+    expect(insertMarkdownImage).toHaveBeenCalledTimes(1);
+    expect(importLocalImages).not.toHaveBeenCalled();
+    expect(insertMarkdownSnippet).not.toHaveBeenCalled();
+  });
+
+  it("routes the import local images menu command separately from image insertion", () => {
+    const importLocalImages = vi.fn();
+    const insertMarkdownImage = vi.fn();
+    const { result } = renderHook(() =>
+      useNativeMenuHandlers({
+        ...baseOptions,
+        importLocalImages,
+        insertMarkdownImage
+      })
+    );
+
+    result.current.importLocalImages?.();
+
+    expect(importLocalImages).toHaveBeenCalledTimes(1);
+    expect(insertMarkdownImage).not.toHaveBeenCalled();
+  });
+
+  it("routes the insert link menu command to the editor link insertion", () => {
+    const insertMarkdownLink = vi.fn();
+    const insertMarkdownSnippet = vi.fn();
+    const { result } = renderHook(() =>
+      useNativeMenuHandlers({
+        ...baseOptions,
+        insertMarkdownLink,
+        insertMarkdownSnippet
+      })
+    );
+
+    result.current.insertLink?.();
+
+    expect(insertMarkdownLink).toHaveBeenCalledTimes(1);
     expect(insertMarkdownSnippet).not.toHaveBeenCalled();
   });
 
@@ -85,6 +149,76 @@ describe("useNativeMenuHandlers", () => {
     });
   });
 
+  it("routes shifted digit formatting commands through physical key data", () => {
+    const runEditorShortcut = vi.fn();
+    const { result } = renderHook(() =>
+      useNativeMenuHandlers({
+        ...baseOptions,
+        runEditorShortcut
+      })
+    );
+
+    result.current.formatBulletList?.();
+
+    expect(runEditorShortcut).toHaveBeenCalledWith("*", {
+      altKey: false,
+      code: "Digit8",
+      shiftKey: true
+    });
+  });
+
+  it("routes native edit history commands through editor shortcuts", () => {
+    const runEditorShortcut = vi.fn();
+    const { result } = renderHook(() =>
+      useNativeMenuHandlers({
+        ...baseOptions,
+        runEditorShortcut
+      })
+    );
+
+    result.current.editUndo?.();
+    result.current.editRedo?.();
+
+    expect(runEditorShortcut).toHaveBeenNthCalledWith(1, "z");
+    expect(runEditorShortcut).toHaveBeenNthCalledWith(2, "z", {
+      shiftKey: true
+    });
+  });
+
+  it("keeps native edit history commands inside a focused text input", () => {
+    const runEditorShortcut = vi.fn();
+    const execCommand = vi.fn().mockReturnValue(true);
+    const input = document.createElement("input");
+    const originalExecCommand = document.execCommand;
+    input.type = "text";
+    document.body.append(input);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand
+    });
+    const { result } = renderHook(() =>
+      useNativeMenuHandlers({
+        ...baseOptions,
+        runEditorShortcut
+      })
+    );
+
+    input.focus();
+
+    result.current.editUndo?.();
+    result.current.editRedo?.();
+
+    expect(execCommand).toHaveBeenNthCalledWith(1, "undo");
+    expect(execCommand).toHaveBeenNthCalledWith(2, "redo");
+    expect(runEditorShortcut).not.toHaveBeenCalled();
+
+    input.remove();
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: originalExecCommand
+    });
+  });
+
   it("routes the native all-folds command through the configured editor shortcut", () => {
     const runEditorShortcut = vi.fn();
     const { result } = renderHook(() =>
@@ -111,6 +245,7 @@ describe("useNativeMenuHandlers", () => {
     const toggleAiAgent = vi.fn();
     const toggleAiCommand = vi.fn();
     const toggleDocumentHistory = vi.fn();
+    const toggleFullscreen = vi.fn();
     const toggleMarkdownFiles = vi.fn();
     const toggleReadOnlyMode = vi.fn();
     const toggleSourceMode = vi.fn();
@@ -122,6 +257,7 @@ describe("useNativeMenuHandlers", () => {
         toggleAiAgent,
         toggleAiCommand,
         toggleDocumentHistory,
+        toggleFullscreen,
         toggleMarkdownFiles,
         toggleReadOnlyMode,
         toggleSourceMode
@@ -130,6 +266,7 @@ describe("useNativeMenuHandlers", () => {
 
     result.current.closeDocument?.();
     result.current.checkForUpdates?.();
+    result.current.toggleFullscreen?.();
     result.current.toggleMarkdownFiles?.();
     result.current.toggleDocumentHistory?.();
     result.current.toggleAiAgent?.();
@@ -139,6 +276,7 @@ describe("useNativeMenuHandlers", () => {
 
     expect(closeDocument).toHaveBeenCalledTimes(1);
     expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(toggleFullscreen).toHaveBeenCalledTimes(1);
     expect(toggleMarkdownFiles).toHaveBeenCalledTimes(1);
     expect(toggleDocumentHistory).toHaveBeenCalledTimes(1);
     expect(toggleAiAgent).toHaveBeenCalledTimes(1);

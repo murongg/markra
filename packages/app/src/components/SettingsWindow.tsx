@@ -8,6 +8,8 @@ import {
   ExportSettings,
   GeneralSettings,
   KeyboardShortcutsSettings,
+  NetworkSettings,
+  SpellcheckSettings,
   SyncSettings,
   StorageSettings,
   TemplatesSettings,
@@ -21,6 +23,7 @@ import { appVersion } from "../lib/app-version";
 import { resolveDesktopPlatform } from "../lib/platform";
 import { closeNativeWindow } from "../lib/tauri";
 import { MacWindowControls } from "./MacWindowControls";
+import { WindowsWindowControls } from "./WindowsWindowControls";
 import { getAppRuntime } from "../runtime";
 import type { SettingsCategory } from "../hooks/useSettingsWindowState";
 
@@ -41,26 +44,37 @@ export function SettingsWindow() {
     handleCreateMarkdownTemplate,
     handleDeleteMarkdownTemplate,
     handleResetWelcomeDocument,
+    handleExportSettings,
+    handleImportSettings,
     handleRunBackup,
     handleRunSync,
+    handleInstallShellCommand,
     handleSaveAiSettings,
     handleTestAiProvider,
     handleChooseBackupTargetPath,
     handleDetectPandocPath,
+    handleRefreshShellCommandStatus,
+    handleUninstallShellCommand,
     handleUpdateAiSettings,
     handleUpdateBackupSettings,
     handleUpdateSyncSettings,
     handleUpdateEditorPreferences,
     handleUpdateMarkdownTemplate,
     handleUpdateExportSettings,
+    handleUpdateNetworkSettings,
     handleUpdateWebSearchSettings,
     markdownTemplates,
+    networkSettings,
     selectedAiProvider,
     setActiveCategory,
     setSelectedAiProviderId,
     settingsFocusTarget,
+    settingsTransferRunning,
+    shellCommandRunning,
+    shellCommandStatus,
     syncRunning,
     syncSettings,
+    systemFontFamilies,
     clearSettingsFocusTarget,
     translate,
     webSearchSettings,
@@ -69,10 +83,17 @@ export function SettingsWindow() {
   const appFeatures = getAppRuntime().features;
   const hiddenCategories: SettingsCategory[] = [
     ...(appFeatures.ai ? [] : (["ai", "providers", "web"] as SettingsCategory[])),
-    ...(appFeatures.export ? [] : (["export"] as SettingsCategory[]))
+    ...(appFeatures.networkProxy ? [] : (["network"] as SettingsCategory[])),
+    ...(appFeatures.export ? [] : (["export"] as SettingsCategory[])),
+    ...(appFeatures.spellcheck ? [] : (["spellcheck"] as SettingsCategory[]))
   ];
   const activeSettingsCategory = hiddenCategories.includes(activeCategory) ? "general" : activeCategory;
   const platform = resolveDesktopPlatform();
+  const showWindowsWindowChrome = platform === "windows" && appFeatures.nativeWindowChrome;
+  const showMacosWindowChrome = platform === "macos" && appFeatures.nativeWindowChrome;
+  const settingsLayoutClassName = showWindowsWindowChrome
+    ? "settings-layout absolute inset-x-0 top-10 bottom-0 grid grid-cols-[180px_minmax(0,1fr)]"
+    : "settings-layout grid h-screen grid-cols-[180px_minmax(0,1fr)]";
   const handleCloseSettings = () => {
     closeNativeWindow().catch(() => {});
   };
@@ -87,17 +108,38 @@ export function SettingsWindow() {
       aria-label={translate("settings.aria.main")}
     >
       <AppToaster language={appLanguage.language} />
-      {platform === "windows" ? null : (
+      {showMacosWindowChrome ? (
         <div
           className="settings-drag-region fixed inset-x-0 top-0 z-10 h-9.5 select-none [-webkit-user-select:none]"
           aria-label={translate("settings.aria.dragRegion")}
           data-tauri-drag-region
         />
-      )}
-      {platform === "macos" ? (
+      ) : null}
+      {showMacosWindowChrome ? (
         <MacWindowControls className="fixed top-0 left-0 z-20 h-9.5" />
       ) : null}
-      <div className="settings-layout grid h-screen grid-cols-[180px_minmax(0,1fr)]">
+      {showWindowsWindowChrome ? (
+        <header
+          className="settings-window-chrome fixed inset-x-0 top-0 z-30 grid h-10 grid-cols-[minmax(0,1fr)_auto] select-none items-center bg-(--bg-chrome) [-webkit-user-select:none]"
+          aria-label={translate("settings.aria.dragRegion")}
+          data-tauri-drag-region
+        >
+          <div
+            className="relative z-20 flex h-10 items-center px-3 text-[12px] leading-none font-[620] text-(--text-heading)"
+            data-tauri-drag-region
+          >
+            Markra
+          </div>
+          <div
+            className="pointer-events-none absolute top-0 left-1/2 z-10 flex h-10 -translate-x-1/2 items-center justify-center px-6 text-[12px] leading-none font-[620] text-(--text-heading)"
+            data-tauri-drag-region
+          >
+            {translate("settings.title")}
+          </div>
+          <WindowsWindowControls />
+        </header>
+      ) : null}
+      <div className={settingsLayoutClassName}>
         <SettingsSidebar
           activeCategory={activeSettingsCategory}
           appVersion={appVersion}
@@ -108,6 +150,7 @@ export function SettingsWindow() {
         />
         <SettingsContent
           activeCategory={activeSettingsCategory}
+          platform={platform}
           translate={translate}
           onClose={platform === "linux" ? handleCloseSettings : undefined}
         >
@@ -120,9 +163,21 @@ export function SettingsWindow() {
               updatesEnabled={appFeatures.updater}
               welcomeReset={welcomeReset}
               onCheckForUpdates={updater.checkForUpdates}
+              onInstallShellCommand={handleInstallShellCommand}
+              onRefreshShellCommand={handleRefreshShellCommandStatus}
               onResetWelcomeDocument={handleResetWelcomeDocument}
               onSelectLanguage={appLanguage.selectLanguage}
+              onUninstallShellCommand={handleUninstallShellCommand}
               onUpdatePreferences={handleUpdateEditorPreferences}
+              shellCommandRunning={shellCommandRunning}
+              shellCommandStatus={shellCommandStatus}
+            />
+          ) : null}
+          {activeSettingsCategory === "network" ? (
+            <NetworkSettings
+              settings={networkSettings}
+              translate={translate}
+              onUpdateSettings={handleUpdateNetworkSettings}
             />
           ) : null}
           {appFeatures.ai && activeSettingsCategory === "ai" ? (
@@ -158,7 +213,10 @@ export function SettingsWindow() {
             <StorageSettings
               preferences={editorPreferences}
               s3ImageUploadEnabled={appFeatures.s3ImageUpload}
+              settingsTransferRunning={settingsTransferRunning}
               translate={translate}
+              onExportSettings={handleExportSettings}
+              onImportSettings={handleImportSettings}
               onUpdatePreferences={handleUpdateEditorPreferences}
             />
           ) : null}
@@ -183,11 +241,17 @@ export function SettingsWindow() {
           ) : null}
           {activeSettingsCategory === "appearance" ? (
             <AppearanceSettings
-              customThemeCss={appTheme.customThemeCss}
-              selectedTheme={appTheme.theme}
+              darkCustomThemeCss={appTheme.darkCustomThemeCss}
+              lightCustomThemeCss={appTheme.lightCustomThemeCss}
+              selectedAppearanceMode={appTheme.appearanceMode}
+              selectedDarkTheme={appTheme.darkTheme}
+              selectedLightTheme={appTheme.lightTheme}
               translate={translate}
-              onUpdateCustomThemeCss={appTheme.updateCustomThemeCss}
-              onSelectTheme={appTheme.selectTheme}
+              onUpdateDarkCustomThemeCss={appTheme.updateDarkCustomThemeCss}
+              onUpdateLightCustomThemeCss={appTheme.updateLightCustomThemeCss}
+              onSelectAppearanceMode={appTheme.selectAppearanceMode}
+              onSelectDarkTheme={appTheme.selectDarkTheme}
+              onSelectLightTheme={appTheme.selectLightTheme}
             />
           ) : null}
           {activeSettingsCategory === "editor" ? (
@@ -195,6 +259,14 @@ export function SettingsWindow() {
               aiEnabled={appFeatures.ai}
               preferences={editorPreferences}
               s3ImageUploadEnabled={appFeatures.s3ImageUpload}
+              systemFontFamilies={systemFontFamilies}
+              translate={translate}
+              onUpdatePreferences={handleUpdateEditorPreferences}
+            />
+          ) : null}
+          {appFeatures.spellcheck && activeSettingsCategory === "spellcheck" ? (
+            <SpellcheckSettings
+              preferences={editorPreferences}
               translate={translate}
               onUpdatePreferences={handleUpdateEditorPreferences}
             />

@@ -4,11 +4,13 @@ import path from "node:path";
 import { defineConfig } from "bumpp";
 
 const desktopPackagePath = "apps/desktop/package.json";
+const webPackagePath = "apps/web/package.json";
 const cargoManifestPath = "apps/desktop/src-tauri/Cargo.toml";
 const tauriConfigPath = "apps/desktop/src-tauri/tauri.conf.json";
 const cargoLockPath = "apps/desktop/src-tauri/Cargo.lock";
+const changelogPath = "CHANGELOG.md";
 
-export const bumppFilePaths = ["package.json", desktopPackagePath];
+export const bumppFilePaths = ["package.json", desktopPackagePath, webPackagePath];
 
 export function updateCargoPackageVersion(contents, newVersion) {
   const lines = contents.split(/(?<=\n)/u);
@@ -84,11 +86,27 @@ function syncCargoLock(operation) {
   addUpdatedFile(operation, cargoLockPath);
 }
 
+export function generateChangelog({ cwd }) {
+  execFileSync("pnpm", ["exec", "conventional-changelog", "-p", "conventionalcommits", "-i", changelogPath, "-s"], {
+    cwd,
+    stdio: "inherit",
+  });
+}
+
+export function syncChangelog(operation, dependencies = { generateChangelog }) {
+  dependencies.generateChangelog({
+    cwd: operation.options.cwd,
+    version: operation.state.newVersion,
+  });
+  addUpdatedFile(operation, changelogPath);
+}
+
 export default defineConfig({
   execute(operation) {
     syncCargoPackageVersion(operation);
     syncTauriVersion(operation);
     syncCargoLock(operation);
+    syncChangelog(operation);
   },
   files: bumppFilePaths,
 });

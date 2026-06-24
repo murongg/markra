@@ -8,16 +8,27 @@ describe("editor stylesheet", () => {
     expect(styles).toContain('@source "../../../packages/ui/src"');
   });
 
-  it("uses theme-aware custom text cursors for editor text surfaces", () => {
+  it("uses theme-aware custom text cursors for visual editor text surfaces", () => {
     const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
 
     expect(styles).toContain("--editor-text-cursor:");
     expect(styles).toContain(".markdown-paper .ProseMirror");
-    expect(styles).toContain(".markdown-source-input");
     expect(styles).toContain(".markdown-paper[data-editor-theme=\"solarized-dark\"]");
     expect(styles).toContain("cursor: var(--editor-text-cursor)");
     expect(styles).toContain("%231a1c1e");
     expect(styles).toContain("%23ffffff");
+    expect(styles).not.toContain(".markdown-source-input");
+  });
+
+  it("applies selected visual editor fonts to the editable ProseMirror surface", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const surfaceRuleStart = styles.indexOf(".markdown-paper [data-milkdown-root],");
+    const surfaceRuleEnd = styles.indexOf(".markdown-paper .ProseMirror li", surfaceRuleStart);
+    const surfaceRule = styles.slice(surfaceRuleStart, surfaceRuleEnd);
+
+    expect(surfaceRuleStart).toBeGreaterThanOrEqual(0);
+    expect(surfaceRuleEnd).toBeGreaterThan(surfaceRuleStart);
+    expect(surfaceRule).toContain("font-family: var(--editor-font-family);");
   });
 
   it("forces a grabbing cursor during document tab pointer drags", () => {
@@ -58,6 +69,44 @@ describe("editor stylesheet", () => {
     expect(styles).toContain("background-clip: content-box");
   });
 
+  it("keeps editor scrollbars below the titlebar tab area", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const scrollRuleStart = styles.indexOf(".editor-content-slot .paper-scroll {");
+    const scrollRuleEnd = styles.indexOf(".editor-content-slot .markdown-paper,", scrollRuleStart);
+    const scrollRule = styles.slice(scrollRuleStart, scrollRuleEnd);
+    const paperRuleStart = styles.indexOf(".editor-content-slot .markdown-paper,");
+    const paperRuleEnd = styles.indexOf("@media (max-width: 900px)", paperRuleStart);
+    const paperRule = styles.slice(paperRuleStart, paperRuleEnd);
+
+    expect(scrollRuleStart).toBeGreaterThanOrEqual(0);
+    expect(scrollRuleEnd).toBeGreaterThan(scrollRuleStart);
+    expect(scrollRule).toContain("height: calc(100% - 2.5rem);");
+    expect(scrollRule).toContain("margin-top: 2.5rem;");
+    expect(paperRuleStart).toBeGreaterThanOrEqual(0);
+    expect(paperRuleEnd).toBeGreaterThan(paperRuleStart);
+    expect(paperRule).toContain("padding-top: 1rem;");
+  });
+
+  it("keeps visible scrollbars for the macOS 27 WebKit scrolling workaround", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const workaroundStart = styles.indexOf('html[data-webkit-scroll-workaround="macos-27"]');
+    const workaroundEnd = styles.indexOf("  html,\n  body,", workaroundStart);
+    const workaroundStyles = styles.slice(workaroundStart, workaroundEnd);
+
+    expect(workaroundStart).toBeGreaterThanOrEqual(0);
+    expect(workaroundEnd).toBeGreaterThan(workaroundStart);
+    expect(workaroundStyles).toContain('html[data-webkit-scroll-workaround="macos-27"]');
+    expect(workaroundStyles).toContain('html[data-webkit-scroll-workaround="macos-27"] *');
+    expect(workaroundStyles).toContain("scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track)");
+    expect(workaroundStyles).toContain("scrollbar-width: thin");
+    expect(workaroundStyles).toContain('html[data-webkit-scroll-workaround="macos-27"] *::-webkit-scrollbar');
+    expect(workaroundStyles).toContain("width: 10px");
+    expect(workaroundStyles).toContain("height: 10px");
+    expect(workaroundStyles).not.toContain("scrollbar-color: auto");
+    expect(workaroundStyles).not.toContain("width: auto");
+    expect(workaroundStyles).not.toContain("height: auto");
+  });
+
   it("keeps primary editor headings free of divider underlines", () => {
     const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
     const headingStart = styles.indexOf(".markdown-paper h1 {");
@@ -83,6 +132,15 @@ describe("editor stylesheet", () => {
     expect(buttonStyles).toContain("top: calc((1lh - 1rem) / 2);");
     expect(styles).toContain(".markdown-paper .markra-list-toggle-item:hover > .markra-list-toggle-button");
     expect(styles).toContain(".markdown-paper .markra-list-collapsed-content");
+  });
+
+  it("uses distinct unordered list markers for nested editor lists", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+
+    expect(styles).toContain(".markdown-paper ul ul {");
+    expect(styles).toContain("list-style-type: circle;");
+    expect(styles).toContain(".markdown-paper ul ul ul {");
+    expect(styles).toContain("list-style-type: square;");
   });
 
   it("shows a quiet inline level list control for the active rendered heading", () => {
@@ -151,6 +209,38 @@ describe("editor stylesheet", () => {
     expect(imageSelectionStyles).not.toContain("var(--accent)");
     expect(imageSelectionStyles).toContain("outline-offset");
     expect(imageSelectionStyles).not.toContain("outline-none");
+  });
+
+  it("keeps finalized image source text selection visible while the image block is selected", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const sourceSelectionStart = styles.indexOf(".markdown-paper .ProseMirror-hideselection .markra-image-node-source");
+    const sourceSelectionEnd = styles.indexOf(".markdown-paper .markra-image-node-source-invalid", sourceSelectionStart);
+    const sourceSelectionStyles = styles.slice(sourceSelectionStart, sourceSelectionEnd);
+
+    expect(sourceSelectionStart).toBeGreaterThanOrEqual(0);
+    expect(sourceSelectionEnd).toBeGreaterThan(sourceSelectionStart);
+    expect(sourceSelectionStyles).toContain("caret-color: var(--text-primary) !important");
+    expect(sourceSelectionStyles).toContain(".markdown-paper .ProseMirror-hideselection .markra-image-node-source::selection");
+    expect(sourceSelectionStyles).toContain("background: color-mix(in srgb, var(--accent) 28%, transparent)");
+  });
+
+  it("gives horizontal rules a forgiving hit target without heavy selected-node feedback", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const ruleStart = styles.indexOf(".markdown-paper hr {");
+    const ruleEnd = styles.indexOf(".ai-chat-markdown", ruleStart);
+    const ruleStyles = styles.slice(ruleStart, ruleEnd);
+
+    expect(ruleStart).toBeGreaterThanOrEqual(0);
+    expect(ruleEnd).toBeGreaterThan(ruleStart);
+    expect(ruleStyles).toContain("@apply my-5 border-0");
+    expect(ruleStyles).not.toContain("@apply my-8 border-0");
+    expect(ruleStyles).toContain("height:");
+    expect(ruleStyles).toContain("cursor: pointer");
+    expect(ruleStyles).toContain("background:");
+    expect(ruleStyles).toContain(".markdown-paper hr:hover");
+    expect(ruleStyles).toContain(".markdown-paper hr.ProseMirror-selectednode");
+    expect(ruleStyles).toContain("outline: none");
+    expect(ruleStyles).toContain("100% 2px");
   });
 
   it("suppresses editor selection chrome while document search is open", () => {
@@ -236,8 +326,9 @@ describe("editor stylesheet", () => {
     expect(activeSourceStyles).toContain("box-decoration-break: clone");
     expect(activeBreakStart).toBeGreaterThanOrEqual(0);
     expect(activeBreakEnd).toBeGreaterThan(activeBreakStart);
-    expect(activeBreakStyles).toContain("font-size: 0");
-    expect(activeBreakStyles).toContain('content: "\\A"');
+    expect(activeBreakStyles).toContain("font-size: inherit");
+    expect(activeBreakStyles).toContain("line-height: inherit");
+    expect(activeBreakStyles).not.toContain('content: "\\A"');
     expect(activeBreakStyles).not.toContain("display: block");
     expect(styles).toContain(".markdown-paper .markra-math-render-active-preview");
     expect(styles).toContain("margin-top");
@@ -291,14 +382,32 @@ describe("editor stylesheet", () => {
     expect(languageSelectStyles).toContain("border border-(--border-default)");
   });
 
-  it("wraps code block lines instead of forcing horizontal scrolling", () => {
+  it("wraps code block lines by default", () => {
     const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
     const codeStart = styles.indexOf(".markdown-paper .markra-code-block code {");
-    const codeEnd = styles.indexOf(".markdown-paper .hljs-keyword");
+    const codeEnd = styles.indexOf(".markdown-paper[data-code-block-wrap=\"false\"] .markra-code-block pre");
     const codeStyles = styles.slice(codeStart, codeEnd);
 
     expect(codeStyles).toContain("white-space: pre-wrap");
     expect(codeStyles).toContain("overflow-wrap: anywhere");
+  });
+
+  it("allows code block wrapping to be disabled", () => {
+    const styles = readFileSync(`${process.cwd()}/src/styles.css`, "utf8");
+    const preStart = styles.indexOf(".markdown-paper[data-code-block-wrap=\"false\"] .markra-code-block pre");
+    const preEnd = styles.indexOf(".markdown-paper[data-code-block-wrap=\"false\"] .markra-code-block code");
+    const preStyles = styles.slice(preStart, preEnd);
+    const codeStart = styles.indexOf(".markdown-paper[data-code-block-wrap=\"false\"] .markra-code-block code");
+    const codeEnd = styles.indexOf(".markdown-paper .hljs-keyword");
+    const codeStyles = styles.slice(codeStart, codeEnd);
+
+    expect(preStart).toBeGreaterThanOrEqual(0);
+    expect(preEnd).toBeGreaterThan(preStart);
+    expect(preStyles).toContain("overflow-x: auto");
+    expect(codeStart).toBeGreaterThanOrEqual(0);
+    expect(codeEnd).toBeGreaterThan(codeStart);
+    expect(codeStyles).toContain("white-space: pre");
+    expect(codeStyles).toContain("overflow-wrap: normal");
   });
 
   it("folds Mermaid code source while showing the rendered preview", () => {
@@ -501,7 +610,6 @@ describe("editor stylesheet", () => {
     expect(styles).toContain("--link-color: #2f56c6;");
     expect(styles).toContain("--link-color: #b7c5ff;");
     expect(styles).toContain("--editor-link-color: var(--link-color);");
-    expect(styles).toContain(".markdown-source-token-link");
     expect(styles).toContain("color: var(--link-color);");
     expect(styles).toContain(".markdown-paper a[href]::after");
     expect(styles).toContain(".markdown-paper .markra-live-link-label::after");

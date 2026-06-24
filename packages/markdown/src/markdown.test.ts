@@ -17,4 +17,45 @@ describe("markdown helpers", () => {
       { level: 2, title: "Next" }
     ]);
   });
+
+  it("extracts readable titles from formatted markdown headings", () => {
+    expect(
+      getMarkdownOutline(
+        [
+          "# **Synthetic** heading",
+          "## _Linked_ [label](https://example.test)",
+          "### `Code` and ~~old text~~"
+        ].join("\n\n")
+      )
+    ).toEqual([
+      { level: 1, title: "Synthetic heading", titleMarkdown: "**Synthetic** heading" },
+      { level: 2, title: "Linked label", titleMarkdown: "_Linked_ [label](https://example.test)" },
+      { level: 3, title: "Code and old text", titleMarkdown: "`Code` and ~~old text~~" }
+    ]);
+  });
+
+  it("extracts readable titles from Markra highlight and math headings", () => {
+    expect(getMarkdownOutline("# ==Marked== formula $x^2$")).toEqual([
+      { level: 1, title: "Marked formula x^2", titleMarkdown: "==Marked== formula $x^2$" }
+    ]);
+  });
+
+  it("keeps numeric chapter prefixes in heading titles", () => {
+    expect(
+      getMarkdownOutline(["## 1. Overview", "### 2) Details", "## 10. **Final** chapter"].join("\n\n"))
+    ).toEqual([
+      { level: 2, title: "1. Overview" },
+      { level: 3, title: "2) Details" },
+      { level: 2, title: "10. Final chapter", titleMarkdown: "10. **Final** chapter" }
+    ]);
+  });
+
+  it("keeps non-numeric leading marker prefixes in heading titles", () => {
+    expect(
+      getMarkdownOutline(["## - Dash heading", "### > Quoted heading"].join("\n\n"))
+    ).toEqual([
+      { level: 2, title: "- Dash heading" },
+      { level: 3, title: "> Quoted heading" }
+    ]);
+  });
 });

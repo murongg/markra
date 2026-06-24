@@ -2,8 +2,11 @@ use crate::language::{resolve_startup_language, AppLanguage};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{
-    menu::{AboutMetadata, Menu, MenuBuilder, MenuItemBuilder, Submenu, SubmenuBuilder},
-    Emitter, Manager,
+    menu::{
+        AboutMetadata, Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, Submenu,
+        SubmenuBuilder,
+    },
+    AppHandle, Emitter, Manager,
 };
 
 pub(crate) const NATIVE_MENU_COMMAND_EVENT: &str = "markra://menu-command";
@@ -14,9 +17,13 @@ const OPEN_RECENT_FILE_COMMAND_PREFIX: &str = "openRecentFile:";
 const CLEAR_RECENT_FILES_COMMAND: &str = "clearRecentFiles";
 const SETTINGS_WINDOW_COMMAND: &str = "openSettings";
 const CHECK_FOR_UPDATES_COMMAND: &str = "checkForUpdates";
-const MARKRA_GITHUB_URL: &str = "https://github.com/murongg/markra";
+const EDIT_UNDO_COMMAND: &str = "editUndo";
+const EDIT_REDO_COMMAND: &str = "editRedo";
+const MARKRA_GITHUB_URL: &str = "https://github.com/markrahq/markra";
+const OPEN_RECENT_FILE_SUBMENU_ID: &str = "markra:file:open-recent";
+const EMPTY_OPEN_RECENT_FILE_COMMAND: &str = "markra:file:open-recent:empty";
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct NativeRecentFile {
     pub(crate) name: String,
@@ -29,6 +36,8 @@ pub(crate) struct NativeMenuCommand {
     pub(crate) command: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) recent_file: Option<NativeRecentFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) target_window_label: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,55 +46,120 @@ enum NativeApplicationMenuProfile {
     Settings,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeMenuPlatform {
+    Macos,
+    Windows,
+    Linux,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeFullscreenMenuKind {
+    System,
+    FrontendCommand,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct NativeApplicationMenuConfig {
     accelerators: Option<HashMap<String, String>>,
     language: Option<AppLanguage>,
     recent_files: Vec<NativeRecentFile>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct NativeApplicationMenuInstall {
+    config: NativeApplicationMenuConfig,
+    profile: NativeApplicationMenuProfile,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct NativeApplicationMenuSnapshot {
+    installed: Option<NativeApplicationMenuInstall>,
+    latest: NativeApplicationMenuConfig,
+}
+
 #[derive(Default)]
-pub(crate) struct NativeApplicationMenuState(Mutex<NativeApplicationMenuConfig>);
+pub(crate) struct NativeApplicationMenuState(Mutex<NativeApplicationMenuSnapshot>);
 
 impl NativeApplicationMenuState {
-    fn remember(
-        &self,
+    fn requested_config(
         language: AppLanguage,
         accelerators: Option<HashMap<String, String>>,
         recent_files: Vec<NativeRecentFile>,
-    ) {
-        let mut config = self
-            .0
-            .lock()
-            .expect("native application menu config lock poisoned");
-        *config = NativeApplicationMenuConfig {
+    ) -> NativeApplicationMenuConfig {
+        NativeApplicationMenuConfig {
             accelerators,
             language: Some(language),
             recent_files,
-        };
+        }
     }
 
-    fn config(
+    fn request_install(
         &self,
-        identifier: &str,
-    ) -> (
-        AppLanguage,
-        Option<HashMap<String, String>>,
-        Vec<NativeRecentFile>,
+        profile: NativeApplicationMenuProfile,
+        config: NativeApplicationMenuConfig,
+    ) -> bool {
+        let mut snapshot = self
+            .0
+            .lock()
+            .expect("native application menu config lock poisoned");
+
+        let requested = NativeApplicationMenuInstall {
+            config: config.clone(),
+            profile,
+        };
+        let should_install = match &snapshot.installed {
+            Some(installed) => !native_application_menu_install_equivalent(installed, &requested),
+            None => true,
+        };
+
+        snapshot.latest = config;
+        should_install
+    }
+
+    fn remember_installed(
+        &self,
+        profile: NativeApplicationMenuProfile,
+        config: NativeApplicationMenuConfig,
     ) {
-        let config = self
+        let mut snapshot = self
+            .0
+            .lock()
+            .expect("native application menu config lock poisoned");
+
+        snapshot.latest = config.clone();
+        snapshot.installed = Some(NativeApplicationMenuInstall { config, profile });
+    }
+
+    fn latest_config(&self, identifier: &str) -> NativeApplicationMenuConfig {
+        let mut config = self
+            .0
+            .lock()
+            .expect("native application menu config lock poisoned")
+            .latest
+            .clone();
+
+        if config.language.is_none() {
+            config.language = Some(resolve_startup_language(identifier));
+        }
+
+        config
+    }
+
+    fn current_recent_files(&self, identifier: &str) -> Vec<NativeRecentFile> {
+        let snapshot = self
             .0
             .lock()
             .expect("native application menu config lock poisoned")
             .clone();
 
-        (
-            config
-                .language
-                .unwrap_or_else(|| resolve_startup_language(identifier)),
-            config.accelerators,
-            config.recent_files,
-        )
+        let mut config = snapshot.latest;
+        if config.language.is_none() {
+            config.language = Some(resolve_startup_language(identifier));
+        }
+
+        config.recent_files
     }
 }
 
@@ -95,6 +169,27 @@ fn native_application_menu_profile_for_window_label(label: &str) -> NativeApplic
     }
 
     NativeApplicationMenuProfile::Editor
+}
+
+fn current_native_menu_platform() -> NativeMenuPlatform {
+    if cfg!(target_os = "macos") {
+        NativeMenuPlatform::Macos
+    } else if cfg!(target_os = "windows") {
+        NativeMenuPlatform::Windows
+    } else if cfg!(target_os = "linux") {
+        NativeMenuPlatform::Linux
+    } else {
+        NativeMenuPlatform::Other
+    }
+}
+
+fn fullscreen_menu_kind_for_platform(platform: NativeMenuPlatform) -> NativeFullscreenMenuKind {
+    match platform {
+        NativeMenuPlatform::Macos => NativeFullscreenMenuKind::System,
+        NativeMenuPlatform::Windows | NativeMenuPlatform::Linux | NativeMenuPlatform::Other => {
+            NativeFullscreenMenuKind::FrontendCommand
+        }
+    }
 }
 
 #[cfg(test)]
@@ -160,13 +255,29 @@ pub(crate) fn remember_native_menu_window_from_event<R: tauri::Runtime>(
     }
 }
 
+fn focused_native_menu_window_label<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Option<String> {
+    app.webview_windows()
+        .into_iter()
+        .find(|(_, window)| window.is_focused().unwrap_or(false))
+        .map(|(label, _)| label)
+}
+
 pub(crate) fn emit_native_menu_command_payload<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
-    payload: NativeMenuCommand,
+    mut payload: NativeMenuCommand,
 ) {
-    let target_label = app.state::<NativeMenuTargetState>().label();
+    let target_label = focused_native_menu_window_label(app)
+        .or_else(|| app.state::<NativeMenuTargetState>().label());
 
-    if let Some(window) = target_label.and_then(|label| app.get_webview_window(&label)) {
+    if let Some(label) = target_label {
+        payload.target_window_label = Some(label.clone());
+        let Some(window) = app.get_webview_window(&label) else {
+            let _ = app.emit(NATIVE_MENU_COMMAND_EVENT, payload);
+            return;
+        };
+
         let _ = window.emit(NATIVE_MENU_COMMAND_EVENT, payload);
         return;
     }
@@ -204,6 +315,105 @@ fn application_about_metadata() -> AboutMetadata<'static> {
     }
 }
 
+#[cfg(any(windows, test))]
+fn native_about_full_version(metadata: &AboutMetadata<'_>) -> Option<String> {
+    match (&metadata.version, &metadata.short_version) {
+        (Some(version), Some(short_version)) => Some(format!("{version} ({short_version})")),
+        (Some(version), None) => Some(version.clone()),
+        _ => None,
+    }
+}
+
+#[cfg(any(windows, test))]
+fn native_about_dialog_title(metadata: &AboutMetadata<'_>) -> String {
+    format!("About {}", metadata.name.as_deref().unwrap_or("Markra"))
+}
+
+#[cfg(any(windows, test))]
+fn native_about_dialog_message(metadata: &AboutMetadata<'_>) -> String {
+    use std::fmt::Write;
+
+    let mut message = String::new();
+    if let Some(name) = &metadata.name {
+        let _ = writeln!(&mut message, "Name: {name}");
+    }
+    if let Some(version) = native_about_full_version(metadata) {
+        let _ = writeln!(&mut message, "Version: {version}");
+    }
+    if let Some(authors) = &metadata.authors {
+        let _ = writeln!(&mut message, "Authors: {}", authors.join(", "));
+    }
+    if let Some(license) = &metadata.license {
+        let _ = writeln!(&mut message, "License: {license}");
+    }
+    match (&metadata.website_label, &metadata.website) {
+        (Some(label), None) => {
+            let _ = writeln!(&mut message, "Website: {label}");
+        }
+        (None, Some(url)) => {
+            let _ = writeln!(&mut message, "Website: {url}");
+        }
+        (Some(label), Some(url)) => {
+            let _ = writeln!(&mut message, "Website: {label} {url}");
+        }
+        _ => {}
+    }
+    if let Some(comments) = &metadata.comments {
+        let _ = writeln!(&mut message, "\n{comments}");
+    }
+    if let Some(copyright) = &metadata.copyright {
+        let _ = writeln!(&mut message, "\n{copyright}");
+    }
+
+    message
+}
+
+#[cfg(windows)]
+fn encode_windows_wide(text: impl AsRef<str>) -> Vec<u16> {
+    text.as_ref()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+#[cfg(windows)]
+fn show_windows_native_about_dialog(hwnd: isize, metadata: AboutMetadata<'static>) {
+    let message = encode_windows_wide(native_about_dialog_message(&metadata));
+    let title = encode_windows_wide(native_about_dialog_title(&metadata));
+
+    std::thread::spawn(move || unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
+
+        MessageBoxW(
+            hwnd as windows_sys::Win32::Foundation::HWND,
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_ICONINFORMATION | MB_OK,
+        );
+    });
+}
+
+#[cfg(windows)]
+fn show_native_app_about_for_window<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+) -> Result<(), String> {
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
+    show_windows_native_about_dialog(hwnd, application_about_metadata());
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn show_native_app_about_for_window<R: tauri::Runtime>(
+    _window: &tauri::Window<R>,
+) -> Result<(), String> {
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn show_native_app_about(window: tauri::Window) -> Result<(), String> {
+    show_native_app_about_for_window(&window)
+}
+
 fn create_markra_app_submenu<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     labels: crate::menu_labels::MenuLabels,
@@ -229,9 +439,11 @@ fn create_edit_submenu<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     labels: crate::menu_labels::MenuLabels,
 ) -> tauri::Result<Submenu<R>> {
+    let undo = app_menu_item(app, EDIT_UNDO_COMMAND, labels.undo, "CmdOrCtrl+Z")?;
+    let redo = app_menu_item(app, EDIT_REDO_COMMAND, labels.redo, "CmdOrCtrl+Shift+Z")?;
+
     SubmenuBuilder::with_id(app, "markra:edit", labels.edit)
-        .undo_with_text(labels.undo)
-        .redo_with_text(labels.redo)
+        .items(&[&undo, &redo])
         .separator()
         .cut_with_text(labels.cut)
         .copy_with_text(labels.copy)
@@ -241,39 +453,45 @@ fn create_edit_submenu<R: tauri::Runtime>(
 }
 
 fn create_open_recent_file_submenu<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
+    app: &AppHandle<R>,
     labels: crate::menu_labels::MenuLabels,
     recent_files: &[NativeRecentFile],
 ) -> tauri::Result<Submenu<R>> {
-    let mut builder =
-        SubmenuBuilder::with_id(app, "markra:file:open-recent", labels.open_recent_file);
+    let submenu =
+        SubmenuBuilder::with_id(app, OPEN_RECENT_FILE_SUBMENU_ID, labels.open_recent_file)
+            .build()?;
+    populate_open_recent_file_submenu(app, &submenu, labels, recent_files)?;
 
+    Ok(submenu)
+}
+
+fn populate_open_recent_file_submenu<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    submenu: &Submenu<R>,
+    labels: crate::menu_labels::MenuLabels,
+    recent_files: &[NativeRecentFile],
+) -> tauri::Result<()> {
     if recent_files.is_empty() {
         let empty =
-            MenuItemBuilder::with_id("markra:file:open-recent:empty", labels.no_recent_files)
+            MenuItemBuilder::with_id(EMPTY_OPEN_RECENT_FILE_COMMAND, labels.no_recent_files)
                 .enabled(false)
                 .build(app)?;
 
-        return builder.item(&empty).build();
+        submenu.append(&empty)?;
+        return Ok(());
     }
 
-    let mut items = Vec::new();
     for (index, file) in recent_files.iter().enumerate() {
-        let label = if file.name.trim().is_empty() {
-            file.path.as_str()
-        } else {
-            file.name.as_str()
-        };
-        items.push(app_menu_item_without_accelerator(
+        let item = app_menu_item_without_accelerator(
             app,
             &format!("{OPEN_RECENT_FILE_COMMAND_PREFIX}{index}"),
-            label,
-        )?);
+            &recent_file_menu_label(file),
+        )?;
+        submenu.append(&item)?;
     }
 
-    for item in &items {
-        builder = builder.item(item);
-    }
+    let separator = PredefinedMenuItem::separator(app)?;
+    submenu.append(&separator)?;
 
     let clear = app_menu_item_without_accelerator(
         app,
@@ -281,7 +499,46 @@ fn create_open_recent_file_submenu<R: tauri::Runtime>(
         labels.clear_recent_files,
     )?;
 
-    builder.separator().item(&clear).build()
+    submenu.append(&clear)?;
+    Ok(())
+}
+
+fn clear_open_recent_file_submenu<R: tauri::Runtime>(submenu: &Submenu<R>) -> tauri::Result<()> {
+    while submenu.remove_at(0)?.is_some() {}
+    Ok(())
+}
+
+fn refresh_open_recent_file_submenu<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    language: AppLanguage,
+    recent_files: &[NativeRecentFile],
+) -> tauri::Result<()> {
+    let Some(menu) = app.menu() else {
+        return Ok(());
+    };
+    let Some(submenu) = menu
+        .get(OPEN_RECENT_FILE_SUBMENU_ID)
+        .and_then(|item| item.as_submenu().cloned())
+    else {
+        return Ok(());
+    };
+
+    clear_open_recent_file_submenu(&submenu)?;
+    populate_open_recent_file_submenu(
+        app,
+        &submenu,
+        crate::menu_labels::for_language(language),
+        recent_files,
+    )
+}
+
+fn recent_file_menu_label(file: &NativeRecentFile) -> String {
+    let name = file.name.trim();
+    if name.is_empty() {
+        file.path.clone()
+    } else {
+        name.to_string()
+    }
 }
 
 pub(crate) fn create_application_menu<R: tauri::Runtime>(
@@ -329,20 +586,40 @@ fn current_native_application_menu_profile<R: tauri::Runtime>(
         .unwrap_or(NativeApplicationMenuProfile::Editor)
 }
 
+fn native_application_menu_install_equivalent(
+    installed: &NativeApplicationMenuInstall,
+    requested: &NativeApplicationMenuInstall,
+) -> bool {
+    if installed.profile != requested.profile {
+        return false;
+    }
+
+    match requested.profile {
+        NativeApplicationMenuProfile::Editor => {
+            installed.config.language == requested.config.language
+                && installed.config.accelerators == requested.config.accelerators
+        }
+        NativeApplicationMenuProfile::Settings => {
+            installed.config.language == requested.config.language
+        }
+    }
+}
+
 pub(crate) fn native_menu_command_from_id<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     command: &str,
 ) -> Option<NativeMenuCommand> {
     if let Some(index) = recent_file_index_from_command(command) {
-        let (_, _, recent_files) = app
+        let recent_files = app
             .state::<NativeApplicationMenuState>()
-            .config(&app.config().identifier);
+            .current_recent_files(&app.config().identifier);
         return recent_files
             .get(index)
             .cloned()
             .map(|recent_file| NativeMenuCommand {
                 command: OPEN_RECENT_FILE_COMMAND.to_string(),
                 recent_file: Some(recent_file),
+                target_window_label: None,
             });
     }
 
@@ -350,6 +627,7 @@ pub(crate) fn native_menu_command_from_id<R: tauri::Runtime>(
         return Some(NativeMenuCommand {
             command: command.to_string(),
             recent_file: None,
+            target_window_label: None,
         });
     }
 
@@ -374,19 +652,24 @@ fn apply_native_application_menu_for_window_label<R: tauri::Runtime>(
     #[cfg(target_os = "macos")]
     {
         let profile = native_application_menu_profile_for_window_label(label);
-        let (language, accelerators, recent_files) = app
-            .state::<NativeApplicationMenuState>()
-            .config(&app.config().identifier);
+        let state = app.state::<NativeApplicationMenuState>();
+        let config = state.latest_config(&app.config().identifier);
+        let language = config
+            .language
+            .unwrap_or_else(|| resolve_startup_language(&app.config().identifier));
         match create_application_menu_for_profile(
             app,
             profile,
             language,
-            accelerators.as_ref(),
-            &recent_files,
+            config.accelerators.as_ref(),
+            &config.recent_files,
         ) {
-            Ok(menu) => {
-                let _ = app.set_menu(menu);
-            }
+            Ok(menu) => match app.set_menu(menu) {
+                Ok(_) => state.remember_installed(profile, config),
+                Err(error) => {
+                    eprintln!("failed to apply native application menu: {error}");
+                }
+            },
             Err(error) => {
                 eprintln!("failed to apply native application menu: {error}");
             }
@@ -529,6 +812,8 @@ fn create_application_menu_for_language<R: tauri::Runtime>(
         labels.image,
         &menu_accelerator(accelerators, "insertImage", "CmdOrCtrl+Shift+I"),
     )?;
+    let import_local_images =
+        app_menu_item_without_accelerator(app, "importLocalImages", labels.import_local_images)?;
     let table = app_menu_item(
         app,
         "insertTable",
@@ -571,6 +856,8 @@ fn create_application_menu_for_language<R: tauri::Runtime>(
         labels.toggle_source_mode,
         &menu_accelerator(accelerators, "toggleSourceMode", "CmdOrCtrl+Alt+S"),
     )?;
+    let toggle_fullscreen =
+        app_menu_item_without_accelerator(app, "toggleFullscreen", labels.fullscreen)?;
 
     let app_menu = create_markra_app_submenu(app, labels)?;
 
@@ -598,11 +885,18 @@ fn create_application_menu_for_language<R: tauri::Runtime>(
         .separator()
         .items(&[&bullet_list, &ordered_list, &quote, &code_block])
         .separator()
-        .items(&[&link, &image, &table])
+        .items(&[&link, &image, &import_local_images, &table])
         .build()?;
 
-    let view_menu = SubmenuBuilder::with_id(app, "markra:view", labels.view)
-        .fullscreen_with_text(labels.fullscreen)
+    let view_menu_builder = SubmenuBuilder::with_id(app, "markra:view", labels.view);
+    let view_menu_builder = match fullscreen_menu_kind_for_platform(current_native_menu_platform())
+    {
+        NativeFullscreenMenuKind::System => {
+            view_menu_builder.fullscreen_with_text(labels.fullscreen)
+        }
+        NativeFullscreenMenuKind::FrontendCommand => view_menu_builder.item(&toggle_fullscreen),
+    };
+    let view_menu = view_menu_builder
         .separator()
         .items(&[
             &toggle_file_list,
@@ -676,31 +970,34 @@ pub(crate) fn install_application_menu(
     let language = AppLanguage::from_code(&language)
         .ok_or_else(|| format!("Unsupported application menu language: {language}"))?;
     let recent_files = normalize_recent_files(recent_files.unwrap_or_default());
-    app.state::<NativeApplicationMenuState>().remember(
-        language,
-        accelerators.clone(),
-        recent_files.clone(),
-    );
+    let config = NativeApplicationMenuState::requested_config(language, accelerators, recent_files);
 
     #[cfg(target_os = "macos")]
     let profile = current_native_application_menu_profile(&app);
     #[cfg(not(target_os = "macos"))]
     let profile = NativeApplicationMenuProfile::Editor;
 
+    let state = app.state::<NativeApplicationMenuState>();
+    if !state.request_install(profile, config.clone()) {
+        refresh_open_recent_file_submenu(&app, language, &config.recent_files)
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
     let menu = create_application_menu_for_profile(
         &app,
         profile,
         language,
-        accelerators.as_ref(),
-        &recent_files,
+        config.accelerators.as_ref(),
+        &config.recent_files,
     )
     .map_err(|error| error.to_string())?;
 
-    app.set_menu(menu)
-        .map(|_| {
-            crate::windows::hide_native_menu_for_settings_window_in_app(&app);
-        })
-        .map_err(|error| error.to_string())
+    app.set_menu(menu).map_err(|error| error.to_string())?;
+    state.remember_installed(profile, config);
+    crate::windows::hide_native_menu_for_settings_window_in_app(&app);
+
+    Ok(())
 }
 
 pub(crate) fn is_native_new_window_command(command: &str) -> bool {
@@ -720,6 +1017,8 @@ pub(crate) fn is_frontend_menu_command(command: &str) -> bool {
         command,
         CHECK_FOR_UPDATES_COMMAND
             | CLEAR_RECENT_FILES_COMMAND
+            | EDIT_UNDO_COMMAND
+            | EDIT_REDO_COMMAND
             | "openDocument"
             | "openFolder"
             | "openQuickOpen"
@@ -745,7 +1044,9 @@ pub(crate) fn is_frontend_menu_command(command: &str) -> bool {
             | "formatCodeBlock"
             | "insertLink"
             | "insertImage"
+            | "importLocalImages"
             | "insertTable"
+            | "toggleFullscreen"
             | "toggleMarkdownFiles"
             | "toggleAiAgent"
             | "toggleAiCommand"
@@ -776,6 +1077,8 @@ mod tests {
         assert!(is_frontend_menu_command("openDocument"));
         assert!(is_frontend_menu_command("openRecentFile:0"));
         assert!(is_frontend_menu_command("clearRecentFiles"));
+        assert!(is_frontend_menu_command("editUndo"));
+        assert!(is_frontend_menu_command("editRedo"));
         assert!(is_frontend_menu_command("openFolder"));
         assert!(is_frontend_menu_command("openQuickOpen"));
         assert!(is_frontend_menu_command("closeDocument"));
@@ -787,7 +1090,9 @@ mod tests {
         assert!(is_frontend_menu_command("exportLatex"));
         assert!(is_frontend_menu_command("formatBold"));
         assert!(is_frontend_menu_command("insertImage"));
+        assert!(is_frontend_menu_command("importLocalImages"));
         assert!(is_frontend_menu_command("insertTable"));
+        assert!(is_frontend_menu_command("toggleFullscreen"));
         assert!(is_frontend_menu_command("toggleMarkdownFiles"));
         assert!(is_frontend_menu_command("toggleAiAgent"));
         assert!(is_frontend_menu_command("toggleAiCommand"));
@@ -799,6 +1104,24 @@ mod tests {
     }
 
     #[test]
+    fn fullscreen_menu_uses_system_role_on_macos() {
+        assert_eq!(
+            fullscreen_menu_kind_for_platform(NativeMenuPlatform::Macos),
+            NativeFullscreenMenuKind::System
+        );
+    }
+
+    #[test]
+    fn fullscreen_menu_uses_frontend_command_outside_macos() {
+        for platform in [NativeMenuPlatform::Windows, NativeMenuPlatform::Linux] {
+            assert_eq!(
+                fullscreen_menu_kind_for_platform(platform),
+                NativeFullscreenMenuKind::FrontendCommand
+            );
+        }
+    }
+
+    #[test]
     fn about_metadata_includes_version_and_github_link() {
         let metadata = application_about_metadata();
 
@@ -806,13 +1129,25 @@ mod tests {
         assert_eq!(metadata.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(
             metadata.website.as_deref(),
-            Some("https://github.com/murongg/markra")
+            Some("https://github.com/markrahq/markra")
         );
         assert_eq!(metadata.website_label.as_deref(), Some("GitHub"));
         assert!(metadata
             .credits
             .as_deref()
-            .is_some_and(|credits| credits.contains("https://github.com/murongg/markra")));
+            .is_some_and(|credits| credits.contains("https://github.com/markrahq/markra")));
+    }
+
+    #[test]
+    fn native_about_dialog_uses_application_metadata() {
+        let metadata = application_about_metadata();
+
+        assert_eq!(native_about_dialog_title(&metadata), "About Markra");
+
+        let message = native_about_dialog_message(&metadata);
+        assert!(message.contains("Name: Markra"));
+        assert!(message.contains(&format!("Version: {}", env!("CARGO_PKG_VERSION"))));
+        assert!(message.contains(&format!("Website: GitHub {MARKRA_GITHUB_URL}")));
     }
 
     #[test]
@@ -841,6 +1176,25 @@ mod tests {
     }
 
     #[test]
+    fn native_menu_command_payload_serializes_target_window_label() {
+        let payload = NativeMenuCommand {
+            command: "toggleSourceMode".to_string(),
+            recent_file: None,
+            target_window_label: Some("markra-editor-1".to_string()),
+        };
+
+        let value = serde_json::to_value(payload).expect("payload should serialize");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "command": "toggleSourceMode",
+                "targetWindowLabel": "markra-editor-1"
+            })
+        );
+    }
+
+    #[test]
     fn focused_settings_window_uses_settings_menu_profile() {
         assert_eq!(
             native_application_menu_profile_for_window_label("markra-settings"),
@@ -865,5 +1219,120 @@ mod tests {
         assert!(!submenu_ids.contains(&"markra:file".to_string()));
         assert!(!submenu_ids.contains(&"markra:format".to_string()));
         assert!(!submenu_ids.contains(&"markra:view".to_string()));
+    }
+
+    #[test]
+    fn editor_menu_install_equivalence_ignores_recent_file_changes() {
+        let guide = recent_file("guide.md", "/mock-files/guide.md");
+        let notes = recent_file("notes.md", "/mock-files/notes.md");
+        let installed = NativeApplicationMenuInstall {
+            config: menu_config(vec![guide.clone(), notes.clone()]),
+            profile: NativeApplicationMenuProfile::Editor,
+        };
+        let reordered = NativeApplicationMenuInstall {
+            config: menu_config(vec![notes, guide]),
+            profile: NativeApplicationMenuProfile::Editor,
+        };
+        let renamed = NativeApplicationMenuInstall {
+            config: menu_config(vec![
+                recent_file("guide-new.md", "/mock-files/guide.md"),
+                recent_file("notes.md", "/mock-files/notes.md"),
+            ]),
+            profile: NativeApplicationMenuProfile::Editor,
+        };
+
+        assert!(native_application_menu_install_equivalent(
+            &installed, &reordered
+        ));
+        assert!(native_application_menu_install_equivalent(
+            &installed, &renamed
+        ));
+
+        let with_new_file = NativeApplicationMenuInstall {
+            config: menu_config(vec![
+                recent_file("draft.md", "/mock-files/draft.md"),
+                recent_file("guide.md", "/mock-files/guide.md"),
+                recent_file("notes.md", "/mock-files/notes.md"),
+            ]),
+            profile: NativeApplicationMenuProfile::Editor,
+        };
+
+        assert!(native_application_menu_install_equivalent(
+            &installed,
+            &with_new_file
+        ));
+    }
+
+    #[test]
+    fn settings_menu_install_equivalence_ignores_editor_recent_files() {
+        let installed = NativeApplicationMenuInstall {
+            config: menu_config(vec![]),
+            profile: NativeApplicationMenuProfile::Settings,
+        };
+        let requested = NativeApplicationMenuInstall {
+            config: NativeApplicationMenuConfig {
+                accelerators: Some(HashMap::from([(
+                    "formatBold".to_string(),
+                    "CmdOrCtrl+Alt+B".to_string(),
+                )])),
+                language: Some(AppLanguage::En),
+                recent_files: vec![recent_file("guide.md", "/mock-files/guide.md")],
+            },
+            profile: NativeApplicationMenuProfile::Settings,
+        };
+
+        assert!(native_application_menu_install_equivalent(
+            &installed, &requested
+        ));
+    }
+
+    #[test]
+    fn native_menu_state_updates_recent_mapping_without_reinstalling_for_recent_changes() {
+        let state = NativeApplicationMenuState::default();
+        let guide = recent_file("guide.md", "/mock-files/guide.md");
+        let notes = recent_file("notes.md", "/mock-files/notes.md");
+        let initial = menu_config(vec![guide.clone(), notes.clone()]);
+
+        assert!(state.request_install(NativeApplicationMenuProfile::Editor, initial.clone()));
+        state.remember_installed(NativeApplicationMenuProfile::Editor, initial.clone());
+
+        let reordered = menu_config(vec![notes.clone(), guide.clone()]);
+
+        assert!(!state.request_install(NativeApplicationMenuProfile::Editor, reordered.clone()));
+        assert_eq!(
+            state.latest_config("com.markra.test").recent_files,
+            reordered.recent_files
+        );
+        assert_eq!(
+            state.current_recent_files("com.markra.test"),
+            reordered.recent_files
+        );
+
+        let with_new_file = menu_config(vec![
+            recent_file("draft.md", "/mock-files/draft.md"),
+            notes,
+            guide,
+        ]);
+
+        assert!(!state.request_install(NativeApplicationMenuProfile::Editor, with_new_file.clone()));
+        assert_eq!(
+            state.current_recent_files("com.markra.test"),
+            with_new_file.recent_files
+        );
+    }
+
+    fn recent_file(name: &str, path: &str) -> NativeRecentFile {
+        NativeRecentFile {
+            name: name.to_string(),
+            path: path.to_string(),
+        }
+    }
+
+    fn menu_config(recent_files: Vec<NativeRecentFile>) -> NativeApplicationMenuConfig {
+        NativeApplicationMenuConfig {
+            accelerators: None,
+            language: Some(AppLanguage::En),
+            recent_files,
+        }
     }
 }

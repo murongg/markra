@@ -10,11 +10,13 @@ import {
   Palette,
   PenLine,
   SlidersHorizontal,
+  SpellCheck,
   Sparkles,
+  Wifi,
   X,
   type LucideIcon
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import type { SettingsCategory } from "../hooks/useSettingsWindowState";
 import type { DesktopPlatform } from "../lib/platform";
 import type { I18nKey } from "@markra/shared";
@@ -74,6 +76,11 @@ const settingsCategories: SettingsCategoryDefinition[] = [
     labelKey: "settings.categories.editor"
   },
   {
+    icon: SpellCheck,
+    id: "spellcheck",
+    labelKey: "settings.categories.spellcheck"
+  },
+  {
     icon: LayoutTemplate,
     id: "templates",
     labelKey: "settings.categories.templates"
@@ -87,6 +94,11 @@ const settingsCategories: SettingsCategoryDefinition[] = [
     icon: Download,
     id: "export",
     labelKey: "settings.categories.export"
+  },
+  {
+    icon: Wifi,
+    id: "network",
+    labelKey: "settings.categories.network"
   }
 ];
 
@@ -114,10 +126,13 @@ export function SettingsSidebar({
   const headerClassName = platform === "windows"
     ? "settings-sidebar-header flex h-14 items-center px-7"
     : "settings-sidebar-header px-7 pt-14 pb-5";
+  const sidebarSurfaceClassName = platform === "windows"
+    ? "border-r-0 bg-(--bg-chrome)"
+    : "border-r border-(--border-default) bg-(--bg-secondary)";
   const visibleCategories = settingsCategories.filter((category) => !hiddenCategories.includes(category.id));
 
   return (
-    <aside className="settings-sidebar flex min-h-0 flex-col border-r border-(--border-default) bg-(--bg-secondary)">
+    <aside className={`settings-sidebar flex min-h-0 flex-col ${sidebarSurfaceClassName}`}>
       <div className={headerClassName}>
         <h1 className="settings-sidebar-title m-0 text-[17px] leading-6 font-bold tracking-normal text-(--text-heading)">
           {translate("settings.title")}
@@ -175,18 +190,33 @@ export function SettingsContent({
   activeCategory,
   children,
   onClose,
+  platform,
   translate
 }: {
   activeCategory: SettingsCategory;
   children: ReactNode;
   onClose?: () => unknown;
+  platform?: DesktopPlatform;
   translate: Translate;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentSurfaceClassName = platform === "windows"
+    ? "border-t border-l border-(--border-default) rounded-tl-md"
+    : "";
+  const contentHeaderDragRegion = platform === "linux" ? undefined : true;
+
+  useLayoutEffect(() => {
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) return;
+
+    scrollElement.scrollTop = 0;
+  }, [activeCategory]);
+
   return (
-    <section className="settings-content flex min-h-0 min-w-0 flex-col bg-(--bg-primary)">
+    <section className={`settings-content flex min-h-0 min-w-0 flex-col bg-(--bg-primary) ${contentSurfaceClassName}`}>
       <header
         className="settings-content-header relative z-20 flex h-14 shrink-0 items-center border-b border-(--border-default) px-7"
-        data-tauri-drag-region
+        data-tauri-drag-region={contentHeaderDragRegion}
       >
         <h2 className="settings-panel-title m-0 text-[16px] leading-6 font-bold tracking-normal text-(--text-heading)">
           {categoryLabel(activeCategory, translate)}
@@ -204,6 +234,7 @@ export function SettingsContent({
       </header>
 
       <div
+        ref={scrollRef}
         className={
           activeCategory === "providers"
             ? "settings-scroll min-h-0 flex-1 overflow-hidden overscroll-none p-0"

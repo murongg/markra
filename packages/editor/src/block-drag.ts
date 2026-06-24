@@ -42,7 +42,7 @@ const movableNodeNames = new Set([
   "blockquote",
   "code_block",
   "heading",
-  "horizontal_rule",
+  "hr",
   "image",
   "list_item",
   "paragraph",
@@ -51,6 +51,7 @@ const movableNodeNames = new Set([
 const listNodeNames = new Set(["bullet_list", "ordered_list"]);
 const priorityNodeNames = ["list_item", "blockquote"];
 const tableNodeNames = new Set(["table", "table_cell", "table_header", "table_row"]);
+const thinMovableNodeNames = new Set(["hr"]);
 
 const defaultBlockDragLabels: BlockDragLabels = {
   addBlock: "Add block below",
@@ -70,6 +71,7 @@ const dropIndicatorInset = 2;
 const dropIndicatorMaxWidth = 640;
 const edgeScrollMaxStep = 28;
 const edgeScrollThreshold = 72;
+const thinBlockHitPadding = 12;
 const listNestOffset = 36;
 
 function normalizeBlockDragLabels(labels: Partial<BlockDragLabels> | undefined): BlockDragLabels {
@@ -570,6 +572,43 @@ function dragGhostText(range: BlockDragRange) {
   return `${label.slice(0, dragGhostTextLimit - 3)}...`;
 }
 
+function verticalDistanceFromRect(top: number, rect: DOMRect) {
+  if (top < rect.top) return rect.top - top;
+  if (top > rect.bottom) return top - rect.bottom;
+
+  return 0;
+}
+
+function thinBlockRangeNearPoint(view: EditorView, top: number) {
+  let closestRange: BlockDragRange | null = null;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  view.state.doc.forEach((node, offset) => {
+    if (!thinMovableNodeNames.has(node.type.name)) return;
+
+    const dom = targetFromEventTarget(view.nodeDOM(offset));
+    const rect = dom?.getBoundingClientRect();
+    if (!rect) return;
+
+    const distance = verticalDistanceFromRect(top, rect);
+    if (distance > thinBlockHitPadding || distance >= closestDistance) return;
+
+    const range = findMovableBlockAtPosition(view.state, offset);
+    if (!range) return;
+
+    closestRange = range;
+    closestDistance = distance;
+  });
+
+  return closestRange;
+}
+
+function blockToolbarTop(range: BlockDragRange, element: Element, rect: DOMRect) {
+  if (thinMovableNodeNames.has(range.node.type.name)) return rect.top + rect.height / 2;
+
+  return contentBoxFirstLineCenterTop(element, rect);
+}
+
 function scrollContainerFor(viewDom: HTMLElement, ownerDocument: Document) {
   const paperScroll = viewDom.closest<HTMLElement>(".paper-scroll");
   if (paperScroll) return paperScroll;
@@ -923,6 +962,9 @@ class MarkraBlockDragView {
   };
 
   private rangeFromPoint(left: number, top: number) {
+    const thinBlockRange = thinBlockRangeNearPoint(this.view, top);
+    if (thinBlockRange) return thinBlockRange;
+
     let position: ReturnType<EditorView["posAtCoords"]>;
     try {
       position = this.view.posAtCoords({
@@ -1009,7 +1051,7 @@ class MarkraBlockDragView {
 
     const rect = dom.getBoundingClientRect();
     const left = Math.max(8, editorRect.left - blockToolbarGutterOffset);
-    const top = contentBoxFirstLineCenterTop(dom, rect);
+    const top = blockToolbarTop(range, dom, rect);
 
     this.toolbar.style.left = `${Math.round(left)}px`;
     this.toolbar.style.top = `${Math.round(top)}px`;

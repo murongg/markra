@@ -196,6 +196,7 @@ type MarkdownSerializerInfo = {
 type MarkdownSerializerState = {
   containerPhrasing: (node: MarkdownNode, info: MarkdownSerializerInfo) => string;
   enter: (name: string) => () => unknown;
+  safe: (value: string, info: MarkdownSerializerInfo) => string;
 };
 
 type RemarkProcessorData = {
@@ -300,29 +301,34 @@ function isDisplayMathSource(source: string) {
   return ranges.length === 1 && ranges[0]?.kind === "display" && ranges[0].from === 0 && ranges[0].to === source.length;
 }
 
-function isHugoMathRange(range: MathRange) {
-  return range.source.startsWith("\\(") || range.source.startsWith("\\[");
-}
-
 function serializeMarkdownSourceSegment(source: string, state: MarkdownSerializerState, info: MarkdownSerializerInfo) {
   if (!source) return "";
 
-  return state.containerPhrasing(
+  const leadingSpace = source.match(/^[ \t]+/u)?.[0] ?? "";
+  const trailingSpace = source.match(/[ \t]+$/u)?.[0] ?? "";
+  const contentStart = leadingSpace.length;
+  const contentEnd = source.length - trailingSpace.length;
+
+  if (contentStart >= contentEnd) return source;
+
+  const serialized = state.containerPhrasing(
     {
-      children: sourceToInlineMarkdownNodes(source),
+      children: sourceToInlineMarkdownNodes(source.slice(contentStart, contentEnd)),
       type: "paragraph"
     },
     info
   );
+
+  return `${leadingSpace}${serialized}${trailingSpace}`;
 }
 
-function serializeHugoMathAwareParagraphSource(
+function serializeMathAwareParagraphSource(
   source: string,
   state: MarkdownSerializerState,
   info: MarkdownSerializerInfo
 ) {
   const ranges = getMathRanges(source);
-  if (!ranges.some(isHugoMathRange)) return null;
+  if (ranges.length === 0) return null;
 
   let cursor = 0;
   let value = "";
@@ -334,6 +340,75 @@ function serializeHugoMathAwareParagraphSource(
 
   value += serializeMarkdownSourceSegment(source.slice(cursor), state, info);
   return value;
+}
+
+function serializePhrasingNodesAsSegment(
+  children: MarkdownNode[],
+  state: MarkdownSerializerState,
+  info: MarkdownSerializerInfo
+) {
+  return state.containerPhrasing(
+    {
+      children,
+      type: "paragraph"
+    },
+    info
+  );
+}
+
+function serializeMathAwarePhrasingNodes(
+  children: MarkdownNode[] | undefined,
+  state: MarkdownSerializerState,
+  info: MarkdownSerializerInfo
+) {
+  if (!children) return null;
+
+  let changed = false;
+  let value = "";
+  let textBuffer: MarkdownNode[] = [];
+
+  const flushTextBuffer = () => {
+    if (textBuffer.length === 0) return;
+
+    const source = markdownSourceFromInlineNodes(textBuffer);
+    if (source !== null) {
+      const serialized = serializeMathAwareParagraphSource(source, state, info);
+      if (serialized !== null) {
+        value += serialized;
+        changed = true;
+        textBuffer = [];
+        return;
+      }
+    }
+
+    value += serializePhrasingNodesAsSegment(textBuffer, state, info);
+    textBuffer = [];
+  };
+
+  for (const child of children) {
+    if (child.type === "text" || child.type === "break") {
+      textBuffer.push(child);
+      continue;
+    }
+
+    flushTextBuffer();
+
+    if ((child.type === "strong" || child.type === "emphasis") && Array.isArray(child.children)) {
+      const serialized = serializeMathAwarePhrasingNodes(child.children, state, info);
+      if (serialized !== null) {
+        const marker = child.type === "strong" ? "**" : "*";
+        value += `${marker}${serialized}${marker}`;
+        changed = true;
+        continue;
+      }
+    }
+
+    value += serializePhrasingNodesAsSegment([child], state, info);
+  }
+
+  flushTextBuffer();
+
+  return changed ? value : null;
 }
 
 function serializeMathAwareParagraph(
@@ -349,11 +424,46 @@ function serializeMathAwareParagraph(
   const subexit = state.enter("phrasing");
   const value =
     source === null
-      ? state.containerPhrasing(node, info)
-      : serializeHugoMathAwareParagraphSource(source, state, info) ?? state.containerPhrasing(node, info);
+      ? serializeMathAwarePhrasingNodes(node.children, state, info) ?? state.containerPhrasing(node, info)
+      : serializeMathAwareParagraphSource(source, state, info) ?? state.containerPhrasing(node, info);
   subexit();
   exit();
   return value;
+}
+
+function serializeMathAwareText(
+  node: MarkdownNode,
+  _parent: MarkdownNode | undefined,
+  state: MarkdownSerializerState,
+  info: MarkdownSerializerInfo
+) {
+  const value = typeof node.value === "string" ? node.value : "";
+  return serializeMathAwareParagraphSource(value, state, info) ?? state.safe(value, info);
+}
+
+function serializeMathAwareHeading(
+  node: MarkdownNode,
+  _parent: MarkdownNode | undefined,
+  state: MarkdownSerializerState
+) {
+  const headingNode = node as MarkdownNode & { depth?: number };
+  const rank = Math.max(Math.min(6, headingNode.depth || 1), 1);
+  const sequence = "#".repeat(rank);
+  const exit = state.enter("headingAtx");
+  const subexit = state.enter("phrasing");
+  const value =
+    serializeMathAwarePhrasingNodes(node.children, state, {
+      after: "\n",
+      before: "# "
+    }) ?? state.containerPhrasing(node, {
+      after: "\n",
+      before: "# "
+    });
+
+  subexit();
+  exit();
+
+  return value ? `${sequence} ${value}` : sequence;
 }
 
 function remarkMathParseOnly(this: { data: () => RemarkProcessorData }) {
@@ -371,7 +481,9 @@ function remarkMathParseOnly(this: { data: () => RemarkProcessorData }) {
   dataAfterMath.toMarkdownExtensions.splice(toMarkdownExtensionCount);
   dataAfterMath.toMarkdownExtensions.push({
     handlers: {
-      paragraph: serializeMathAwareParagraph
+      heading: serializeMathAwareHeading,
+      paragraph: serializeMathAwareParagraph,
+      text: serializeMathAwareText
     }
   });
 }
@@ -553,6 +665,34 @@ function getMathRanges(text: string) {
   return ranges;
 }
 
+function hasCodeMark(node: ProseNode) {
+  return node.marks.some((mark) => mark.type.spec.code === true || ["code", "inlineCode"].includes(mark.type.name));
+}
+
+function mathRangeTouchesCodeMark(node: ProseNode, range: Pick<MathRange, "from" | "to">) {
+  let touchesCodeMark = false;
+
+  node.forEach((child, offset) => {
+    if (touchesCodeMark || offset >= range.to) return;
+
+    const childTo = offset + child.nodeSize;
+    if (childTo <= range.from || !child.isText) return;
+
+    if (hasCodeMark(child)) {
+      touchesCodeMark = true;
+      return false;
+    }
+  });
+
+  return touchesCodeMark;
+}
+
+function getMathRangesInTextblock(node: ProseNode) {
+  if (node.type.spec.code) return [];
+
+  return getMathRanges(node.textContent).filter((range) => !mathRangeTouchesCodeMark(node, range));
+}
+
 function makeAbsoluteRange(range: MathRange, blockStart: number): MathRange {
   return {
     ...range,
@@ -572,7 +712,7 @@ function findActiveMathRange(state: EditorState) {
 
   const from = Math.min($from.parentOffset, selection.$to.parentOffset);
   const to = Math.max($from.parentOffset, selection.$to.parentOffset);
-  const relativeRange = getMathRanges($from.parent.textContent).find((candidate) =>
+  const relativeRange = getMathRangesInTextblock($from.parent).find((candidate) =>
     selection.empty ? candidate.from < from && from < candidate.to : candidate.from <= from && to <= candidate.to
   );
 
@@ -587,7 +727,7 @@ function findMathRangeByBounds(doc: ProseNode, bounds: ActiveMathSource): MathRa
     if (!node.isTextblock || node.type.spec.code) return;
 
     const blockStart = position + 1;
-    for (const relativeRange of getMathRanges(node.textContent)) {
+    for (const relativeRange of getMathRangesInTextblock(node)) {
       const range = makeAbsoluteRange(relativeRange, blockStart);
       if (range.from !== bounds.from || range.to !== bounds.to) continue;
 
@@ -618,7 +758,7 @@ export function findHiddenDisplayMathSourceRanges(state: EditorState): MarkraHid
     if (!node.isTextblock || node.type.spec.code) return;
 
     const blockStart = position + 1;
-    for (const relativeRange of getMathRanges(node.textContent)) {
+    for (const relativeRange of getMathRangesInTextblock(node)) {
       if (relativeRange.kind !== "display") continue;
 
       const range = makeAbsoluteRange(relativeRange, blockStart);
@@ -647,7 +787,7 @@ function findAdjacentMathRange(state: EditorState, direction: "backward" | "forw
     if (!node.isTextblock || node.type.spec.code) return;
 
     const blockStart = position + 1;
-    for (const relativeRange of getMathRanges(node.textContent)) {
+    for (const relativeRange of getMathRangesInTextblock(node)) {
       const range = makeAbsoluteRange(relativeRange, blockStart);
       const touchesCursor = direction === "forward" ? range.from === cursor : range.to === cursor;
       if (!touchesCursor) continue;
@@ -661,7 +801,7 @@ function findAdjacentMathRange(state: EditorState, direction: "backward" | "forw
 }
 
 function displayMathRangeForWholeTextBlock(node: ProseNode, position: number): MathRange | null {
-  const relativeRanges = getMathRanges(node.textContent);
+  const relativeRanges = getMathRangesInTextblock(node);
   const range = relativeRanges.length === 1 ? relativeRanges[0] : null;
   if (!range || range.kind !== "display") return null;
   if (range.from !== 0 || range.to !== node.textContent.length) return null;
@@ -1116,7 +1256,7 @@ function buildMathDecorations(state: EditorState, activeRange: MathRange | null)
     if (!node.isTextblock || node.type.spec.code) return;
 
     const blockStart = position + 1;
-    for (const relativeRange of getMathRanges(node.textContent)) {
+    for (const relativeRange of getMathRangesInTextblock(node)) {
       const range = renderMathRange(makeAbsoluteRange(relativeRange, blockStart), macros);
       const isActive = activeRange?.from === range.from && activeRange.to === range.to;
       decorations.push(

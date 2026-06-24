@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent
 } from "react";
-import { Columns2, FileText, ImageIcon, Pencil, Plus, X } from "lucide-react";
+import { Columns2, FileText, ImageIcon, LocateFixed, Pencil, Plus, X } from "lucide-react";
 import { IconButton } from "@markra/ui";
 import { t, type AppLanguage } from "@markra/shared";
 import type { MarkdownDocumentTab } from "../hooks/useMarkdownDocument";
@@ -22,14 +22,17 @@ export type MarkdownTabsBarItem = MarkdownTabsBarDocumentItem | MarkdownTabsBarD
 
 type MarkdownTabsBarProps = {
   activeTabId: string | null;
+  focusedTabId?: string | null;
   items: MarkdownTabsBarItem[];
   language?: AppLanguage;
   nativeDragRegionEnabled?: boolean;
   placement?: "editor" | "titlebar";
   onCancelSideBySide?: (tabId: string) => unknown;
   onCloseTab: (tabId: string) => unknown;
+  onFocusTab?: (tabId: string) => unknown;
   onNewTab: () => unknown;
   onOpenTabToSide?: (tabId: string, primaryTabId?: string) => unknown;
+  onRevealTabInFileTree?: (path: string) => unknown;
   onRenameTab?: (tab: MarkdownTabsBarDocumentItem, name: string) => unknown;
   onSelectTab: (tabId: string) => unknown;
 };
@@ -53,20 +56,30 @@ type PointerTabDragPreview = {
   y: number;
 };
 
+type TabDropPosition = "after" | "before";
+
+type PointerTabDropTarget = {
+  position: TabDropPosition;
+  tabId: string;
+};
+
 export const markdownTabDragDataType = "application/x-markra-document-tab";
 const pointerTabDragThresholdPx = 6;
 const pointerTabDragPreviewOffsetPx = 12;
 
 export function MarkdownTabsBar({
   activeTabId,
+  focusedTabId,
   items,
   language = "en",
   nativeDragRegionEnabled = true,
   placement = "editor",
   onCancelSideBySide,
   onCloseTab,
+  onFocusTab,
   onNewTab,
   onOpenTabToSide,
+  onRevealTabInFileTree,
   onRenameTab,
   onSelectTab
 }: MarkdownTabsBarProps) {
@@ -77,7 +90,7 @@ export function MarkdownTabsBar({
   const renameCancelledRef = useRef(false);
   const [contextMenu, setContextMenu] = useState<TabContextMenuState | null>(null);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
-  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
+  const [pointerTabDropTarget, setPointerTabDropTarget] = useState<PointerTabDropTarget | null>(null);
   const [pointerTabDragPreview, setPointerTabDragPreview] = useState<PointerTabDragPreview | null>(null);
   const pointerTabDragRef = useRef<PointerTabDragState | null>(null);
   const pointerDragCleanupRef = useRef<(() => unknown) | null>(null);
@@ -108,6 +121,7 @@ export function MarkdownTabsBar({
   const tabItemGroups = items.map((item) => Array.isArray(item) ? item : [item]);
   const documentItems = tabItemGroups.flatMap((item) => item);
   const documentTabIdsKey = documentItems.map((tab) => tab.id).join("\n");
+  const paneFocusedTabId = focusedTabId ?? activeTabId;
   const sideGroupedTabIds = new Set(
     items.flatMap((item) => Array.isArray(item) ? item.slice(1).map((tab) => tab.id) : [])
   );
@@ -185,26 +199,36 @@ export function MarkdownTabsBar({
 
     return {
       editorTarget,
+      tabTarget,
       targetTabId: tabTarget?.dataset.documentTabId ?? null
     };
   };
+  const pointerTabDropPosition = (target: HTMLElement | null | undefined, clientX: number): TabDropPosition => {
+    const rect = target?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return "after";
+
+    return clientX < rect.left + rect.width / 2 ? "before" : "after";
+  };
   const updatePointerDropFeedback = (event: PointerEvent, draggedTab: MarkdownTabsBarDocumentItem) => {
-    const { editorTarget, targetTabId } = hitTestPointerDropTarget(event);
+    const { editorTarget, tabTarget, targetTabId } = hitTestPointerDropTarget(event);
     const targetTab = targetTabId ? documentItems.find((tab) => tab.id === targetTabId) ?? null : null;
 
     if (targetTab && tabAcceptsSideDrop(targetTab, draggedTab)) {
-      setDragOverTabId(targetTab.id);
+      setPointerTabDropTarget({
+        position: pointerTabDropPosition(tabTarget, event.clientX),
+        tabId: targetTab.id
+      });
       setPointerEditorDropTarget(null);
       return;
     }
 
     if (editorTarget && draggedTab.id !== activeTabId) {
-      setDragOverTabId(null);
+      setPointerTabDropTarget(null);
       setPointerEditorDropTarget(editorTarget);
       return;
     }
 
-    setDragOverTabId(null);
+    setPointerTabDropTarget(null);
     setPointerEditorDropTarget(null);
   };
   const finishPointerTabDrag = (event: PointerEvent | null, commit: boolean) => {
@@ -215,7 +239,7 @@ export function MarkdownTabsBar({
     clearPageDocumentTabDragging();
     clearPointerEditorDropTarget();
     setDraggingTabId(null);
-    setDragOverTabId(null);
+    setPointerTabDropTarget(null);
     setPointerTabDragPreview(null);
 
     if (!pointerDrag?.dragging) return;
@@ -229,10 +253,16 @@ export function MarkdownTabsBar({
     const draggedTab = documentItems.find((tab) => tab.id === pointerDrag.tabId) ?? null;
     if (!draggedTab || !tabCanDragToSide(draggedTab)) return;
 
-    const { editorTarget, targetTabId } = hitTestPointerDropTarget(event);
+    const { editorTarget, tabTarget, targetTabId } = hitTestPointerDropTarget(event);
     const targetTab = targetTabId ? documentItems.find((tab) => tab.id === targetTabId) ?? null : null;
 
     if (targetTab && tabAcceptsSideDrop(targetTab, draggedTab)) {
+      const dropPosition = pointerTabDropPosition(tabTarget, event.clientX);
+      if (dropPosition === "before") {
+        onOpenTabToSide?.(targetTab.id, draggedTab.id);
+        return;
+      }
+
       onOpenTabToSide?.(draggedTab.id, targetTab.id);
       return;
     }
@@ -367,6 +397,17 @@ export function MarkdownTabsBar({
           }
         ]
       : []),
+    ...(onRevealTabInFileTree && contextMenuTab.path && contextMenuTab.displayKind !== "image"
+      ? [
+          {
+            icon: <LocateFixed aria-hidden="true" size={14} />,
+            id: "markra:tab:reveal-in-file-tree",
+            kind: "item" as const,
+            label: label("app.revealActiveFile"),
+            onSelect: () => runTabContextMenuAction(() => onRevealTabInFileTree(contextMenuTab.path as string))
+          }
+        ]
+      : []),
     ...(onCancelSideBySide && contextMenuTabIsSideBySide
       ? [
           {
@@ -427,10 +468,27 @@ export function MarkdownTabsBar({
     }
 
     onSelectTab(selectTabId);
+    onFocusTab?.(tab.id);
   };
-  const renderTabButton = (tab: MarkdownTabsBarDocumentItem, active: boolean, selectTabId = tab.id) => {
+  const renderTabDropIndicator = (position: TabDropPosition | null) => position ? (
+    <span
+      aria-hidden="true"
+      className={`pointer-events-none absolute top-1 bottom-1 z-10 w-0.5 rounded-full bg-(--accent) ${
+        position === "before" ? "left-0" : "right-0"
+      }`}
+      data-document-tab-drop-indicator="true"
+    />
+  ) : null;
+  const renderTabButton = (
+    tab: MarkdownTabsBarDocumentItem,
+    active: boolean,
+    paneFocused: boolean,
+    dropPosition: TabDropPosition | null,
+    selectTabId = tab.id
+  ) => {
     const TabIcon = tab.displayKind === "image" ? ImageIcon : FileText;
     const renaming = tab.id === renamingTabId;
+    const tabTitle = tab.path ?? (tab.name || "Untitled.md");
 
     return renaming ? (
       <div className="flex h-full min-w-0 items-center gap-1.5 rounded-l-md px-2">
@@ -467,6 +525,9 @@ export function MarkdownTabsBar({
         role="tab"
         aria-selected={active}
         data-document-tab-id={tab.id}
+        data-document-tab-pane-focus={paneFocused ? "true" : undefined}
+        data-document-tab-drop-position={dropPosition ?? undefined}
+        title={tabTitle}
         onClick={() => handleSelectTabClick(tab, selectTabId)}
         onDoubleClick={() => startRenamingTab(tab)}
         onDragStart={handlePreventNativeTabDrag}
@@ -493,13 +554,15 @@ export function MarkdownTabsBar({
     </button>
   );
   const renderDocumentTab = (tab: MarkdownTabsBarDocumentItem) => {
-    const active = tab.id === activeTabId;
+    const active = tab.id === paneFocusedTabId;
     const dragged = tab.id === draggingTabId;
-    const sideDropTarget = tab.id === dragOverTabId;
+    const paneFocused = tab.id === paneFocusedTabId;
+    const dropPosition = tab.id === pointerTabDropTarget?.tabId ? pointerTabDropTarget.position : null;
+    const sideDropTarget = Boolean(dropPosition);
 
     return (
       <div
-        className={`group/tab grid h-7 max-w-52 min-w-28 grid-cols-[minmax(0,1fr)_auto] items-center rounded-md border transition-colors duration-150 ease-out ${
+        className={`group/tab relative grid h-7 max-w-52 min-w-28 grid-cols-[minmax(0,1fr)_auto] items-center rounded-md border transition-colors duration-150 ease-out ${
           titlebarPlacement ? "" : "mb-1"
         } ${
           sideDropTarget
@@ -509,13 +572,16 @@ export function MarkdownTabsBar({
             : "border-transparent bg-transparent text-(--text-secondary) hover:bg-(--bg-hover) hover:text-(--text-heading)"
         } ${dragged ? "opacity-60" : ""}`}
         data-document-tab-id={tab.id}
+        data-document-tab-pane-focus={paneFocused ? "true" : undefined}
+        data-document-tab-drop-position={dropPosition ?? undefined}
         draggable={false}
         key={tab.id}
         onContextMenu={(event) => openTabContextMenu(event, tab)}
         onDragStart={handlePreventNativeTabDrag}
       >
-        {renderTabButton(tab, active)}
+        {renderTabButton(tab, active, paneFocused, dropPosition)}
         {renderCloseTabButton(tab, active)}
+        {renderTabDropIndicator(dropPosition)}
       </div>
     );
   };
@@ -531,23 +597,28 @@ export function MarkdownTabsBar({
         key={`group-${index}-${group.map((tab) => tab.id).join(":")}`}
       >
         {group.map((tab, tabIndex) => {
-          const active = tab.id === activeTabId;
+          const active = tab.id === paneFocusedTabId;
           const dragged = tab.id === draggingTabId;
-          const sideDropTarget = tab.id === dragOverTabId;
+          const paneFocused = tab.id === paneFocusedTabId;
+          const dropPosition = tab.id === pointerTabDropTarget?.tabId ? pointerTabDropTarget.position : null;
+          const sideDropTarget = Boolean(dropPosition);
 
           return (
             <div
-              className={`group/tab grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center transition-colors duration-150 ease-out ${
+              className={`group/tab relative grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center transition-colors duration-150 ease-out ${
                 tabIndex > 0 ? "border-l border-(--border-default)" : ""
               } ${sideDropTarget || active ? "bg-(--bg-active)" : "bg-transparent"} ${sideDropTarget ? "outline outline-(--accent) -outline-offset-1" : ""} ${dragged ? "opacity-60" : ""}`}
               data-document-tab-id={tab.id}
+              data-document-tab-pane-focus={paneFocused ? "true" : undefined}
+              data-document-tab-drop-position={dropPosition ?? undefined}
               draggable={false}
               key={tab.id}
               onContextMenu={(event) => openTabContextMenu(event, tab)}
               onDragStart={handlePreventNativeTabDrag}
             >
-              {renderTabButton(tab, active, groupPrimaryTabId)}
+              {renderTabButton(tab, active, paneFocused, dropPosition, groupPrimaryTabId)}
               {renderCloseTabButton(tab, active, true)}
+              {renderTabDropIndicator(dropPosition)}
             </div>
           );
         })}

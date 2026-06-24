@@ -14,6 +14,7 @@ import {
   type ContextMenuEntry
 } from "../components/ContextMenu";
 import type {
+  NativeEditorContextMenuEntryOptions,
   NativeEditorContextMenuOptions,
   NativeMarkdownFileTreeContextMenuHandlers,
   NativeMenuCommand,
@@ -22,6 +23,8 @@ import type {
 import type { NativeMarkdownFolderFile } from "../lib/tauri/file";
 
 type BrowserEditCommand = "copy" | "cut" | "paste" | "selectAll";
+
+type EditorContextMenuEntryOptions = NativeEditorContextMenuEntryOptions;
 
 export type ContextMenuIdPrefixes = {
   editor: string;
@@ -84,18 +87,82 @@ export function nativeAcceleratorsForMarkdownShortcuts(shortcuts: MarkdownShortc
   return accelerators;
 }
 
-function runBrowserEditCommand(command: BrowserEditCommand) {
-  const documentTarget = typeof document === "undefined" ? null : document;
-  const execCommand = documentTarget
-    ? (documentTarget as unknown as Record<string, unknown>)["execCommand"]
-    : null;
-  if (typeof execCommand === "function") {
-    execCommand.call(documentTarget, command);
+function runDocumentEditCommand(
+  documentTarget: Document,
+  command: string,
+  showDefaultUI?: boolean,
+  value?: string
+) {
+  const execCommand = (documentTarget as unknown as Record<string, unknown>)["execCommand"];
+  if (typeof execCommand !== "function") return false;
+
+  try {
+    if (showDefaultUI === undefined && value === undefined) {
+      return Boolean(execCommand.call(documentTarget, command));
+    }
+
+    return Boolean(execCommand.call(documentTarget, command, showDefaultUI, value));
+  } catch {
+    return false;
   }
 }
 
-function browserItem(id: string, label: string, accelerator: string, command: BrowserEditCommand) {
-  return contextMenuItem(id, label, accelerator, () => runBrowserEditCommand(command), false);
+async function readBrowserClipboardText(documentTarget: Document) {
+  const clipboard = documentTarget.defaultView?.navigator.clipboard;
+  const readText = clipboard?.readText;
+  if (typeof readText !== "function") return null;
+
+  return readText.call(clipboard);
+}
+
+async function pasteClipboardText(
+  documentTarget: Document,
+  readClipboardText?: NativeEditorContextMenuOptions["readClipboardText"]
+) {
+  const readText = readClipboardText ?? (() => readBrowserClipboardText(documentTarget));
+
+  try {
+    const text = await readText();
+    if (!text) return false;
+
+    return runDocumentEditCommand(documentTarget, "insertText", false, text);
+  } catch {
+    return false;
+  }
+}
+
+async function runInjectedClipboardPasteCommand(
+  documentTarget: Document,
+  readClipboardText: NonNullable<NativeEditorContextMenuOptions["readClipboardText"]>
+) {
+  const handled = await pasteClipboardText(documentTarget, readClipboardText);
+  if (handled) return true;
+
+  return runDocumentEditCommand(documentTarget, "paste");
+}
+
+function runBrowserEditCommand(command: BrowserEditCommand, options: Pick<EditorContextMenuEntryOptions, "readClipboardText"> = {}) {
+  const documentTarget = typeof document === "undefined" ? null : document;
+  if (!documentTarget) return false;
+
+  if (command === "paste" && options.readClipboardText) {
+    return runInjectedClipboardPasteCommand(documentTarget, options.readClipboardText);
+  }
+
+  const handled = runDocumentEditCommand(documentTarget, command);
+  if (handled || command !== "paste") return handled;
+
+  return pasteClipboardText(documentTarget);
+}
+
+function browserItem(
+  id: string,
+  label: string,
+  accelerator: string,
+  command: BrowserEditCommand,
+  options: Pick<EditorContextMenuEntryOptions, "readClipboardText"> = {}
+) {
+  return contextMenuItem(id, label, accelerator, () => runBrowserEditCommand(command, options), false);
 }
 
 function readAiCommandsAvailable(options: NativeEditorContextMenuOptions) {
@@ -109,7 +176,7 @@ function readAiCommandsAvailable(options: NativeEditorContextMenuOptions) {
 export function createEditorContextMenuEntries(
   handlers: NativeMenuHandlers,
   language: AppLanguage = "en",
-  options: { aiCommandsAvailable?: boolean; markdownShortcuts?: MarkdownShortcutMap } = {},
+  options: EditorContextMenuEntryOptions = {},
   idPrefixes: Partial<ContextMenuIdPrefixes> = {}
 ): ContextMenuEntry[] {
   const prefixes = {
@@ -152,15 +219,16 @@ export function createEditorContextMenuEntries(
     contextMenuItem(editorId("export-latex"), label("menu.exportLatex"), undefined, handlers.exportLatex)
   ]);
   const entries: ContextMenuEntry[] = [
-    browserItem(editorId("cut"), label("menu.cut"), "CmdOrCtrl+X", "cut"),
-    browserItem(editorId("copy"), label("menu.copy"), "CmdOrCtrl+C", "copy"),
-    browserItem(editorId("paste"), label("menu.paste"), "CmdOrCtrl+V", "paste"),
-    browserItem(editorId("select-all"), label("menu.selectAll"), "CmdOrCtrl+A", "selectAll"),
+    browserItem(editorId("cut"), label("menu.cut"), "CmdOrCtrl+X", "cut", options),
+    browserItem(editorId("copy"), label("menu.copy"), "CmdOrCtrl+C", "copy", options),
+    browserItem(editorId("paste"), label("menu.paste"), "CmdOrCtrl+V", "paste", options),
+    browserItem(editorId("select-all"), label("menu.selectAll"), "CmdOrCtrl+A", "selectAll", options),
     contextMenuSeparator(),
     contextMenuSubmenu(editorId("format"), label("menu.format"), formatItems),
     contextMenuSeparator(),
     contextMenuItem(editorId("link"), label("menu.link"), shortcutAccelerator(options.markdownShortcuts, "link"), handlers.insertLink),
     contextMenuItem(editorId("image"), label("menu.image"), shortcutAccelerator(options.markdownShortcuts, "image"), handlers.insertImage),
+    contextMenuItem(editorId("import-local-images"), label("menu.importLocalImages"), undefined, handlers.importLocalImages),
     contextMenuItem(editorId("table"), label("menu.table"), shortcutAccelerator(options.markdownShortcuts, "table"), handlers.insertTable)
   ];
 
@@ -195,7 +263,8 @@ export function createEditorContextMenuEntriesFromOptions(
     language,
     {
       aiCommandsAvailable: readAiCommandsAvailable(options),
-      markdownShortcuts: options.markdownShortcuts
+      markdownShortcuts: options.markdownShortcuts,
+      readClipboardText: options.readClipboardText
     },
     idPrefixes
   );
@@ -215,6 +284,7 @@ export function createMarkdownFileTreeContextMenuEntries(
   const label = (key: I18nKey) => menuLabel(language, key);
   const fileIsFolder = file?.kind === "folder";
   const fileIsAsset = file?.kind === "asset";
+  const multiSelect = Boolean(handlers.multiSelect);
   const templateItems = handlers.createFileFromTemplates?.map((template) =>
     contextMenuItem(fileTreeId(`new-from-template:${template.id}`), template.name, undefined, template.create)
   ) ?? [];
@@ -226,11 +296,21 @@ export function createMarkdownFileTreeContextMenuEntries(
     contextMenuItem(fileTreeId("new-folder"), label("app.newMarkdownFolder"), undefined, handlers.createFolder)
   ];
 
-  if (!file) return collapseContextMenuEntries(entries);
+  if (!file) {
+    if (handlers.openContainingFolder) {
+      entries.push(
+        contextMenuSeparator(),
+        contextMenuItem(fileTreeId("open-containing-folder"), label("app.openContainingFolder"), undefined, () => handlers.openContainingFolder?.())
+      );
+    }
+
+    return collapseContextMenuEntries(entries);
+  }
 
   if (fileIsFolder) {
     entries.push(
       contextMenuSeparator(),
+      contextMenuItem(fileTreeId("open-containing-folder"), label("app.openContainingFolder"), undefined, () => handlers.openContainingFolder?.(file), !handlers.openContainingFolder),
       contextMenuItem(fileTreeId("rename"), label("app.renameMarkdownFolder"), undefined, () => handlers.renameFile?.(file), !handlers.renameFile),
       contextMenuItem(fileTreeId("delete"), label("app.deleteMarkdownFolder"), undefined, () => handlers.deleteFile?.(file), !handlers.deleteFile)
     );
@@ -241,13 +321,14 @@ export function createMarkdownFileTreeContextMenuEntries(
   entries.push(contextMenuSeparator());
   if (!fileIsAsset && handlers.openFileToSide) {
     const canOpenFileToSide = handlers.canOpenFileToSide?.(file) ?? true;
+    const openFileToSideEnabled = canOpenFileToSide && !multiSelect;
     entries.push(
       contextMenuItem(
         fileTreeId("open-to-side"),
         label("app.openDocumentToSide"),
         undefined,
-        canOpenFileToSide ? () => handlers.openFileToSide?.(file) : undefined,
-        !canOpenFileToSide
+        openFileToSideEnabled ? () => handlers.openFileToSide?.(file) : undefined,
+        !openFileToSideEnabled
       )
     );
   }
@@ -257,12 +338,14 @@ export function createMarkdownFileTreeContextMenuEntries(
         fileTreeId("save-as-template"),
         label("app.saveMarkdownFileAsTemplate"),
         undefined,
-        () => handlers.saveFileAsTemplate?.(file)
+        () => handlers.saveFileAsTemplate?.(file),
+        multiSelect
       )
     );
   }
   entries.push(
-    contextMenuItem(fileTreeId("rename"), label("app.renameMarkdownFile"), undefined, () => handlers.renameFile?.(file), !handlers.renameFile),
+    contextMenuItem(fileTreeId("open-containing-folder"), label("app.openContainingFolder"), undefined, () => handlers.openContainingFolder?.(file), multiSelect || !handlers.openContainingFolder),
+    contextMenuItem(fileTreeId("rename"), label("app.renameMarkdownFile"), undefined, () => handlers.renameFile?.(file), multiSelect || !handlers.renameFile),
     contextMenuItem(fileTreeId("delete"), label("app.deleteMarkdownFile"), undefined, () => handlers.deleteFile?.(file), !handlers.deleteFile)
   );
 

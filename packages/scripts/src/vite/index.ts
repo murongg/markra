@@ -4,10 +4,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { stripDebugPlugin } from "./strip-debug.ts";
+import type { UserConfig } from "vite";
 
 export type MarkraAppViteConfigOptions = {
   browserNodeStubUrl: string | URL;
   packageJsonUrl: string | URL;
+  server?: UserConfig["server"];
   stripDebug?: boolean;
   test?: {
     setupFiles?: string | string[];
@@ -58,6 +60,7 @@ const milkdownDependencies = dependencyPattern([
 const tauriDependencies = dependencyPattern(["@tauri-apps"]);
 const iconDependencies = dependencyPattern(["lucide-react", "lucide-static"]);
 const piAgentDependencies = dependencyPattern(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai", "typebox"]);
+const markdownSourceEditorDependencies = dependencyPattern(["@codemirror/lang-markdown", "@lezer/markdown"]);
 const codeEditorDependencies = dependencyPattern(["@codemirror", "codemirror"]);
 const dndDependencies = dependencyPattern(["@dnd-kit"]);
 const mathDependencies = dependencyPattern(["katex"]);
@@ -93,6 +96,7 @@ function vendorChunkName(id: string) {
   if (tauriDependencies.test(id)) return "tauri-vendor";
   if (iconDependencies.test(id)) return "icons-vendor";
   if (piAgentDependencies.test(id)) return "pi-agent-vendor";
+  if (markdownSourceEditorDependencies.test(id)) return "markdown-source-editor-vendor";
   if (codeEditorDependencies.test(id)) return "code-editor-vendor";
   if (dndDependencies.test(id)) return "dnd-vendor";
   if (mathDependencies.test(id)) return "math-vendor";
@@ -153,6 +157,7 @@ export function createMarkraAppViteConfig(options: MarkraAppViteConfigOptions) {
         }
       }
     },
+    server: options.server,
     test: {
       environment: "jsdom",
       globals: true,

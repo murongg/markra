@@ -19,18 +19,31 @@ export type NativeMarkdownFileTreeContextMenuHandlers = {
   }>;
   createFolder?: () => unknown | Promise<unknown>;
   deleteFile?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
+  openContainingFolder?: (file?: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   openFileToSide?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
+  multiSelect?: boolean;
   renameFile?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   saveFileAsTemplate?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
 };
 
+export type NativeClipboardTextReader = () => string | null | undefined | Promise<string | null | undefined>;
+
 export type NativeEditorContextMenuOptions = {
   getAiCommandsAvailable?: () => boolean;
   markdownShortcuts?: MarkdownShortcutMap;
+  readClipboardText?: NativeClipboardTextReader;
+};
+
+export type NativeEditorContextMenuEntryOptions = {
+  aiCommandsAvailable?: boolean;
+  markdownShortcuts?: MarkdownShortcutMap;
+  readClipboardText?: NativeClipboardTextReader;
 };
 
 export type NativeStaticMenuCommand =
   | "checkForUpdates"
+  | "editUndo"
+  | "editRedo"
   | "openDocument"
   | "openFolder"
   | "openQuickOpen"
@@ -56,12 +69,14 @@ export type NativeStaticMenuCommand =
   | "formatCodeBlock"
   | "insertLink"
   | "insertImage"
+  | "importLocalImages"
   | "insertTable"
   | "aiPolish"
   | "aiRewrite"
   | "aiContinueWriting"
   | "aiSummarize"
   | "aiTranslate"
+  | "toggleFullscreen"
   | "toggleMarkdownFiles"
   | "toggleDocumentHistory"
   | "toggleAiAgent"
@@ -79,6 +94,10 @@ export function listenNativeApplicationMenuCommands(handlers: NativeMenuHandlers
   return getAppRuntime().menu.listenApplicationMenuCommands(handlers);
 }
 
+export function readNativeClipboardText() {
+  return getAppRuntime().menu.readClipboardText();
+}
+
 export function installNativeApplicationMenu(
   handlers: NativeMenuHandlers,
   language: AppLanguage = "en",
@@ -91,7 +110,7 @@ export function installNativeApplicationMenu(
 export function createNativeEditorContextMenuItems(
   handlers: NativeMenuHandlers,
   language: AppLanguage = "en",
-  options: { aiCommandsAvailable?: boolean; markdownShortcuts?: MarkdownShortcutMap } = {}
+  options: NativeEditorContextMenuEntryOptions = {}
 ) {
   return getAppRuntime().menu.createEditorContextMenuItems(handlers, language, options);
 }

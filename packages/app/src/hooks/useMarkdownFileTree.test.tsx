@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   createNativeMarkdownTreeFile,
   createNativeMarkdownTreeFolder,
@@ -11,8 +11,11 @@ import {
 } from "../lib/tauri";
 import {
   createAiAgentSessionId,
+  getStoredFileTreeSortByWorkspace,
   getStoredRecentMarkdownFolders,
+  getStoredWorkspaceState,
   removeStoredRecentMarkdownFolder,
+  saveStoredFileTreeSortForWorkspace,
   saveStoredRecentMarkdownFolder,
   saveStoredWorkspaceState,
   type RecentMarkdownFolder
@@ -32,12 +35,20 @@ vi.mock("../lib/tauri", () => ({
 
 vi.mock("../lib/settings/app-settings", () => ({
   createAiAgentSessionId: vi.fn(),
+  defaultStoredFileTreeSort: {
+    direction: "ascending",
+    key: "name"
+  },
+  getStoredFileTreeSortByWorkspace: vi.fn(),
   getStoredRecentMarkdownFolders: vi.fn(),
+  getStoredWorkspaceState: vi.fn(),
+  normalizeStoredFileTreeSort: vi.fn((sort) => sort),
   prependRecentMarkdownFolder: vi.fn((folders: RecentMarkdownFolder[], folder: RecentMarkdownFolder) => [
     folder,
     ...folders.filter((item) => item.path !== folder.path)
   ].slice(0, 5)),
   removeStoredRecentMarkdownFolder: vi.fn(),
+  saveStoredFileTreeSortForWorkspace: vi.fn(),
   saveStoredRecentMarkdownFolder: vi.fn(),
   saveStoredWorkspaceState: vi.fn()
 }));
@@ -51,10 +62,28 @@ const mockedOpenNativeMarkdownFolder = vi.mocked(openNativeMarkdownFolder);
 const mockedRenameNativeMarkdownTreeFile = vi.mocked(renameNativeMarkdownTreeFile);
 const mockedWatchNativeMarkdownTree = vi.mocked(watchNativeMarkdownTree);
 const mockedCreateAiAgentSessionId = vi.mocked(createAiAgentSessionId);
+const mockedGetStoredFileTreeSortByWorkspace = vi.mocked(getStoredFileTreeSortByWorkspace);
 const mockedGetStoredRecentMarkdownFolders = vi.mocked(getStoredRecentMarkdownFolders);
+const mockedGetStoredWorkspaceState = vi.mocked(getStoredWorkspaceState);
 const mockedRemoveStoredRecentMarkdownFolder = vi.mocked(removeStoredRecentMarkdownFolder);
+const mockedSaveStoredFileTreeSortForWorkspace = vi.mocked(saveStoredFileTreeSortForWorkspace);
 const mockedSaveStoredRecentMarkdownFolder = vi.mocked(saveStoredRecentMarkdownFolder);
 const mockedSaveStoredWorkspaceState = vi.mocked(saveStoredWorkspaceState);
+
+function mockWorkspaceState(
+  patch: Partial<Awaited<ReturnType<typeof getStoredWorkspaceState>>> = {}
+): Awaited<ReturnType<typeof getStoredWorkspaceState>> {
+  return {
+    aiAgentSessionId: null,
+    filePath: null,
+    fileTreeOpen: false,
+    folderName: null,
+    folderPath: null,
+    openFilePaths: [],
+    openWindows: [],
+    ...patch
+  };
+}
 
 function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) {
   const tree = useMarkdownFileTree();
@@ -65,6 +94,9 @@ function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) 
       <p data-testid="open-state">{tree.open ? "open" : "closed"}</p>
       <p data-testid="tree-width">{tree.width}</p>
       <p data-testid="tree-resizing">{tree.resizing ? "resizing" : "idle"}</p>
+      <p data-testid="recent-folders-open-state">{tree.recentFoldersOpen ? "open" : "closed"}</p>
+      <p data-testid="assets-visible-state">{tree.fileTreeAssetsVisible ? "visible" : "hidden"}</p>
+      <p data-testid="file-tree-sort">{`${tree.fileTreeSort.key}:${tree.fileTreeSort.direction}`}</p>
       <p data-testid="layout-class">{tree.workspaceLayoutClassName}</p>
       <p data-testid="layout-columns">{tree.workspaceLayoutStyle.gridTemplateColumns}</p>
       <button type="button" onClick={() => tree.openMarkdownFolder()}>
@@ -78,6 +110,21 @@ function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) 
         onClick={() => tree.openRecentFolder?.({ name: "notes", path: "/recent/notes" })}
       >
         Open recent folder
+      </button>
+      <button
+        type="button"
+        onClick={() => tree.openRecentFolder?.({ name: "docs", path: "/mock-workspaces/beta/docs" })}
+      >
+        Open second docs folder
+      </button>
+      <button
+        type="button"
+        onClick={() => tree.openFolderPath("/vault", "vault", "session-restored", false, false)}
+      >
+        Restore collapsed folder
+      </button>
+      <button type="button" onClick={() => tree.setRootFromMarkdownFilePath("/mock-workspaces/notes/daily.md")}>
+        Use file root
       </button>
       <button
         type="button"
@@ -99,6 +146,21 @@ function FileTreeProbe({ currentPath = null }: { currentPath?: string | null }) 
       </button>
       <button type="button" onClick={tree.endResize}>
         End resize
+      </button>
+      <button type="button" onClick={() => tree.setRecentFoldersOpen?.(false)}>
+        Collapse recent folders
+      </button>
+      <button type="button" onClick={() => tree.setRecentFoldersOpen?.(true)}>
+        Expand recent folders
+      </button>
+      <button type="button" onClick={() => tree.setFileTreeAssetsVisible?.(!tree.fileTreeAssetsVisible)}>
+        Toggle image assets
+      </button>
+      <button
+        type="button"
+        onClick={() => tree.setFileTreeSort({ direction: "descending", key: "createdAt" })}
+      >
+        Sort created descending
       </button>
       <button type="button" onClick={() => tree.createFile("Daily note")}>
         Create
@@ -159,12 +221,19 @@ describe("useMarkdownFileTree", () => {
     mockedRenameNativeMarkdownTreeFile.mockReset();
     mockedWatchNativeMarkdownTree.mockReset();
     mockedCreateAiAgentSessionId.mockReset();
+    mockedGetStoredFileTreeSortByWorkspace.mockReset();
     mockedGetStoredRecentMarkdownFolders.mockReset();
+    mockedGetStoredWorkspaceState.mockReset();
     mockedRemoveStoredRecentMarkdownFolder.mockReset();
+    mockedSaveStoredFileTreeSortForWorkspace.mockReset();
     mockedSaveStoredRecentMarkdownFolder.mockReset();
     mockedSaveStoredWorkspaceState.mockReset();
     mockedCreateAiAgentSessionId.mockReturnValue("session-folder");
+    mockedGetStoredFileTreeSortByWorkspace.mockResolvedValue({});
     mockedGetStoredRecentMarkdownFolders.mockResolvedValue([]);
+    mockedGetStoredWorkspaceState.mockResolvedValue(mockWorkspaceState({
+      recentFoldersOpen: true
+    }));
     mockedRemoveStoredRecentMarkdownFolder.mockResolvedValue([]);
     mockedSaveStoredRecentMarkdownFolder.mockResolvedValue([]);
     mockedCreateNativeMarkdownTreeFile.mockResolvedValue({
@@ -190,6 +259,7 @@ describe("useMarkdownFileTree", () => {
       relativePath: "docs/readme.md"
     });
     mockedSaveStoredWorkspaceState.mockResolvedValue(undefined);
+    mockedSaveStoredFileTreeSortForWorkspace.mockResolvedValue(undefined);
     mockedWatchNativeMarkdownTree.mockResolvedValue(() => {});
   });
 
@@ -289,6 +359,114 @@ describe("useMarkdownFileTree", () => {
     expect(mockedGetStoredRecentMarkdownFolders).toHaveBeenCalledTimes(1);
   });
 
+  it("restores and persists the recent folder section expansion state", async () => {
+    mockedGetStoredWorkspaceState.mockResolvedValue(mockWorkspaceState({
+      recentFoldersOpen: false
+    }));
+
+    render(<FileTreeProbe />);
+
+    await waitFor(() => expect(screen.getByTestId("recent-folders-open-state")).toHaveTextContent("closed"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand recent folders" }));
+
+    expect(screen.getByTestId("recent-folders-open-state")).toHaveTextContent("open");
+    expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({
+      recentFoldersOpen: true
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse recent folders" }));
+
+    expect(screen.getByTestId("recent-folders-open-state")).toHaveTextContent("closed");
+    expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({
+      recentFoldersOpen: false
+    });
+  });
+
+  it("restores and persists file tree image asset visibility", async () => {
+    mockedGetStoredWorkspaceState.mockResolvedValue(mockWorkspaceState({
+      fileTreeAssetsVisible: false
+    }));
+
+    render(<FileTreeProbe />);
+
+    await waitFor(() => expect(screen.getByTestId("assets-visible-state")).toHaveTextContent("hidden"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle image assets" }));
+
+    expect(screen.getByTestId("assets-visible-state")).toHaveTextContent("visible");
+    expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({
+      fileTreeAssetsVisible: true
+    });
+  });
+
+  it("restores and persists file tree sort per selected workspace folder", async () => {
+    mockedGetStoredFileTreeSortByWorkspace.mockResolvedValue({
+      "/recent/notes": {
+        direction: "descending",
+        key: "modifiedAt"
+      }
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { path: "/recent/notes/index.md", name: "index.md", relativePath: "index.md" }
+    ]);
+
+    render(<FileTreeProbe />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open recent folder" }));
+
+    expect(await screen.findByText("index.md")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("file-tree-sort")).toHaveTextContent("modifiedAt:descending")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort created descending" }));
+
+    expect(screen.getByTestId("file-tree-sort")).toHaveTextContent("createdAt:descending");
+    expect(mockedSaveStoredFileTreeSortForWorkspace).toHaveBeenCalledWith("/recent/notes", {
+      direction: "descending",
+      key: "createdAt"
+    });
+  });
+
+  it("uses the containing folder as the file tree sort workspace for a markdown file root", async () => {
+    mockedGetStoredFileTreeSortByWorkspace.mockResolvedValue({
+      "/mock-workspaces/notes": {
+        direction: "descending",
+        key: "modifiedAt"
+      }
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { path: "/mock-workspaces/notes/daily.md", name: "daily.md", relativePath: "daily.md" }
+    ]);
+
+    render(<FileTreeProbe />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Use file root" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("file-tree-sort")).toHaveTextContent("modifiedAt:descending")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort created descending" }));
+
+    expect(mockedSaveStoredFileTreeSortForWorkspace).toHaveBeenCalledWith("/mock-workspaces/notes", {
+      direction: "descending",
+      key: "createdAt"
+    });
+  });
+
+  it("restores the main file tree expansion state from workspace settings", async () => {
+    mockedGetStoredWorkspaceState.mockResolvedValue(mockWorkspaceState({
+      fileTreeOpen: true
+    }));
+
+    render(<FileTreeProbe />);
+
+    await waitFor(() => expect(screen.getByTestId("open-state")).toHaveTextContent("open"));
+    expect(screen.getByTestId("layout-columns")).toHaveTextContent("288px minmax(0,1fr)");
+  });
+
   it("opens a remembered markdown folder without showing the native picker", async () => {
     mockedListNativeMarkdownFilesForPath.mockResolvedValue([
       { path: "/recent/notes/index.md", name: "index.md", relativePath: "index.md" }
@@ -305,6 +483,58 @@ describe("useMarkdownFileTree", () => {
     expect(mockedSaveStoredRecentMarkdownFolder).toHaveBeenCalledWith({
       name: "notes",
       path: "/recent/notes"
+    });
+  });
+
+  it("moves an opened recent folder to the top of the recent list", async () => {
+    mockedGetStoredRecentMarkdownFolders.mockResolvedValue([
+      { name: "docs", path: "/mock-workspaces/alpha/docs" },
+      { name: "docs", path: "/mock-workspaces/beta/docs" }
+    ]);
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { path: "/mock-workspaces/beta/docs/index.md", name: "index.md", relativePath: "index.md" }
+    ]);
+
+    render(<FileTreeProbe />);
+
+    const recentList = await screen.findByRole("list", { name: "Recent folders" });
+    expect(within(recentList).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "/mock-workspaces/alpha/docs",
+      "/mock-workspaces/beta/docs"
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open second docs folder" }));
+
+    expect(await screen.findByText("index.md")).toBeInTheDocument();
+    expect(screen.getByTestId("root-name")).toHaveTextContent("docs");
+    expect(within(recentList).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "/mock-workspaces/beta/docs",
+      "/mock-workspaces/alpha/docs"
+    ]);
+    expect(mockedListNativeMarkdownFilesForPath).toHaveBeenCalledWith("/mock-workspaces/beta/docs");
+    expect(mockedSaveStoredRecentMarkdownFolder).toHaveBeenCalledWith({
+      name: "docs",
+      path: "/mock-workspaces/beta/docs"
+    });
+  });
+
+  it("restores a markdown folder root without reopening a collapsed tree", async () => {
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { path: "/vault/docs/guide.md", name: "guide.md", relativePath: "docs/guide.md" }
+    ]);
+
+    render(<FileTreeProbe currentPath="/vault/docs/guide.md" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore collapsed folder" }));
+
+    expect(await screen.findByText("docs/guide.md")).toBeInTheDocument();
+    expect(screen.getByTestId("root-name")).toHaveTextContent("vault");
+    expect(screen.getByTestId("open-state")).toHaveTextContent("closed");
+    expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({
+      aiAgentSessionId: "session-restored",
+      fileTreeOpen: false,
+      folderName: "vault",
+      folderPath: "/vault"
     });
   });
 

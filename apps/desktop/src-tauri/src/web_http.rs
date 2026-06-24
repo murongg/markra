@@ -7,6 +7,8 @@ use reqwest::redirect::Policy;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
+use crate::network::{apply_network_settings, NetworkSettings};
+
 const WEB_RESOURCE_MAX_REDIRECTS: usize = 5;
 const WEB_RESOURCE_REQUEST_TIMEOUT_SECS: u64 = 30;
 const WEB_IMAGE_MAX_BYTES: u64 = 25 * 1024 * 1024;
@@ -17,6 +19,7 @@ pub(crate) struct WebResourceRequest {
     allow_localhost: Option<bool>,
     #[serde(default)]
     headers: HashMap<String, String>,
+    network: Option<NetworkSettings>,
     url: String,
 }
 
@@ -32,6 +35,7 @@ pub(crate) struct WebResourceResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WebImageDownloadRequest {
+    network: Option<NetworkSettings>,
     url: String,
 }
 
@@ -63,11 +67,14 @@ async fn execute_web_resource_request(
     let allow_localhost = request.allow_localhost.unwrap_or(false);
     let mut url = validated_web_resource_url(&request.url, allow_localhost)?;
     let headers = parse_headers(&request.headers)?;
-    let client = reqwest::Client::builder()
-        .redirect(Policy::none())
-        .timeout(Duration::from_secs(WEB_RESOURCE_REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = apply_network_settings(
+        reqwest::Client::builder()
+            .redirect(Policy::none())
+            .timeout(Duration::from_secs(WEB_RESOURCE_REQUEST_TIMEOUT_SECS)),
+        request.network.as_ref(),
+    )?
+    .build()
+    .map_err(|error| error.to_string())?;
 
     for _ in 0..=WEB_RESOURCE_MAX_REDIRECTS {
         let response = client
@@ -113,11 +120,14 @@ async fn execute_web_image_download(
     request: WebImageDownloadRequest,
 ) -> Result<WebImageDownloadResponse, String> {
     let mut url = validated_web_resource_url(&request.url, false)?;
-    let client = reqwest::Client::builder()
-        .redirect(Policy::none())
-        .timeout(Duration::from_secs(WEB_RESOURCE_REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = apply_network_settings(
+        reqwest::Client::builder()
+            .redirect(Policy::none())
+            .timeout(Duration::from_secs(WEB_RESOURCE_REQUEST_TIMEOUT_SECS)),
+        request.network.as_ref(),
+    )?
+    .build()
+    .map_err(|error| error.to_string())?;
 
     for _ in 0..=WEB_RESOURCE_MAX_REDIRECTS {
         let response = client

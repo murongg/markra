@@ -13,6 +13,7 @@ type TableControlLabels = {
   alignRight: string;
   deleteColumn: string;
   deleteRow: string;
+  deleteTable: string;
   adjustTable: string;
   resizeTableTo: string;
   tableColumns: string;
@@ -30,6 +31,7 @@ const defaultTableControlLabels: TableControlLabels = {
   alignRight: "Align table right",
   deleteColumn: "Delete column",
   deleteRow: "Delete row",
+  deleteTable: "Delete table",
   adjustTable: "Adjust table",
   resizeTableTo: "Resize table to {columns} columns by {rows} rows",
   tableColumns: "Table columns",
@@ -51,6 +53,10 @@ function elementFromEventTarget(target: EventTarget | null) {
 
 function tableCellFromEventTarget(target: EventTarget | null) {
   return elementFromEventTarget(target)?.closest<HTMLTableCellElement>("th, td") ?? null;
+}
+
+function isPrimaryMouseButton(event: MouseEvent) {
+  return event.button === 0 && !event.ctrlKey;
 }
 
 function createTableControlButton(
@@ -104,6 +110,26 @@ function createTableSizeIcon(ownerDocument: Document) {
   return icon;
 }
 
+function createDeleteTableIcon(ownerDocument: Document) {
+  const icon = ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("class", "markra-table-delete-table-icon");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "2");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+
+  for (const pathData of ["M3 6h18", "M8 6V4h8v2", "M19 6l-1 14H6L5 6", "M10 11v6", "M14 11v6"]) {
+    const path = ownerDocument.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    icon.append(path);
+  }
+
+  return icon;
+}
+
 function clampTableSize(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
 
@@ -134,6 +160,7 @@ class MarkraTableNodeView {
   private readonly addRowButton: HTMLButtonElement;
   private readonly deleteColumnButton: HTMLButtonElement;
   private readonly deleteRowButton: HTMLButtonElement;
+  private readonly deleteTableButton: HTMLButtonElement;
   private hoveredCell: { column: number; row: number } | null = null;
   private pendingSize: TableSize = { columns: 1, rows: 1 };
 
@@ -204,6 +231,14 @@ class MarkraTableNodeView {
       "-",
       this.handleDeleteRowMouseDown
     );
+    this.deleteTableButton = createTableControlButton(
+      view.dom.ownerDocument,
+      "markra-table-delete-table",
+      labels.deleteTable,
+      "",
+      this.handleDeleteTableMouseDown
+    );
+    this.deleteTableButton.append(createDeleteTableIcon(view.dom.ownerDocument));
 
     this.dom.className = "tableWrapper markra-table-controls-wrapper";
     this.alignControls.className = "markra-table-align-controls";
@@ -218,7 +253,7 @@ class MarkraTableNodeView {
     this.dom.addEventListener("mouseleave", this.hideDeleteControls);
     this.table.append(this.contentDOM);
     this.sizeControls.append(this.sizeButton);
-    this.alignControls.append(this.sizeControls, ...this.alignButtons);
+    this.alignControls.append(this.sizeControls, ...this.alignButtons, this.deleteTableButton);
     this.dom.append(
       this.alignControls,
       this.table,
@@ -249,7 +284,8 @@ class MarkraTableNodeView {
           this.alignControls.contains(target) ||
           this.addRowButton.contains(target) ||
           this.deleteColumnButton.contains(target) ||
-          this.deleteRowButton.contains(target))
+          this.deleteRowButton.contains(target) ||
+          this.deleteTableButton.contains(target))
     );
   }
 
@@ -263,7 +299,8 @@ class MarkraTableNodeView {
         this.alignControls.contains(target) ||
         this.addRowButton.contains(target) ||
         this.deleteColumnButton.contains(target) ||
-        this.deleteRowButton.contains(target))
+        this.deleteRowButton.contains(target) ||
+        this.deleteTableButton.contains(target))
     );
   }
 
@@ -290,6 +327,7 @@ class MarkraTableNodeView {
     this.addRowButton.removeEventListener("mousedown", this.handleAddRowMouseDown);
     this.deleteColumnButton.removeEventListener("mousedown", this.handleDeleteColumnMouseDown);
     this.deleteRowButton.removeEventListener("mousedown", this.handleDeleteRowMouseDown);
+    this.deleteTableButton.removeEventListener("mousedown", this.handleDeleteTableMouseDown);
   }
 
   private createSizeInput(label: string, max: number) {
@@ -346,6 +384,8 @@ class MarkraTableNodeView {
   }
 
   private readonly handleSizeButtonMouseDown = (event: MouseEvent) => {
+    if (!isPrimaryMouseButton(event)) return;
+
     event.preventDefault();
     event.stopPropagation();
 
@@ -376,6 +416,8 @@ class MarkraTableNodeView {
   };
 
   private readonly handleSizeCellMouseDown = (event: MouseEvent) => {
+    if (!isPrimaryMouseButton(event)) return;
+
     event.preventDefault();
     event.stopPropagation();
     this.resizeTableTo(this.sizeFromTarget(event.currentTarget));
@@ -401,12 +443,16 @@ class MarkraTableNodeView {
   };
 
   private readonly handleAddColumnMouseDown = (event: MouseEvent) => {
+    if (!isPrimaryMouseButton(event)) return;
+
     event.preventDefault();
     event.stopPropagation();
     this.insertColumnAfterTable();
   };
 
   private readonly handleAlignMouseDown = (event: MouseEvent) => {
+    if (!isPrimaryMouseButton(event)) return;
+
     event.preventDefault();
     event.stopPropagation();
 
@@ -418,21 +464,35 @@ class MarkraTableNodeView {
   };
 
   private readonly handleAddRowMouseDown = (event: MouseEvent) => {
+    if (!isPrimaryMouseButton(event)) return;
+
     event.preventDefault();
     event.stopPropagation();
     this.insertRowAfterTable();
   };
 
   private readonly handleDeleteColumnMouseDown = (event: MouseEvent) => {
+    if (!isPrimaryMouseButton(event)) return;
+
     event.preventDefault();
     event.stopPropagation();
     this.deleteHoveredColumn();
   };
 
   private readonly handleDeleteRowMouseDown = (event: MouseEvent) => {
+    if (!isPrimaryMouseButton(event)) return;
+
     event.preventDefault();
     event.stopPropagation();
     this.deleteHoveredRow();
+  };
+
+  private readonly handleDeleteTableMouseDown = (event: MouseEvent) => {
+    if (!isPrimaryMouseButton(event)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.deleteTable();
   };
 
   private readonly handleMouseMove = (event: MouseEvent) => {
@@ -770,6 +830,23 @@ class MarkraTableNodeView {
       const nextRow = Math.min(targetRow, map.height - 2);
       this.view.dispatch(this.moveTransactionCursorToCell(tr.scrollIntoView(), tablePosition, nextRow, targetColumn));
     });
+    this.hideDeleteControls();
+    this.view.focus();
+  }
+
+  private deleteTable() {
+    const tablePosition = this.tablePosition();
+    if (tablePosition === false) return;
+
+    const paragraph = this.view.state.schema.nodes.paragraph;
+    if (!paragraph) return;
+
+    let tr = this.view.state.tr
+      .replaceWith(tablePosition, tablePosition + this.node.nodeSize, paragraph.create())
+      .scrollIntoView();
+    tr = tr.setSelection(TextSelection.near(tr.doc.resolve(tablePosition + 1), 1));
+    this.view.dispatch(tr);
+    this.hideSizePopover();
     this.hideDeleteControls();
     this.view.focus();
   }

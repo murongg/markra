@@ -7,14 +7,17 @@ import type {
   NativeMarkdownFolderFile,
   NativeMarkdownImageFile,
   NativeMarkdownOpenTarget,
+  NativeSettingsFile,
   SavedNativeClipboardImage,
   SavedNativeHtmlFile,
   SavedNativeMarkdownFile,
   SavedNativePdfFile,
+  SavedNativeSettingsFile,
   SaveNativeClipboardImageInput,
   SaveNativeHtmlFileInput,
   SaveNativeMarkdownFileInput,
-  SaveNativePdfFileInput
+  SaveNativePdfFileInput,
+  SaveNativeSettingsFileInput
 } from "@markra/app/runtime";
 import {
   confirmWithBrowser,
@@ -57,12 +60,19 @@ type WebFileSystemDropItem = DataTransferItem & {
 const markdownTemplateStorePath = "markdown-templates.json";
 const markdownFileType = "text/markdown;charset=utf-8";
 const htmlFileType = "text/html;charset=utf-8";
+const jsonFileType = "application/json;charset=utf-8";
 const markdownExtensions = new Set(["md", "markdown"]);
 const markdownOpenExtensions = new Set(["md", "markdown", "txt"]);
 const assetExtensions = new Set(["avif", "bmp", "gif", "jpg", "jpeg", "png", "svg", "webp"]);
 const skippedDirectoryNames = new Set([".git", "node_modules", "target", "dist", "build"]);
 const fileHandleStorePath = "web-file-handles.json";
 const directoryHandleStorePath = "web-directory-handles.json";
+const settingsFilePickerTypes = [{
+  accept: {
+    "application/json": [".json"]
+  },
+  description: "Markra settings"
+}];
 
 function extensionFromName(name: string) {
   const extension = name.split(".").pop()?.toLowerCase();
@@ -691,7 +701,7 @@ export function createWebFileRuntime(
   }
 
   async function saveDownload(
-    input: SaveNativeMarkdownFileInput | SaveNativeHtmlFileInput | SaveNativePdfFileInput,
+    input: SaveNativeMarkdownFileInput | SaveNativeHtmlFileInput | SaveNativePdfFileInput | SaveNativeSettingsFileInput,
     type: string
   ) {
     await downloadFile({
@@ -992,6 +1002,10 @@ export function createWebFileRuntime(
       return markdownFileFromHandle(handle);
     },
     openMarkdownFileInNewWindow: async (path) => openMarkdownRouteInNewWindow("path", path),
+    async openContainingFolder() {
+      throw new Error("Opening containing folders requires the desktop runtime.");
+    },
+    openLocalImages: async () => [],
     async openMarkdownFolder() {
       if (showDirectoryPicker) {
         const handle = await showDirectoryPicker();
@@ -1023,6 +1037,24 @@ export function createWebFileRuntime(
         file,
         kind: "file"
       } satisfies NativeMarkdownOpenTarget;
+    },
+    async openSettingsFile(): Promise<NativeSettingsFile | null> {
+      if (!showOpenFilePicker) return null;
+      const [handle] = await showOpenFilePicker({
+        multiple: false,
+        types: settingsFilePickerTypes
+      });
+      if (!handle) return null;
+      const file = await handle.getFile();
+
+      return {
+        content: await file.text(),
+        name: file.name || handle.name,
+        path: await registerFileHandle(handle)
+      };
+    },
+    async readLocalImageFile() {
+      throw new Error("Local image file reading requires the desktop runtime.");
     },
     async readMarkdownFile(path) {
       const { file } = await readFileFromPath(path);
@@ -1187,6 +1219,22 @@ export function createWebFileRuntime(
         name: input.suggestedName,
         path: `web-print://${encodeURIComponent(input.suggestedName)}`
       };
+    },
+    async saveSettingsFile(input: SaveNativeSettingsFileInput): Promise<SavedNativeSettingsFile> {
+      if (showSaveFilePicker) {
+        const handle = await showSaveFilePicker({
+          suggestedName: input.suggestedName,
+          types: settingsFilePickerTypes
+        });
+        await writeFileHandle(handle, input.contents);
+
+        return {
+          name: handle.name,
+          path: await registerFileHandle(handle)
+        };
+      }
+
+      return saveDownload(input, jsonFileType);
     },
     takeOpenedMarkdownPaths: async () => [],
     uploadS3Image: async () => {

@@ -12,19 +12,24 @@ import {
   getStoredSyncSettings,
   getStoredEditorPreferences,
   getStoredExportSettings,
+  getStoredNetworkSettings,
   getStoredWebSearchSettings,
   getStoredWorkspaceState,
   defaultBackupSettings,
   defaultSyncSettings,
   defaultEditorPreferences,
   defaultExportSettings,
+  defaultNetworkSettings,
   defaultWebSearchSettings,
   resetWelcomeDocumentState,
+  exportStoredAppSettings,
+  importStoredAppSettings,
   saveStoredAiSettings,
   saveStoredBackupSettings,
   saveStoredSyncSettings,
   saveStoredEditorPreferences,
   saveStoredExportSettings,
+  saveStoredNetworkSettings,
   saveStoredWebSearchSettings,
   normalizeBackupSettings,
   normalizeSyncSettings,
@@ -36,6 +41,8 @@ import {
   type BackupSettings,
   type EditorPreferences,
   type ExportSettings,
+  type NetworkSettings,
+  type PortableStoredAppSettings,
   type WebSearchSettings,
   type SyncSettings
 } from "../lib/settings/app-settings";
@@ -43,8 +50,11 @@ import {
   listenAppEditorPreferencesChanged,
   notifyAppAiSettingsChanged,
   notifyAppBackupSettingsChanged,
+  notifyAppCustomThemeCssChanged,
   notifyAppEditorPreferencesChanged,
   notifyAppExportSettingsChanged,
+  notifyAppLanguageChanged,
+  notifyAppThemeChanged,
   notifyAppWebSearchSettingsChanged,
   notifyAppSyncSettingsChanged
 } from "../lib/settings/settings-events";
@@ -53,16 +63,23 @@ import { runMarkdownSync } from "../lib/sync";
 import {
   detectNativePandocPath,
   deleteNativeMarkdownTemplateFile,
+  getNativeShellCommandStatus,
+  installNativeShellCommand,
   openNativeMarkdownFolder,
+  openNativeSettingsFile,
   readNativeMarkdownTemplateFile,
   requestNativeAiJson,
+  saveNativeSettingsFile,
+  uninstallNativeShellCommand,
   writeNativeMarkdownTemplateFile
 } from "../lib/tauri";
+import type { NativeShellCommandStatus } from "../lib/tauri/shell-command";
 import { showAppToast } from "../lib/app-toast";
 import {
   listenNativeSettingsWindowTarget,
   type NativeSettingsWindowTarget
 } from "../lib/tauri/window";
+import { normalizeSystemFontFamilyName } from "../lib/editor-font";
 import {
   loadMarkdownTemplatesFromEntries,
   markdownTemplateEntryFromTemplate,
@@ -70,9 +87,11 @@ import {
 } from "../lib/templates";
 import { useAppLanguage } from "./useAppLanguage";
 import { useAppTheme } from "./useAppTheme";
+import { getAppRuntime, type AppSystemFontFamily } from "../runtime";
 
 export type SettingsCategory =
   | "general"
+  | "network"
   | "ai"
   | "providers"
   | "web"
@@ -81,11 +100,14 @@ export type SettingsCategory =
   | "sync"
   | "appearance"
   | "editor"
+  | "spellcheck"
   | "templates"
   | "keyboardShortcuts"
   | "export";
 
 export type SettingsFocusTarget = "pandocPath";
+
+const settingsExportSuggestedName = "markra-settings.json";
 
 function settingsTargetFromSearch(search: string): NativeSettingsWindowTarget | null {
   const target = new URLSearchParams(search).get("settingsTarget");
@@ -99,6 +121,53 @@ function settingsCategoryForTarget(target: NativeSettingsWindowTarget | null): S
 
 function settingsFocusTargetForNativeTarget(target: NativeSettingsWindowTarget | null): SettingsFocusTarget | null {
   return target === "exportPandocPath" ? "pandocPath" : null;
+}
+
+export function shellCommandActionFailureMessage(baseMessage: string, error: unknown) {
+  const detail = error instanceof Error
+    ? error.message.trim()
+    : typeof error === "string"
+      ? error.trim()
+      : "";
+
+  return detail ? `${baseMessage} ${detail}` : baseMessage;
+}
+
+export function canonicalizeEditorFontFamilyPreference(
+  preferences: EditorPreferences,
+  systemFontFamilies: readonly AppSystemFontFamily[]
+): EditorPreferences | null {
+  if (preferences.editorFontFamily.source !== "system") return null;
+
+  const savedFamily = normalizeSystemFontFamilyName(preferences.editorFontFamily.family);
+  if (!savedFamily) return null;
+
+  const matchesSavedFamily = systemFontFamilies.some(
+    (fontFamily) => normalizeSystemFontFamilyName(fontFamily.family) === savedFamily
+  );
+  if (matchesSavedFamily) return null;
+
+  const labelMatches = new Map<string, string>();
+  for (const fontFamily of systemFontFamilies) {
+    const family = normalizeSystemFontFamilyName(fontFamily.family);
+    const label = normalizeSystemFontFamilyName(fontFamily.label);
+
+    if (!family || label !== savedFamily) continue;
+    labelMatches.set(family, family);
+  }
+
+  if (labelMatches.size !== 1) return null;
+
+  const canonicalFamily = Array.from(labelMatches.keys())[0];
+  if (!canonicalFamily) return null;
+
+  return {
+    ...preferences,
+    editorFontFamily: {
+      family: canonicalFamily,
+      source: "system"
+    }
+  };
 }
 
 export function useSettingsWindowState() {
@@ -119,10 +188,15 @@ export function useSettingsWindowState() {
   const [syncSettings, setSyncSettings] = useState<SyncSettings>(defaultSyncSettings);
   const [syncRunning, setSyncRunning] = useState(false);
   const [syncSourcePath, setSyncSourcePath] = useState<string | null>(null);
+  const [settingsTransferRunning, setSettingsTransferRunning] = useState(false);
   const [editorPreferences, setEditorPreferences] = useState<EditorPreferences>(defaultEditorPreferences);
   const [markdownTemplates, setMarkdownTemplates] = useState<MarkdownTemplate[]>([]);
   const [exportSettings, setExportSettings] = useState<ExportSettings>(defaultExportSettings);
+  const [networkSettings, setNetworkSettings] = useState<NetworkSettings>(defaultNetworkSettings);
   const [webSearchSettings, setWebSearchSettings] = useState<WebSearchSettings>(defaultWebSearchSettings);
+  const [shellCommandStatus, setShellCommandStatus] = useState<NativeShellCommandStatus | null>(null);
+  const [shellCommandRunning, setShellCommandRunning] = useState(false);
+  const [systemFontFamilies, setSystemFontFamilies] = useState<AppSystemFontFamily[]>([]);
   const [selectedAiProviderId, setSelectedAiProviderId] = useState<string | undefined>(
     () => createDefaultAiSettings().defaultProviderId
   );
@@ -194,6 +268,26 @@ export function useSettingsWindowState() {
   useEffect(() => {
     let cancelled = false;
 
+    getAppRuntime().systemFonts.listFontFamilies()
+      .then((fontFamilies) => {
+        if (!cancelled) setSystemFontFamilies(fontFamilies);
+      })
+      .catch(() => {
+        if (!cancelled) setSystemFontFamilies([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getStoredNetworkSettings().then((settings) => {
+      if (!cancelled) setNetworkSettings(settings);
+    }).catch(() => {});
+
     getStoredWebSearchSettings().then((settings) => {
       if (!cancelled) setWebSearchSettings(settings);
     }).catch(() => {});
@@ -244,6 +338,28 @@ export function useSettingsWindowState() {
     getStoredExportSettings().then((settings) => {
       if (!cancelled) setExportSettings(settings);
     }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const refreshShellCommandStatus = useCallback(() => {
+    getNativeShellCommandStatus()
+      .then((status) => setShellCommandStatus(status))
+      .catch(() => setShellCommandStatus({ commandPath: null, targetPath: null, status: "unavailable" }));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getNativeShellCommandStatus()
+      .then((status) => {
+        if (!cancelled) setShellCommandStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setShellCommandStatus({ commandPath: null, targetPath: null, status: "unavailable" });
+      });
 
     return () => {
       cancelled = true;
@@ -345,6 +461,18 @@ export function useSettingsWindowState() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    const nextPreferences = canonicalizeEditorFontFamilyPreference(editorPreferences, systemFontFamilies);
+    if (!nextPreferences) return;
+
+    handleUpdateEditorPreferences(nextPreferences);
+  }, [editorPreferences, handleUpdateEditorPreferences, systemFontFamilies]);
+
+  const handleUpdateNetworkSettings = useCallback((settings: NetworkSettings) => {
+    setNetworkSettings(settings);
+    saveStoredNetworkSettings(settings).catch(() => {});
+  }, []);
+
   const handleSaveMarkdownTemplate = useCallback((template: MarkdownTemplate) => {
     const entry = markdownTemplateEntryFromTemplate(template);
     const nextPreferences = {
@@ -426,6 +554,50 @@ export function useSettingsWindowState() {
     });
   }, [exportSettings, handleUpdateExportSettings, translate]);
 
+  const handleInstallShellCommand = useCallback(() => {
+    if (shellCommandRunning) return;
+
+    setShellCommandRunning(true);
+    installNativeShellCommand()
+      .then((status) => {
+        setShellCommandStatus(status);
+        showAppToast({
+          message: translate("settings.shellCommand.installSucceeded"),
+          status: "success"
+        });
+      })
+      .catch((error) => {
+        refreshShellCommandStatus();
+        showAppToast({
+          message: shellCommandActionFailureMessage(translate("settings.shellCommand.actionFailed"), error),
+          status: "error"
+        });
+      })
+      .finally(() => setShellCommandRunning(false));
+  }, [refreshShellCommandStatus, shellCommandRunning, translate]);
+
+  const handleUninstallShellCommand = useCallback(() => {
+    if (shellCommandRunning) return;
+
+    setShellCommandRunning(true);
+    uninstallNativeShellCommand()
+      .then((status) => {
+        setShellCommandStatus(status);
+        showAppToast({
+          message: translate("settings.shellCommand.uninstallSucceeded"),
+          status: "success"
+        });
+      })
+      .catch((error) => {
+        refreshShellCommandStatus();
+        showAppToast({
+          message: shellCommandActionFailureMessage(translate("settings.shellCommand.actionFailed"), error),
+          status: "error"
+        });
+      })
+      .finally(() => setShellCommandRunning(false));
+  }, [refreshShellCommandStatus, shellCommandRunning, translate]);
+
   const handleUpdateWebSearchSettings = useCallback((settings: WebSearchSettings) => {
     const normalizedSettings = normalizeWebSearchSettings(settings);
     setWebSearchSettings(normalizedSettings);
@@ -449,6 +621,87 @@ export function useSettingsWindowState() {
       .then(() => notifyAppSyncSettingsChanged(normalizedSettings))
       .catch(() => {});
   }, []);
+
+  const applyImportedSettings = useCallback((settings: PortableStoredAppSettings) => {
+    setAiSettings(settings.aiProviders);
+    setAiSettingsSaved(true);
+    setSelectedAiProviderId(settings.aiProviders.defaultProviderId ?? settings.aiProviders.providers[0]?.id);
+    setBackupSettings(settings.backupSettings);
+    setSyncSettings(settings.syncSettings);
+    setEditorPreferences(settings.editorPreferences);
+    setExportSettings(settings.exportSettings);
+    setNetworkSettings(settings.network);
+    setWebSearchSettings(settings.webSearch);
+    loadMarkdownTemplatesFromEntries(settings.editorPreferences.markdownTemplates, readNativeMarkdownTemplateFile)
+      .then((templates) => setMarkdownTemplates(templates))
+      .catch(() => setMarkdownTemplates([]));
+
+    notifyAppAiSettingsChanged(settings.aiProviders).catch(() => {});
+    notifyAppBackupSettingsChanged(settings.backupSettings).catch(() => {});
+    notifyAppSyncSettingsChanged(settings.syncSettings).catch(() => {});
+    notifyAppEditorPreferencesChanged(settings.editorPreferences).catch(() => {});
+    notifyAppExportSettingsChanged(settings.exportSettings).catch(() => {});
+    notifyAppWebSearchSettingsChanged(settings.webSearch).catch(() => {});
+    notifyAppLanguageChanged(settings.language).catch(() => {});
+    notifyAppThemeChanged({
+      appearanceMode: settings.appearanceMode,
+      darkTheme: settings.darkTheme,
+      lightTheme: settings.lightTheme
+    }).catch(() => {});
+    notifyAppCustomThemeCssChanged(settings.customThemeCss).catch(() => {});
+  }, []);
+
+  const handleExportSettings = useCallback(async () => {
+    if (settingsTransferRunning) return;
+
+    setSettingsTransferRunning(true);
+    try {
+      const contents = await exportStoredAppSettings();
+      const savedFile = await saveNativeSettingsFile({
+        contents,
+        suggestedName: settingsExportSuggestedName
+      });
+      if (savedFile) {
+        showAppToast({
+          message: translate("settings.storage.exportSucceeded"),
+          status: "success"
+        });
+      }
+    } catch {
+      showAppToast({
+        message: translate("settings.storage.exportFailed"),
+        status: "error"
+      });
+    } finally {
+      setSettingsTransferRunning(false);
+    }
+  }, [settingsTransferRunning, translate]);
+
+  const handleImportSettings = useCallback(async () => {
+    if (settingsTransferRunning) return;
+
+    setSettingsTransferRunning(true);
+    try {
+      const file = await openNativeSettingsFile({
+        title: translate("settings.storage.importPickerTitle")
+      });
+      if (!file) return;
+
+      const settings = await importStoredAppSettings(file.content);
+      applyImportedSettings(settings);
+      showAppToast({
+        message: translate("settings.storage.importSucceeded"),
+        status: "success"
+      });
+    } catch {
+      showAppToast({
+        message: translate("settings.storage.importFailed"),
+        status: "error"
+      });
+    } finally {
+      setSettingsTransferRunning(false);
+    }
+  }, [applyImportedSettings, settingsTransferRunning, translate]);
 
   const handleChooseBackupTargetPath = useCallback(() => {
     openNativeMarkdownFolder({
@@ -564,6 +817,8 @@ export function useSettingsWindowState() {
     exportSettings,
     handleAddAiProvider,
     handleFetchAiProviderModels,
+    handleExportSettings,
+    handleImportSettings,
     handleResetWelcomeDocument,
     handleSaveAiSettings,
     handleTestAiProvider,
@@ -574,19 +829,28 @@ export function useSettingsWindowState() {
     handleUpdateAiSettings,
     handleRunBackup,
     handleRunSync,
+    handleInstallShellCommand,
     handleUpdateBackupSettings,
     handleUpdateSyncSettings,
     handleUpdateEditorPreferences,
     handleUpdateExportSettings,
+    handleUpdateNetworkSettings,
     handleDetectPandocPath,
+    handleRefreshShellCommandStatus: refreshShellCommandStatus,
+    handleUninstallShellCommand,
     handleUpdateWebSearchSettings,
     selectedAiProvider,
     setActiveCategory: handleSelectCategory,
     setSelectedAiProviderId,
     markdownTemplates,
+    networkSettings,
     settingsFocusTarget,
+    settingsTransferRunning,
+    shellCommandRunning,
+    shellCommandStatus,
     syncRunning,
     syncSettings,
+    systemFontFamilies,
     clearSettingsFocusTarget,
     translate,
     webSearchSettings,

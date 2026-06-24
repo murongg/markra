@@ -21,6 +21,7 @@ import {
 } from "@markra/shared";
 import { defaultAiQuickActionPrompt } from "../lib/ai-actions";
 import { resolveDesktopPlatform, type DesktopPlatform } from "../lib/platform";
+import { focusedEditableTextInput } from "../lib/editable-target";
 
 type NativeAiQuickActionIntent = Exclude<AiEditIntent, "custom">;
 
@@ -33,6 +34,9 @@ type NativeMenuHandlerOptions = {
   exportHtml?: () => unknown | Promise<unknown>;
   exportLatex?: () => unknown | Promise<unknown>;
   exportPdf?: () => unknown | Promise<unknown>;
+  importLocalImages: () => unknown | Promise<unknown>;
+  insertMarkdownImage: () => unknown;
+  insertMarkdownLink: () => unknown;
   insertMarkdownSnippet: (open: string, close: string, placeholder: string) => unknown;
   insertMarkdownTable: () => unknown;
   language?: AppLanguage;
@@ -42,12 +46,13 @@ type NativeMenuHandlerOptions = {
   openQuickOpen?: () => unknown | Promise<unknown>;
   openRecentFile?: (file: RecentMarkdownFile) => unknown | Promise<unknown>;
   runAiQuickAction?: (intent: NativeAiQuickActionIntent, prompt: string) => unknown | Promise<unknown>;
-  runEditorShortcut: (key: string, modifiers?: Pick<KeyboardEventInit, "altKey" | "shiftKey">) => unknown;
+  runEditorShortcut: (key: string, modifiers?: Pick<KeyboardEventInit, "altKey" | "code" | "shiftKey">) => unknown;
   saveDocument: () => unknown | Promise<unknown>;
   saveDocumentAs: () => unknown | Promise<unknown>;
   toggleAiAgent?: () => unknown | Promise<unknown>;
   toggleAiCommand?: () => unknown | Promise<unknown>;
   toggleDocumentHistory?: () => unknown | Promise<unknown>;
+  toggleFullscreen?: () => unknown | Promise<unknown>;
   toggleMarkdownFiles?: () => unknown | Promise<unknown>;
   toggleReadOnlyMode?: () => unknown | Promise<unknown>;
   toggleSourceMode?: () => unknown | Promise<unknown>;
@@ -77,6 +82,25 @@ type ApplicationShortcutOptions = {
 
 const emptyRecentMarkdownFiles: readonly RecentMarkdownFile[] = [];
 
+function runFocusedEditableTextCommand(command: "redo" | "undo") {
+  if (typeof document === "undefined") return false;
+
+  const control = focusedEditableTextInput(document);
+  if (!control) return false;
+
+  const documentTarget = control.ownerDocument;
+  const execCommand = (documentTarget as unknown as Record<string, unknown>)["execCommand"];
+  if (typeof execCommand !== "function") return true;
+
+  try {
+    execCommand.call(documentTarget, command);
+  } catch {
+    // Keep the command scoped to the focused text control even if the WebView refuses it.
+  }
+
+  return true;
+}
+
 export function useNativeMenuHandlers({
   checkForUpdates,
   clearRecentFiles,
@@ -86,6 +110,9 @@ export function useNativeMenuHandlers({
   exportHtml,
   exportLatex,
   exportPdf,
+  importLocalImages,
+  insertMarkdownImage,
+  insertMarkdownLink,
   insertMarkdownSnippet,
   insertMarkdownTable,
   language = "en",
@@ -101,6 +128,7 @@ export function useNativeMenuHandlers({
   toggleAiAgent,
   toggleAiCommand,
   toggleDocumentHistory,
+  toggleFullscreen,
   toggleMarkdownFiles,
   toggleReadOnlyMode,
   toggleSourceMode
@@ -117,7 +145,10 @@ export function useNativeMenuHandlers({
     exportHtml,
     exportLatex,
     exportPdf,
+    importLocalImages,
     closeDocument,
+    insertMarkdownImage,
+    insertMarkdownLink,
     insertMarkdownSnippet,
     insertMarkdownTable,
     language,
@@ -133,6 +164,7 @@ export function useNativeMenuHandlers({
     toggleAiAgent,
     toggleAiCommand,
     toggleDocumentHistory,
+    toggleFullscreen,
     toggleMarkdownFiles,
     toggleReadOnlyMode,
     toggleSourceMode
@@ -145,7 +177,10 @@ export function useNativeMenuHandlers({
     exportHtml,
     exportLatex,
     exportPdf,
+    importLocalImages,
     closeDocument,
+    insertMarkdownImage,
+    insertMarkdownLink,
     insertMarkdownSnippet,
     insertMarkdownTable,
     language,
@@ -161,6 +196,7 @@ export function useNativeMenuHandlers({
     toggleAiAgent,
     toggleAiCommand,
     toggleDocumentHistory,
+    toggleFullscreen,
     toggleMarkdownFiles,
     toggleReadOnlyMode,
     toggleSourceMode
@@ -173,6 +209,16 @@ export function useNativeMenuHandlers({
         openFolder: () => latestOptionsRef.current.openFolder(),
         saveDocument: () => latestOptionsRef.current.saveDocument(),
         saveDocumentAs: () => latestOptionsRef.current.saveDocumentAs(),
+        editUndo: () => {
+          if (runFocusedEditableTextCommand("undo")) return;
+
+          latestOptionsRef.current.runEditorShortcut("z");
+        },
+        editRedo: () => {
+          if (runFocusedEditableTextCommand("redo")) return;
+
+          latestOptionsRef.current.runEditorShortcut("z", { shiftKey: true });
+        },
         formatBold: () => runMarkdownShortcut("bold"),
         formatItalic: () => runMarkdownShortcut("italic"),
         formatStrikethrough: () => runMarkdownShortcut("strikethrough"),
@@ -185,8 +231,9 @@ export function useNativeMenuHandlers({
         formatOrderedList: () => runMarkdownShortcut("orderedList"),
         formatQuote: () => runMarkdownShortcut("quote"),
         formatCodeBlock: () => runMarkdownShortcut("codeBlock"),
-        insertLink: () => latestOptionsRef.current.insertMarkdownSnippet("[", "](https://)", "text"),
-        insertImage: () => latestOptionsRef.current.insertMarkdownSnippet("![", "](https://)", "alt"),
+        insertLink: () => latestOptionsRef.current.insertMarkdownLink(),
+        insertImage: () => latestOptionsRef.current.insertMarkdownImage(),
+        importLocalImages: () => latestOptionsRef.current.importLocalImages(),
         insertTable: () => latestOptionsRef.current.insertMarkdownTable(),
         toggleAllFolds: () => runMarkdownShortcut("toggleAllFolds")
       };
@@ -213,6 +260,7 @@ export function useNativeMenuHandlers({
       if (toggleDocumentHistory) {
         handlers.toggleDocumentHistory = () => latestOptionsRef.current.toggleDocumentHistory?.();
       }
+      if (toggleFullscreen) handlers.toggleFullscreen = () => latestOptionsRef.current.toggleFullscreen?.();
       if (toggleMarkdownFiles) handlers.toggleMarkdownFiles = () => latestOptionsRef.current.toggleMarkdownFiles?.();
       if (toggleReadOnlyMode) handlers.toggleReadOnlyMode = () => latestOptionsRef.current.toggleReadOnlyMode?.();
       if (toggleSourceMode) handlers.toggleSourceMode = () => latestOptionsRef.current.toggleSourceMode?.();
@@ -228,6 +276,7 @@ export function useNativeMenuHandlers({
 
     latestOptionsRef.current.runEditorShortcut(shortcut.key, {
       altKey: Boolean(shortcut.altKey),
+      code: shortcut.code,
       shiftKey: Boolean(shortcut.shiftKey)
     });
   }

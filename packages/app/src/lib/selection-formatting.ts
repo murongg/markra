@@ -20,6 +20,8 @@ export const selectionFormattingToolbarActions = [
   "strikethrough",
   "inlineCode",
   "highlight",
+  "clearFormatting",
+  "paragraph",
   "heading1",
   "quote",
   "bulletList",
@@ -61,6 +63,11 @@ type ActiveHighlightRange = HighlightRange & {
   absoluteContentTo: number;
 };
 
+type DeletionRange = {
+  from: number;
+  to: number;
+};
+
 function getHighlightRanges(text: string) {
   const ranges: HighlightRange[] = [];
   const pattern = /==[^=\n][^\n]*?==/g;
@@ -84,6 +91,10 @@ function getHighlightRanges(text: string) {
   }
 
   return ranges;
+}
+
+function rangesOverlap(firstFrom: number, firstTo: number, secondFrom: number, secondTo: number) {
+  return firstFrom < secondTo && secondFrom < firstTo;
 }
 
 function positionHasAncestor(
@@ -148,6 +159,45 @@ function findActiveHighlightRange(state: EditorState): ActiveHighlightRange | nu
     absoluteContentFrom: blockStart + range.contentFrom,
     absoluteContentTo: blockStart + range.contentTo
   };
+}
+
+function highlightMarkerDeletionRangesForSelection(state: EditorState) {
+  const { selection } = state;
+  const ranges: DeletionRange[] = [];
+
+  if (!(selection instanceof TextSelection) || selection.empty) return ranges;
+
+  state.doc.nodesBetween(selection.from, selection.to, (node, position) => {
+    if (!node.isTextblock) return true;
+
+    const blockStart = position + 1;
+    const selectedFrom = Math.max(selection.from, blockStart) - blockStart;
+    const selectedTo = Math.min(selection.to, blockStart + node.textContent.length) - blockStart;
+    if (selectedFrom >= selectedTo) return false;
+
+    for (const range of getHighlightRanges(node.textContent)) {
+      const selectionTouchesHighlight =
+        rangesOverlap(range.contentFrom, range.contentTo, selectedFrom, selectedTo) ||
+        rangesOverlap(range.from, range.to, selectedFrom, selectedTo);
+
+      if (!selectionTouchesHighlight) continue;
+
+      ranges.push(
+        {
+          from: blockStart + range.contentTo,
+          to: blockStart + range.to
+        },
+        {
+          from: blockStart + range.from,
+          to: blockStart + range.contentFrom
+        }
+      );
+    }
+
+    return false;
+  });
+
+  return ranges;
 }
 
 function normalizeHeadingLevel(value: unknown) {
@@ -271,6 +321,54 @@ export function toggleSelectionHighlightInView(view: EditorView) {
   view.dispatch(
     transaction
       .setSelection(TextSelection.create(transaction.doc, nextFrom, nextTo))
+      .scrollIntoView()
+  );
+  view.focus();
+  return true;
+}
+
+export function toggleSelectionLinkInView(view: EditorView) {
+  const { selection } = view.state;
+  if (!(selection instanceof TextSelection) || selection.empty) return false;
+
+  const link = view.state.schema.marks.link;
+  if (!link || !view.state.doc.rangeHasMark(selection.from, selection.to, link)) return false;
+
+  const transaction = view.state.tr.removeMark(selection.from, selection.to, link);
+  if (!transaction.docChanged) return false;
+
+  view.dispatch(
+    transaction
+      .setSelection(TextSelection.create(transaction.doc, selection.from, selection.to))
+      .scrollIntoView()
+  );
+  view.focus();
+  return true;
+}
+
+export function clearSelectionFormattingInView(view: EditorView) {
+  const { selection } = view.state;
+  if (!(selection instanceof TextSelection) || selection.empty) return false;
+
+  const transaction = view.state.tr;
+  for (const markType of Object.values(view.state.schema.marks)) {
+    transaction.removeMark(selection.from, selection.to, markType);
+  }
+
+  const markerDeletionRanges = highlightMarkerDeletionRangesForSelection(view.state)
+    .sort((first, second) => second.from - first.from);
+  for (const range of markerDeletionRanges) {
+    transaction.delete(range.from, range.to);
+  }
+
+  if (!transaction.docChanged) return false;
+
+  const nextFrom = Math.max(0, Math.min(transaction.mapping.map(selection.from, -1), transaction.doc.content.size));
+  const nextTo = Math.max(0, Math.min(transaction.mapping.map(selection.to, 1), transaction.doc.content.size));
+
+  view.dispatch(
+    transaction
+      .setSelection(TextSelection.create(transaction.doc, Math.min(nextFrom, nextTo), Math.max(nextFrom, nextTo)))
       .scrollIntoView()
   );
   view.focus();

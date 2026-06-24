@@ -61,6 +61,7 @@ describe("AiSelectionToolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Strikethrough" }));
     fireEvent.click(screen.getByRole("button", { name: "Inline Code" }));
     fireEvent.click(screen.getByRole("button", { name: "Highlight" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear Formatting" }));
     fireEvent.click(screen.getByRole("button", { name: "Quote" }));
     fireEvent.click(screen.getByRole("button", { name: "Bullet List" }));
     fireEvent.click(screen.getByRole("button", { name: "Ordered List" }));
@@ -73,6 +74,7 @@ describe("AiSelectionToolbar", () => {
       "strikethrough",
       "inlineCode",
       "highlight",
+      "clearFormatting",
       "quote",
       "bulletList",
       "orderedList"
@@ -136,6 +138,31 @@ describe("AiSelectionToolbar", () => {
     fireEvent.click(screen.getByRole("menuitemradio", { name: "H3" }));
 
     expect(onSetHeadingLevel).toHaveBeenCalledWith(3);
+  });
+
+  it("routes paragraph choices from the heading level menu", () => {
+    const onRunFormattingAction = vi.fn();
+
+    render(
+      <AiSelectionToolbar
+        activeHeadingLevel={2}
+        anchor={anchor}
+        language="en"
+        open
+        onCopySelection={vi.fn()}
+        onInsertLink={vi.fn()}
+        onOpenCommand={vi.fn()}
+        onRunFormattingAction={onRunFormattingAction}
+        onRunAction={vi.fn()}
+        onSetHeadingLevel={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Heading Level H2" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Paragraph" }));
+
+    expect(onRunFormattingAction).toHaveBeenCalledWith("paragraph");
+    expect(screen.queryByRole("menu", { name: "Heading Level" })).not.toBeInTheDocument();
   });
 
   it("renders the heading level menu outside the scrollable toolbar shell", () => {
@@ -333,6 +360,31 @@ describe("AiSelectionToolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: "AI command" }));
 
     expect(onOpenCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("dismisses when a pointer starts outside the toolbar", () => {
+    const onDismiss = vi.fn();
+
+    render(
+      <AiSelectionToolbar
+        anchor={anchor}
+        language="en"
+        open
+        onCopySelection={vi.fn()}
+        onDismiss={onDismiss}
+        onInsertLink={vi.fn()}
+        onOpenCommand={vi.fn()}
+        onRunFormattingAction={vi.fn()}
+        onRunAction={vi.fn()}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Polish" }));
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(document.body);
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   it("does not render when there is no selected text anchor", () => {

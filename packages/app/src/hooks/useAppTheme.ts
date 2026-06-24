@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getStoredCustomThemeCss,
-  getStoredTheme,
+  getStoredThemePreferences,
+  defaultCustomThemeCssValues,
+  defaultAppThemePreferences,
+  normalizeAppThemePreferences,
+  normalizeCustomThemeCssValues,
   normalizeCustomThemeCss,
-  resolveAppAppearanceTheme,
-  resolveAppEditorTheme,
+  resolveAppThemePreferencesAppearance,
+  resolveAppThemePreferencesEditorTheme,
   saveStoredCustomThemeCss,
-  saveStoredTheme,
-  type AppTheme,
+  saveStoredThemePreferences,
+  type AppAppearanceMode,
+  type AppThemePreferences,
+  type CustomThemeCssValues,
+  type DarkEditorTheme,
   type EditorTheme,
+  type LightEditorTheme,
   type ResolvedAppTheme
 } from "../lib/settings/app-settings";
 import {
@@ -44,12 +52,14 @@ function applyCustomThemeCss(css: string) {
   style.textContent = css;
 }
 
-function applyAppTheme(theme: EditorTheme, customThemeCss: string) {
+function applyAppTheme(theme: EditorTheme, resolvedTheme: ResolvedAppTheme, customThemeCss: CustomThemeCssValues) {
   // Keep the root attribute as the single switch for theme-scoped CSS variables.
   document.documentElement.dataset.theme = theme;
 
-  if (theme === "custom" && customThemeCss.trim()) {
-    applyCustomThemeCss(customThemeCss);
+  const activeCustomCss = resolvedTheme === "dark" ? customThemeCss.dark : customThemeCss.light;
+
+  if (theme === "custom" && activeCustomCss.trim()) {
+    applyCustomThemeCss(activeCustomCss);
     return;
   }
 
@@ -57,21 +67,23 @@ function applyAppTheme(theme: EditorTheme, customThemeCss: string) {
 }
 
 export function useAppTheme() {
-  const [theme, setTheme] = useState<AppTheme>("system");
-  const [customThemeCss, setCustomThemeCss] = useState("");
+  const [themePreferences, setThemePreferences] = useState<AppThemePreferences>(defaultAppThemePreferences);
+  const [customThemeCss, setCustomThemeCss] = useState<CustomThemeCssValues>(defaultCustomThemeCssValues);
   const [systemTheme, setSystemTheme] = useState<ResolvedAppTheme>(() => getSystemTheme());
-  const editorTheme = resolveAppEditorTheme(theme, systemTheme);
-  const resolvedTheme = resolveAppAppearanceTheme(theme, systemTheme);
+  const liveCustomThemeCssReceivedRef = useRef(false);
+  const liveThemePreferencesReceivedRef = useRef(false);
+  const editorTheme = resolveAppThemePreferencesEditorTheme(themePreferences, systemTheme);
+  const resolvedTheme = resolveAppThemePreferencesAppearance(themePreferences, systemTheme);
 
   useEffect(() => {
     let active = true;
 
-    getStoredTheme().then((storedTheme) => {
-      if (active) setTheme(storedTheme);
+    getStoredThemePreferences().then((storedPreferences) => {
+      if (active && !liveThemePreferencesReceivedRef.current) setThemePreferences(storedPreferences);
     }).catch(() => {});
 
     getStoredCustomThemeCss().then((storedCss) => {
-      if (active) setCustomThemeCss(storedCss);
+      if (active && !liveCustomThemeCssReceivedRef.current) setCustomThemeCss(storedCss);
     }).catch(() => {});
 
     return () => {
@@ -96,15 +108,18 @@ export function useAppTheme() {
   }, []);
 
   useEffect(() => {
-    applyAppTheme(editorTheme, customThemeCss);
-  }, [customThemeCss, editorTheme]);
+    applyAppTheme(editorTheme, resolvedTheme, customThemeCss);
+  }, [customThemeCss, editorTheme, resolvedTheme]);
 
   useEffect(() => {
     let active = true;
     let cleanup: (() => unknown) | null = null;
 
-    listenAppThemeChanged((nextTheme) => {
-      if (active) setTheme(nextTheme);
+    listenAppThemeChanged((nextPreferences) => {
+      if (active) {
+        liveThemePreferencesReceivedRef.current = true;
+        setThemePreferences(nextPreferences);
+      }
     }).then((stopListening) => {
       if (!active) {
         stopListening();
@@ -125,7 +140,10 @@ export function useAppTheme() {
     let cleanup: (() => unknown) | null = null;
 
     listenAppCustomThemeCssChanged((nextCss) => {
-      if (active) setCustomThemeCss(nextCss);
+      if (active) {
+        liveCustomThemeCssReceivedRef.current = true;
+        setCustomThemeCss(nextCss);
+      }
     }).then((stopListening) => {
       if (!active) {
         stopListening();
@@ -141,32 +159,93 @@ export function useAppTheme() {
     };
   }, []);
 
-  const selectTheme = useCallback((nextTheme: AppTheme) => {
-    setTheme(nextTheme);
-    saveStoredTheme(nextTheme).then(() => notifyAppThemeChanged(nextTheme)).catch(() => {});
+  const updateThemePreferences = useCallback((nextPreferences: AppThemePreferences) => {
+    const normalizedPreferences = normalizeAppThemePreferences(nextPreferences);
+
+    setThemePreferences(normalizedPreferences);
+    liveThemePreferencesReceivedRef.current = true;
+    saveStoredThemePreferences(normalizedPreferences)
+      .then(() => notifyAppThemeChanged(normalizedPreferences))
+      .catch(() => {});
   }, []);
+
+  const selectAppearanceMode = useCallback((appearanceMode: AppAppearanceMode) => {
+    updateThemePreferences({
+      ...themePreferences,
+      appearanceMode
+    });
+  }, [themePreferences, updateThemePreferences]);
+
+  const selectLightTheme = useCallback((lightTheme: LightEditorTheme) => {
+    updateThemePreferences({
+      ...themePreferences,
+      lightTheme
+    });
+  }, [themePreferences, updateThemePreferences]);
+
+  const selectDarkTheme = useCallback((darkTheme: DarkEditorTheme) => {
+    updateThemePreferences({
+      ...themePreferences,
+      darkTheme
+    });
+  }, [themePreferences, updateThemePreferences]);
 
   const toggleTheme = useCallback(() => {
-    const nextTheme = resolvedTheme === "dark" ? "light" : "dark";
-
-    setTheme(nextTheme);
-    saveStoredTheme(nextTheme).then(() => notifyAppThemeChanged(nextTheme)).catch(() => {});
-  }, [resolvedTheme]);
+    updateThemePreferences({
+      ...themePreferences,
+      appearanceMode: resolvedTheme === "dark" ? "light" : "dark"
+    });
+  }, [resolvedTheme, themePreferences, updateThemePreferences]);
 
   const updateCustomThemeCss = useCallback((nextCss: string) => {
-    const normalizedCss = normalizeCustomThemeCss(nextCss);
+    const normalizedCss = normalizeCustomThemeCssValues({
+      ...customThemeCss,
+      [resolvedTheme]: normalizeCustomThemeCss(nextCss)
+    });
 
     setCustomThemeCss(normalizedCss);
+    liveCustomThemeCssReceivedRef.current = true;
     saveStoredCustomThemeCss(normalizedCss).then(() => notifyAppCustomThemeCssChanged(normalizedCss)).catch(() => {});
-  }, []);
+  }, [customThemeCss, resolvedTheme]);
+
+  const updateLightCustomThemeCss = useCallback((nextCss: string) => {
+    const normalizedCss = normalizeCustomThemeCssValues({
+      ...customThemeCss,
+      light: normalizeCustomThemeCss(nextCss)
+    });
+
+    setCustomThemeCss(normalizedCss);
+    liveCustomThemeCssReceivedRef.current = true;
+    saveStoredCustomThemeCss(normalizedCss).then(() => notifyAppCustomThemeCssChanged(normalizedCss)).catch(() => {});
+  }, [customThemeCss]);
+
+  const updateDarkCustomThemeCss = useCallback((nextCss: string) => {
+    const normalizedCss = normalizeCustomThemeCssValues({
+      ...customThemeCss,
+      dark: normalizeCustomThemeCss(nextCss)
+    });
+
+    setCustomThemeCss(normalizedCss);
+    liveCustomThemeCssReceivedRef.current = true;
+    saveStoredCustomThemeCss(normalizedCss).then(() => notifyAppCustomThemeCssChanged(normalizedCss)).catch(() => {});
+  }, [customThemeCss]);
 
   return {
     customThemeCss,
+    darkCustomThemeCss: customThemeCss.dark,
     editorTheme,
+    appearanceMode: themePreferences.appearanceMode,
+    darkTheme: themePreferences.darkTheme,
+    lightCustomThemeCss: customThemeCss.light,
+    lightTheme: themePreferences.lightTheme,
     resolvedTheme,
-    selectTheme,
-    theme,
+    selectAppearanceMode,
+    selectDarkTheme,
+    selectLightTheme,
+    themePreferences,
     toggleTheme,
-    updateCustomThemeCss
+    updateCustomThemeCss,
+    updateDarkCustomThemeCss,
+    updateLightCustomThemeCss
   };
 }

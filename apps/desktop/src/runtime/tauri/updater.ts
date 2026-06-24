@@ -1,6 +1,6 @@
 import { check, type DownloadEvent } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { saveStoredWorkspaceState } from "@markra/app/settings";
+import { getStoredNetworkSettings, saveStoredWorkspaceState } from "@markra/app/settings";
 import { listNativeEditorWindowRestoreStates } from "./window";
 
 const localUpdaterProxyUrls = [
@@ -31,7 +31,9 @@ function isTauriRuntime() {
 }
 
 async function checkWithLocalProxyFallback() {
-  for (const proxy of localUpdaterProxyUrls) {
+  const proxies = await updaterProxyUrls();
+
+  for (const proxy of proxies) {
     try {
       return await check({ proxy });
     } catch {
@@ -40,6 +42,18 @@ async function checkWithLocalProxyFallback() {
   }
 
   return check();
+}
+
+async function updaterProxyUrls() {
+  try {
+    const settings = await getStoredNetworkSettings();
+    const configuredProxy = settings.proxyEnabled ? settings.proxyUrl.trim() : "";
+    if (!configuredProxy) return [...localUpdaterProxyUrls];
+
+    return [configuredProxy, ...localUpdaterProxyUrls.filter((proxy) => proxy !== configuredProxy)];
+  } catch {
+    return [...localUpdaterProxyUrls];
+  }
 }
 
 function resolveProgress(downloaded: number, contentLength: number | null) {

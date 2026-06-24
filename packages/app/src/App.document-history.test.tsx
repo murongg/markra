@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
 import {
   installAppTestHarness,
   mockNativePath,
@@ -27,6 +28,47 @@ vi.mock("./hooks/useEditorController", async (importOriginal) => {
 });
 
 installAppTestHarness();
+
+async function selectEditorViewMode(optionName: "Preview" | "Source code" | "Preview + Source") {
+  const modeOrder = ["Preview", "Source code", "Preview + Source"] as const;
+  const currentMode = () => {
+    if (screen.queryByRole("button", { name: "Editor view mode: Preview" })) return "Preview";
+    if (screen.queryByRole("button", { name: "Editor view mode: Source code" })) return "Source code";
+    if (screen.queryByRole("button", { name: "Editor view mode: Preview + Source" })) return "Preview + Source";
+
+    throw new Error("Editor view mode button was not found.");
+  };
+
+  for (let attempts = 0; attempts < modeOrder.length; attempts += 1) {
+    const mode = currentMode();
+    if (mode === optionName) return;
+
+    const nextMode = modeOrder[(modeOrder.indexOf(mode) + 1) % modeOrder.length]!;
+    fireEvent.click(screen.getByRole("button", { name: `Editor view mode: ${mode}` }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: `Editor view mode: ${nextMode}` })).toBeInTheDocument()
+    );
+  }
+
+  throw new Error(`Editor view mode did not cycle to ${optionName}.`);
+}
+
+function replaceMarkdownSource(sourceEditor: HTMLElement, value: string) {
+  const view = EditorView.findFromDOM(sourceEditor);
+  if (!view) {
+    throw new Error("Expected the markdown source editor to use CodeMirror.");
+  }
+
+  act(() => {
+    view.dispatch({
+      changes: {
+        from: 0,
+        insert: value,
+        to: view.state.doc.length
+      }
+    });
+  });
+}
 
 describe("Markra document history restore", () => {
   beforeEach(() => {
@@ -286,12 +328,8 @@ describe("Markra document history restore", () => {
       expect(mockedListNativeMarkdownFileHistory).toHaveBeenCalledTimes(1);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Markdown source" }), {
-      target: {
-        value: "# Updated\n\nSynthetic body."
-      }
-    });
+    await selectEditorViewMode("Source code");
+    replaceMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" }), "# Updated\n\nSynthetic body.");
     fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
 
     await waitFor(() => {

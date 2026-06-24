@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
 import { defaultMarkdownShortcuts } from "@markra/editor";
 import desktopPackage from "../package.json";
 import { defaultAiQuickActionPrompts } from "./lib/ai-actions";
@@ -31,7 +32,7 @@ import {
   mockedGetStoredRecentMarkdownFolders,
   mockedGetStoredBackupSettings,
   mockedGetStoredSyncSettings,
-  mockedGetStoredTheme,
+  mockedGetStoredThemePreferences,
   mockedGetStoredWorkspaceState,
   mockedInstallNativeApplicationMenu,
   mockedInstallNativeEditorContextMenu,
@@ -50,17 +51,21 @@ import {
   mockedNotifyAppLanguageChanged,
   mockedNotifyAppThemeChanged,
   mockedOpenNativeMarkdownFileInNewWindow,
+  mockedOpenNativeLocalImages,
   mockedOpenNativeMarkdownFolder,
   mockedOpenNativeMarkdownFolderInNewWindow,
   mockedOpenNativeMarkdownPath,
   mockedOpenNativeExternalUrl,
   mockedOpenSettingsWindow,
+  mockedReadNativeLocalImageFile,
   mockedReadNativeMarkdownFile,
   mockedReadNativeMarkdownFileHistory,
   mockedRemoveStoredRecentMarkdownFolder,
   mockedResetWelcomeDocumentState,
   mockedRenameNativeMarkdownTreeFile,
+  mockedResolveDesktopOsVersion,
   mockedResolveDesktopPlatform,
+  mockedSaveNativeClipboardImage,
   mockedSaveNativeHtmlFile,
   mockedSaveNativeMarkdownFile,
   mockedSaveNativePandocFile,
@@ -76,7 +81,7 @@ import {
   mockedSaveStoredLanguage,
   mockedSaveStoredRecentMarkdownFile,
   mockedSaveStoredRecentMarkdownFolder,
-  mockedSaveStoredTheme,
+  mockedSaveStoredThemePreferences,
   mockedSaveStoredWorkspaceState,
   mockedShowNativeMarkdownFileTreeContextMenu,
   mockedTakeNativeOpenedMarkdownPaths,
@@ -85,10 +90,54 @@ import {
   mockedWriteNativeMarkdownTemplateFile,
   renderApp
 } from "./test/app-harness";
+import { runEditorLinkCommand } from "./App";
 import type { NativeMenuHandlers } from "./test/app-harness";
 import { configureAppRuntime, createDefaultAppRuntime, resetAppRuntimeForTests } from "./runtime";
 
 installAppTestHarness();
+
+async function selectEditorViewMode(optionName: "Preview" | "Source code" | "Preview + Source") {
+  const modeOrder = ["Preview", "Source code", "Preview + Source"] as const;
+  const currentMode = () => {
+    if (screen.queryByRole("button", { name: "Editor view mode: Preview" })) return "Preview";
+    if (screen.queryByRole("button", { name: "Editor view mode: Source code" })) return "Source code";
+    if (screen.queryByRole("button", { name: "Editor view mode: Preview + Source" })) return "Preview + Source";
+
+    throw new Error("Editor view mode button was not found.");
+  };
+  const switchSourcePreviewDirectly = async () => {
+    const mode = currentMode();
+    if (
+      !((mode === "Preview" && optionName === "Source code") || (mode === "Source code" && optionName === "Preview"))
+    ) return false;
+
+    const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls.at(-1)?.[0] as NativeMenuHandlers | undefined;
+    if (!menuHandlers?.toggleSourceMode) return false;
+
+    await act(async () => {
+      await menuHandlers.toggleSourceMode?.();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: `Editor view mode: ${optionName}` })).toBeInTheDocument()
+    );
+    return true;
+  };
+
+  if (await switchSourcePreviewDirectly()) return;
+
+  for (let attempts = 0; attempts < modeOrder.length; attempts += 1) {
+    const mode = currentMode();
+    if (mode === optionName) return;
+
+    const nextMode = modeOrder[(modeOrder.indexOf(mode) + 1) % modeOrder.length]!;
+    fireEvent.click(screen.getByRole("button", { name: `Editor view mode: ${mode}` }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: `Editor view mode: ${nextMode}` })).toBeInTheDocument()
+    );
+  }
+
+  throw new Error(`Editor view mode did not cycle to ${optionName}.`);
+}
 
 const defaultImageUpload = {
   fileNamePattern: "pasted-image-{timestamp}",
@@ -115,6 +164,47 @@ const defaultImageUpload = {
   }
 };
 
+const webKitScrollWorkaroundAttribute = "data-webkit-scroll-workaround";
+
+function domRect(rect: Omit<DOMRect, "toJSON">): DOMRect {
+  return {
+    ...rect,
+    toJSON: () => ({})
+  } as DOMRect;
+}
+
+function createDragDataTransfer() {
+  const data = new Map<string, string>();
+
+  return {
+    clearData: () => data.clear(),
+    dropEffect: "none",
+    effectAllowed: "copyMove",
+    files: [] as File[],
+    getData: (type: string) => data.get(type) ?? "",
+    setData: (type: string, value: string) => data.set(type, value),
+    setDragImage: vi.fn()
+  } as unknown as DataTransfer;
+}
+
+function dispatchDragEvent(
+  target: Element,
+  type: string,
+  options: { clientX: number; clientY: number; dataTransfer: DataTransfer }
+) {
+  const event = new Event(type, {
+    bubbles: true,
+    cancelable: true
+  }) as DragEvent;
+
+  Object.defineProperty(event, "clientX", { value: options.clientX });
+  Object.defineProperty(event, "clientY", { value: options.clientY });
+  Object.defineProperty(event, "dataTransfer", { value: options.dataTransfer });
+  target.dispatchEvent(event);
+
+  return event;
+}
+
 function mockElementFromPoint(element: Element) {
   const mock = vi.fn(() => element);
 
@@ -126,17 +216,84 @@ function mockElementFromPoint(element: Element) {
   return mock;
 }
 
+function getMarkdownSourceView(sourceEditor: HTMLElement) {
+  const view = EditorView.findFromDOM(sourceEditor);
+  if (!view) {
+    throw new Error("Expected the markdown source editor to use CodeMirror.");
+  }
+
+  return view;
+}
+
+function readMarkdownSource(sourceEditor: HTMLElement) {
+  return getMarkdownSourceView(sourceEditor).state.doc.toString();
+}
+
+function replaceMarkdownSource(sourceEditor: HTMLElement, value: string) {
+  const view = getMarkdownSourceView(sourceEditor);
+
+  act(() => {
+    view.dispatch({
+      changes: {
+        from: 0,
+        insert: value,
+        to: view.state.doc.length
+      }
+    });
+  });
+}
+
+function queryVisibleMilkdownEditor(container: HTMLElement) {
+  return Array.from(container.querySelectorAll<HTMLElement>('[data-editor-engine="milkdown"]')).find(
+    (element) => !element.closest("[hidden]")
+  ) ?? null;
+}
+
+function getVisibleMilkdownEditor(container: HTMLElement) {
+  const editor = queryVisibleMilkdownEditor(container);
+  if (!editor) {
+    throw new Error("Expected a visible Milkdown editor.");
+  }
+
+  return editor;
+}
+
+function getVisibleWritingSurface(container: HTMLElement) {
+  const surface = Array.from(container.querySelectorAll<HTMLElement>('[aria-label="Writing surface"]')).find(
+    (element) => !element.closest("[hidden]")
+  );
+  if (!surface) {
+    throw new Error("Expected a visible writing surface.");
+  }
+
+  return surface;
+}
+
+function queryVisibleMilkdownTable(container: HTMLElement) {
+  return getVisibleMilkdownEditor(container).querySelector("table");
+}
+
+async function expectVisibleMilkdownText(container: HTMLElement, text: string) {
+  await waitFor(() => expect(within(getVisibleMilkdownEditor(container)).getByText(text)).toBeInTheDocument());
+}
+
 function createStoredEditorPreferences(
   overrides: Partial<Parameters<typeof mockedSaveStoredEditorPreferences>[0]> = {}
 ): Parameters<typeof mockedSaveStoredEditorPreferences>[0] {
   return {
     aiQuickActionPrompts: defaultAiQuickActionPrompts,
+    autoRevealActiveFile: true,
+    autoSaveEnabled: true,
+    autoSaveIntervalMinutes: 10,
     autoUpdateEnabled: true,
     bodyFontSize: 16,
     clipboardImageFolder: "assets",
     closeAiCommandOnAgentPanelOpen: false,
     contentWidth: "default",
     contentWidthPx: null,
+    documentLinksOpen: true,
+    documentLinksVisible: false,
+    editorFontFamily: { family: null, source: "theme" },
     extendedSyntax: {
       githubAlerts: true,
       highlight: true
@@ -152,15 +309,18 @@ function createStoredEditorPreferences(
     suggestAiPanelForComplexInlinePrompts: false,
     showDocumentTabs: true,
     splitVisualPanePercent: 50,
+    spellcheckEnabled: overrides.spellcheckEnabled ?? false,
+    spellcheckIgnoredWords: overrides.spellcheckIgnoredWords ?? [],
+    spellcheckLanguage: overrides.spellcheckLanguage ?? "en",
     titlebarActions: [
       { id: "aiAgent", visible: true },
       { id: "sourceMode", visible: true },
-      { id: "splitMode", visible: true },
       { id: "save", visible: true },
       { id: "theme", visible: true }
     ],
     showWordCount: true,
-    ...overrides
+    ...overrides,
+    wrapCodeBlocks: overrides.wrapCodeBlocks ?? true
   };
 }
 
@@ -214,8 +374,48 @@ function mockTitlebarActionRects(actionIds: string[]) {
 }
 
 describe("Markra workspace", () => {
+  it("marks macOS 27 windows for the WebKit scrolling workaround", async () => {
+    mockedResolveDesktopPlatform.mockReturnValue("macos");
+    mockedResolveDesktopOsVersion.mockReturnValue("27.0");
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute(webKitScrollWorkaroundAttribute, "macos-27");
+    });
+  });
+
+  it("clears the WebKit scrolling workaround outside macOS 27", async () => {
+    document.documentElement.setAttribute(webKitScrollWorkaroundAttribute, "macos-27");
+    mockedResolveDesktopPlatform.mockReturnValue("macos");
+    mockedResolveDesktopOsVersion.mockReturnValue("26.6");
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(document.documentElement).not.toHaveAttribute(webKitScrollWorkaroundAttribute);
+    });
+  });
+
   afterEach(() => {
     resetAppRuntimeForTests();
+  });
+
+  it("syncs selection toolbar formatting after running the editor link command", () => {
+    const insertMarkdownLink = vi.fn();
+    const syncAiSelectionToolbarFormattingState = vi.fn();
+    const syncVisualMarkdownAfterEditorCommand = vi.fn();
+
+    expect(runEditorLinkCommand({
+      insertMarkdownLink,
+      readOnlyMode: false,
+      syncAiSelectionToolbarFormattingState,
+      syncVisualMarkdownAfterEditorCommand
+    })).toBe(true);
+
+    expect(insertMarkdownLink).toHaveBeenCalledTimes(1);
+    expect(syncVisualMarkdownAfterEditorCommand).toHaveBeenCalledTimes(1);
+    expect(syncAiSelectionToolbarFormattingState).toHaveBeenCalledTimes(1);
   });
 
   it("renders a Typora-like minimal writing surface", async () => {
@@ -230,7 +430,7 @@ describe("Markra workspace", () => {
     expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeInTheDocument();
     expect(screen.getByLabelText("Markdown editor")).toBeInTheDocument();
     expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-engine", "milkdown");
-    expect(container.querySelector("[data-milkdown-root]")).toBeInTheDocument();
+    await waitFor(() => expect(container.querySelector("[data-milkdown-root]")).toBeInTheDocument());
     expect(screen.queryByText("File")).not.toBeInTheDocument();
     expect(container.querySelector(".native-title")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Toggle file list" })).toBeInTheDocument();
@@ -240,6 +440,130 @@ describe("Markra workspace", () => {
     expect(shell).toHaveClass("bg-(--bg-primary)");
     expect(shell).toHaveClass("grid-rows-[minmax(0,1fr)]");
     expect(shell).toHaveClass("overscroll-none");
+  });
+
+  it("imports local images through the native menu without replacing manual image insertion", async () => {
+    const localImage = new File([new Uint8Array([1, 2, 3])], "Local Diagram.png", { type: "image/png" });
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+    mockOpenMarkdownFile({
+      content: "# Native\n\nStart here.",
+      name: "native.md",
+      path: mockNativePath
+    });
+    mockedOpenNativeLocalImages.mockResolvedValue([localImage]);
+    mockedSaveNativeClipboardImage.mockResolvedValue({
+      alt: "Local Diagram",
+      src: "assets/local-diagram.png"
+    });
+
+    const { container } = renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Markdown or Folder" }));
+    expect(await screen.findByText("Native")).toBeInTheDocument();
+
+    await waitFor(() => expect(mockedInstallNativeApplicationMenu).toHaveBeenCalled());
+    const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls.at(-1)?.[0] as NativeMenuHandlers;
+
+    await act(async () => {
+      await menuHandlers.importLocalImages?.();
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('img[src="assets/local-diagram.png"]')).toBeInTheDocument();
+    });
+    expect(mockedOpenNativeLocalImages).toHaveBeenCalledWith({
+      title: "Import Local Images..."
+    });
+    expect(mockedSaveNativeClipboardImage).toHaveBeenCalledWith({
+      documentPath: mockNativePath,
+      fileName: expect.stringMatching(/^pasted-image-\d+\.png$/u),
+      folder: "assets",
+      image: localImage
+    });
+  });
+
+  it("replaces an empty paragraph when importing a local image at the blank document cursor", async () => {
+    const localImage = new File([new Uint8Array([1, 2, 3])], "Blank Import.png", { type: "image/png" });
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+    mockOpenMarkdownFile({
+      content: "",
+      name: "native.md",
+      path: mockNativePath
+    });
+    mockedOpenNativeLocalImages.mockResolvedValue([localImage]);
+    mockedSaveNativeClipboardImage.mockResolvedValue({
+      alt: "Blank Import",
+      src: "assets/blank-import.png"
+    });
+
+    const { container } = renderApp();
+
+    await waitFor(() => expect(mockedInstallNativeApplicationMenu).toHaveBeenCalled());
+    const menuInstallCountBeforeOpen = mockedInstallNativeApplicationMenu.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Open Markdown or Folder" }));
+    await waitFor(() => expect(mockedWatchNativeMarkdownFile).toHaveBeenCalledWith(
+      mockNativePath,
+      expect.any(Function),
+      expect.any(Function)
+    ));
+
+    await waitFor(() => {
+      expect(mockedInstallNativeApplicationMenu.mock.calls.length).toBeGreaterThan(menuInstallCountBeforeOpen);
+    });
+    const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls.at(-1)?.[0] as NativeMenuHandlers;
+
+    await act(async () => {
+      await menuHandlers.importLocalImages?.();
+    });
+
+    expect(mockedOpenNativeLocalImages).toHaveBeenCalledWith({
+      title: "Import Local Images..."
+    });
+    await waitFor(() => {
+      const editor = container.querySelector(".ProseMirror");
+      expect(editor?.firstElementChild).toHaveClass("markra-image-node");
+    });
+    expect(container.querySelector(".ProseMirror > p")).not.toBeInTheDocument();
+  });
+
+  it("replaces the document word count with the selected word count in the quiet status line", async () => {
+    const { container } = renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    await selectEditorViewMode("Source code");
+
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+    const view = getMarkdownSourceView(sourceEditor);
+    const start = view.state.doc.toString().indexOf("Welcome");
+
+    act(() => {
+      view.dispatch({
+        selection: {
+          anchor: start,
+          head: start + "Welcome to Markra".length
+        }
+      });
+    });
+
+    await waitFor(() => expect(container.querySelector(".quiet-status")).toHaveTextContent("3 words"));
+    expect(container.querySelector(".quiet-status")).not.toHaveTextContent("75 words");
+  });
+
+  it("keeps the active writing surface clear of the quiet status line", async () => {
+    const { container } = renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector(".markdown-paper")?.getAttribute("style")).toContain("padding-bottom: 56px");
+    });
+
+    await selectEditorViewMode("Source code");
+    await waitFor(() => {
+      expect(container.querySelector(".markdown-source-paper")?.getAttribute("style")).toContain(
+        "padding-bottom: 56px"
+      );
+    });
   });
 
   it("restores a selected history version into the current document", async () => {
@@ -291,8 +615,10 @@ describe("Markra workspace", () => {
         ai: false,
         export: false,
         nativeWindowChrome: false,
+        networkProxy: false,
         pandoc: false,
         s3ImageUpload: false,
+        spellcheck: false,
         updater: false
       }
     });
@@ -344,6 +670,7 @@ describe("Markra workspace", () => {
     expect(screen.queryByRole("button", { name: "AI" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Export" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Providers" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Spellcheck" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Web" })).not.toBeInTheDocument();
     expect(screen.queryByText("Updates")).not.toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "Automatically check for updates" })).not.toBeInTheDocument();
@@ -362,8 +689,10 @@ describe("Markra workspace", () => {
         ai: false,
         export: true,
         nativeWindowChrome: false,
+        networkProxy: false,
         pandoc: false,
         s3ImageUpload: false,
+        spellcheck: false,
         updater: false
       }
     });
@@ -402,11 +731,14 @@ describe("Markra workspace", () => {
         ai: true,
         export: true,
         nativeWindowChrome: false,
+        networkProxy: true,
         pandoc: true,
         s3ImageUpload: true,
+        spellcheck: true,
         updater: true
       },
       platform: {
+        resolveDesktopOsVersion: () => null,
         resolveDesktopPlatform: () => "windows"
       }
     });
@@ -436,7 +768,11 @@ describe("Markra workspace", () => {
       gridTemplateColumns: "minmax(0,1fr) 164px",
       left: "289px"
     });
+    expect(container.querySelector(".windows-app-chrome")).not.toBeInTheDocument();
+    expect(container.querySelector(".native-titlebar")).toHaveClass("top-0");
+    expect(container.querySelector(".markdown-file-tree-slot")?.parentElement).not.toHaveClass("pt-10");
     expect(container.querySelector(".windows-titlebar-actions")).toBeInTheDocument();
+    expect(container.querySelector(".windows-window-controls")).not.toBeInTheDocument();
     expect(container.querySelector(".titlebar-spacer")).not.toBeInTheDocument();
     expect(container.querySelector(".document-tabs-drag-spacer")).not.toBeInTheDocument();
     expect(container.querySelector(".native-title-slot")?.getAttribute("style") ?? "").not.toContain("margin-left");
@@ -445,12 +781,18 @@ describe("Markra workspace", () => {
   it("persists titlebar action order changes by holding and dragging", async () => {
     mockedGetStoredEditorPreferences.mockResolvedValue({
       aiQuickActionPrompts: defaultAiQuickActionPrompts,
+      autoRevealActiveFile: true,
+      autoSaveEnabled: true,
+      autoSaveIntervalMinutes: 10,
       autoUpdateEnabled: true,
       bodyFontSize: 16,
       clipboardImageFolder: "assets",
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
+      editorFontFamily: { family: null, source: "theme" as const },
       extendedSyntax: {
         githubAlerts: true,
         highlight: true
@@ -466,21 +808,24 @@ describe("Markra workspace", () => {
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
       splitVisualPanePercent: 50,
+      spellcheckEnabled: false,
+      spellcheckIgnoredWords: [],
+      spellcheckLanguage: "en" as const,
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },
-        { id: "splitMode", visible: true },
         { id: "save", visible: true },
         { id: "theme", visible: true }
       ],
-      showWordCount: true
+      showWordCount: true,
+      wrapCodeBlocks: true
     });
     renderApp();
 
     await screen.findByText("Welcome to Markra");
 
     const aiButton = screen.getByRole("button", { name: "Toggle Markra AI" });
-    mockTitlebarActionRects(["aiAgent", "sourceMode", "splitMode", "save", "theme"]);
+    mockTitlebarActionRects(["aiAgent", "sourceMode", "save", "theme"]);
 
     fireEvent.mouseDown(aiButton, { button: 0, clientX: 10, clientY: 10 });
     fireEvent.mouseMove(document, { buttons: 1, clientX: 20, clientY: 10 });
@@ -491,12 +836,18 @@ describe("Markra workspace", () => {
     await waitFor(() =>
       expect(mockedSaveStoredEditorPreferences).toHaveBeenCalledWith({
         aiQuickActionPrompts: defaultAiQuickActionPrompts,
+        autoRevealActiveFile: true,
+        autoSaveEnabled: true,
+        autoSaveIntervalMinutes: 10,
         autoUpdateEnabled: true,
         bodyFontSize: 16,
         clipboardImageFolder: "assets",
         closeAiCommandOnAgentPanelOpen: false,
         contentWidth: "default",
         contentWidthPx: null,
+        documentLinksOpen: true,
+        documentLinksVisible: false,
+        editorFontFamily: { family: null, source: "theme" },
         extendedSyntax: {
           githubAlerts: true,
           highlight: true
@@ -512,25 +863,34 @@ describe("Markra workspace", () => {
         suggestAiPanelForComplexInlinePrompts: true,
         showDocumentTabs: true,
         splitVisualPanePercent: 50,
+        spellcheckEnabled: false,
+        spellcheckIgnoredWords: [],
+        spellcheckLanguage: "en",
         titlebarActions: [
           { id: "sourceMode", visible: true },
-          { id: "splitMode", visible: true },
           { id: "save", visible: true },
-          { id: "aiAgent", visible: true },
-          { id: "theme", visible: true }
+          { id: "theme", visible: true },
+          { id: "aiAgent", visible: true }
         ],
-        showWordCount: true
+        showWordCount: true,
+        wrapCodeBlocks: true
       })
     );
     await waitFor(() =>
       expect(mockedNotifyAppEditorPreferencesChanged).toHaveBeenCalledWith({
         aiQuickActionPrompts: defaultAiQuickActionPrompts,
+        autoRevealActiveFile: true,
+        autoSaveEnabled: true,
+        autoSaveIntervalMinutes: 10,
         autoUpdateEnabled: true,
         bodyFontSize: 16,
         clipboardImageFolder: "assets",
         closeAiCommandOnAgentPanelOpen: false,
         contentWidth: "default",
         contentWidthPx: null,
+        documentLinksOpen: true,
+        documentLinksVisible: false,
+        editorFontFamily: { family: null, source: "theme" },
         extendedSyntax: {
           githubAlerts: true,
           highlight: true
@@ -546,14 +906,17 @@ describe("Markra workspace", () => {
         suggestAiPanelForComplexInlinePrompts: true,
         showDocumentTabs: true,
         splitVisualPanePercent: 50,
+        spellcheckEnabled: false,
+        spellcheckIgnoredWords: [],
+        spellcheckLanguage: "en",
         titlebarActions: [
           { id: "sourceMode", visible: true },
-          { id: "splitMode", visible: true },
           { id: "save", visible: true },
-          { id: "aiAgent", visible: true },
-          { id: "theme", visible: true }
+          { id: "theme", visible: true },
+          { id: "aiAgent", visible: true }
         ],
-        showWordCount: true
+        showWordCount: true,
+        wrapCodeBlocks: true
       })
     );
   });
@@ -779,7 +1142,11 @@ describe("Markra workspace", () => {
 
   it("loads and persists the app color theme", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
-    mockedGetStoredTheme.mockResolvedValue("dark");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "dark",
+      darkTheme: "dark",
+      lightTheme: "light"
+    });
 
     renderApp();
 
@@ -788,14 +1155,26 @@ describe("Markra workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch to light theme" }));
 
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
-    await waitFor(() => expect(mockedSaveStoredTheme).toHaveBeenCalledWith("light"));
-    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenCalledWith("light"));
+    await waitFor(() => expect(mockedSaveStoredThemePreferences).toHaveBeenCalledWith({
+      appearanceMode: "light",
+      darkTheme: "dark",
+      lightTheme: "light"
+    }));
+    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenCalledWith({
+      appearanceMode: "light",
+      darkTheme: "dark",
+      lightTheme: "light"
+    }));
     expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeInTheDocument();
   });
 
   it("keeps a manually selected global theme fixed across system color changes", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
-    mockedGetStoredTheme.mockResolvedValue("catppuccin-latte");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "light",
+      darkTheme: "catppuccin-mocha",
+      lightTheme: "catppuccin-latte"
+    });
     const systemColorScheme = mockSystemColorScheme(true);
 
     const { container } = renderApp();
@@ -809,11 +1188,54 @@ describe("Markra workspace", () => {
 
     expect(document.documentElement).toHaveAttribute("data-theme", "catppuccin-latte");
     expect(container.querySelector(".markdown-paper")).toHaveAttribute("data-editor-theme", "catppuccin-latte");
-    expect(mockedSaveStoredTheme).not.toHaveBeenCalled();
+    expect(mockedSaveStoredThemePreferences).not.toHaveBeenCalled();
+  });
+
+  it("restores the selected light palette after toggling to dark mode and back", async () => {
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "light",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    });
+
+    const { container } = renderApp();
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "sepia"));
+    expect(container.querySelector(".markdown-paper")).toHaveAttribute("data-editor-theme", "sepia");
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to dark theme" }));
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "night"));
+    expect(container.querySelector(".markdown-paper")).toHaveAttribute("data-editor-theme", "night");
+    await waitFor(() => expect(mockedSaveStoredThemePreferences).toHaveBeenCalledWith({
+      appearanceMode: "dark",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to light theme" }));
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "sepia"));
+    expect(container.querySelector(".markdown-paper")).toHaveAttribute("data-editor-theme", "sepia");
+    await waitFor(() => expect(mockedSaveStoredThemePreferences).toHaveBeenLastCalledWith({
+      appearanceMode: "light",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    }));
+    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenLastCalledWith({
+      appearanceMode: "light",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    }));
   });
 
   it("updates the editor window when another window changes the theme", async () => {
-    let onThemeChanged: ((theme: "light" | "dark" | "system" | "night" | "custom") => unknown) | null = null;
+    let onThemeChanged: ((preferences: {
+      appearanceMode: "light" | "dark" | "system";
+      darkTheme: "dark" | "night";
+      lightTheme: "light" | "sepia";
+    }) => unknown) | null = null;
     mockedListenAppThemeChanged.mockImplementation(async (listener) => {
       onThemeChanged = listener;
       return () => {};
@@ -823,7 +1245,11 @@ describe("Markra workspace", () => {
 
     await waitFor(() => expect(mockedListenAppThemeChanged).toHaveBeenCalledTimes(1));
     act(() => {
-      onThemeChanged?.("night");
+      onThemeChanged?.({
+        appearanceMode: "dark",
+        darkTheme: "night",
+        lightTheme: "sepia"
+      });
     });
 
     expect(document.documentElement).toHaveAttribute("data-theme", "night");
@@ -831,10 +1257,17 @@ describe("Markra workspace", () => {
     expect(screen.getByRole("button", { name: "Switch to light theme" })).toBeInTheDocument();
   });
 
-  it("applies custom theme CSS only while the custom theme is selected", async () => {
+  it("applies the custom theme CSS for the active appearance mode", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
-    mockedGetStoredTheme.mockResolvedValue("custom");
-    mockedGetStoredCustomThemeCss.mockResolvedValue(":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "light",
+      darkTheme: "custom",
+      lightTheme: "custom"
+    });
+    mockedGetStoredCustomThemeCss.mockResolvedValue({
+      dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+      light: ":root[data-theme=\"custom\"] { --bg-primary: #fdf6e3; }"
+    });
 
     const { container } = renderApp();
 
@@ -844,27 +1277,31 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch to dark theme" }));
 
-    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-    expect(document.getElementById("markra-custom-theme-style")).not.toBeInTheDocument();
+    expect(document.documentElement).toHaveAttribute("data-theme", "custom");
+    expect(document.getElementById("markra-custom-theme-style")).toHaveTextContent("--bg-primary: #0d1117");
   });
 
   it("follows the system color scheme when the stored theme preference is system", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
-    mockedGetStoredTheme.mockResolvedValue("system");
+    mockedGetStoredThemePreferences.mockResolvedValue({
+      appearanceMode: "system",
+      darkTheme: "night",
+      lightTheme: "sepia"
+    });
     const systemColorScheme = mockSystemColorScheme(true);
 
     renderApp();
 
-    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "dark"));
-    await waitFor(() => expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-theme", "dark"));
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "night"));
+    await waitFor(() => expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-theme", "night"));
 
     act(() => {
       systemColorScheme.setSystemDark(false);
     });
 
-    expect(document.documentElement).toHaveAttribute("data-theme", "light");
-    expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-theme", "light");
-    expect(mockedSaveStoredTheme).not.toHaveBeenCalled();
+    expect(document.documentElement).toHaveAttribute("data-theme", "sepia");
+    expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-theme", "sepia");
+    expect(mockedSaveStoredThemePreferences).not.toHaveBeenCalled();
   });
 
   it("reinstalls native menus when another window changes the language", async () => {
@@ -929,6 +1366,7 @@ describe("Markra workspace", () => {
     expect(container.querySelector(".settings-sidebar nav")).toBeInTheDocument();
     expect(container.querySelector(".settings-layout")).toHaveClass("grid-cols-[180px_minmax(0,1fr)]");
     expect(container.querySelector(".settings-sidebar")).toHaveClass("bg-(--bg-secondary)");
+    expect(container.querySelector(".settings-content")).not.toHaveClass("rounded-tl-md");
     expect(container.querySelector(".settings-content-header")).toHaveClass("border-b");
     expect(container.querySelector(".settings-panel-title")).toHaveClass("text-[16px]");
     const settingsGroups = Array.from(container.querySelectorAll(".settings-list-group"));
@@ -949,9 +1387,11 @@ describe("Markra workspace", () => {
       "Sync",
       "Appearance",
       "Editor",
+      "Spellcheck",
       "Templates",
       "Keyboard shortcuts",
-      "Export"
+      "Export",
+      "Network"
     ]);
     expect(categoryButtons[0]).toHaveAttribute("aria-current", "page");
     expect(categoryButtons[1]).not.toHaveAttribute("aria-current");
@@ -970,16 +1410,29 @@ describe("Markra workspace", () => {
     const appearanceCategoryButton = screen.getByRole("button", { name: "Apparence" });
     fireEvent.click(appearanceCategoryButton);
     expect(appearanceCategoryButton).toHaveAttribute("aria-current", "page");
-    const themeSelect = screen.getByRole("combobox");
-    expect(themeSelect).toHaveValue("light");
-    expect(screen.getByRole("option", { name: "Night" })).toBeInTheDocument();
-    fireEvent.change(themeSelect, { target: { value: "night" } });
+    const appearanceMode = screen.getByRole("radiogroup", { name: "Mode d’apparence" });
+    const darkPalette = screen.getByRole("radiogroup", { name: "Palette sombre" });
+    const lightPalette = screen.getByRole("radiogroup", { name: "Palette claire" });
+
+    expect(within(appearanceMode).getByRole("radio", { name: "Clair" })).toHaveAttribute("aria-checked", "true");
+    expect(within(darkPalette).getByRole("radio", { name: "Night" })).toBeInTheDocument();
+    fireEvent.click(within(appearanceMode).getByRole("radio", { name: "Sombre" }));
+    fireEvent.click(within(darkPalette).getByRole("radio", { name: "Night" }));
 
     expect(document.documentElement).toHaveAttribute("data-theme", "night");
-    await waitFor(() => expect(mockedSaveStoredTheme).toHaveBeenCalledWith("night"));
-    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenCalledWith("night"));
+    await waitFor(() => expect(mockedSaveStoredThemePreferences).toHaveBeenCalledWith({
+      appearanceMode: "dark",
+      darkTheme: "night",
+      lightTheme: "light"
+    }));
+    await waitFor(() => expect(mockedNotifyAppThemeChanged).toHaveBeenCalledWith({
+      appearanceMode: "dark",
+      darkTheme: "night",
+      lightTheme: "light"
+    }));
 
-    fireEvent.change(themeSelect, { target: { value: "custom" } });
+    fireEvent.click(within(lightPalette).getByRole("radio", { name: "Personnalisé" }));
+    fireEvent.click(within(appearanceMode).getByRole("radio", { name: "Clair" }));
     const customCss = await screen.findByRole("textbox");
     fireEvent.change(customCss, {
       target: { value: ":root[data-theme=\"custom\"] { --accent: #0969da; }" }
@@ -987,8 +1440,14 @@ describe("Markra workspace", () => {
 
     expect(document.documentElement).toHaveAttribute("data-theme", "custom");
     expect(document.getElementById("markra-custom-theme-style")).toHaveTextContent("--accent: #0969da");
-    await waitFor(() => expect(mockedSaveStoredCustomThemeCss).toHaveBeenCalledWith(":root[data-theme=\"custom\"] { --accent: #0969da; }"));
-    await waitFor(() => expect(mockedNotifyAppCustomThemeCssChanged).toHaveBeenCalledWith(":root[data-theme=\"custom\"] { --accent: #0969da; }"));
+    await waitFor(() => expect(mockedSaveStoredCustomThemeCss).toHaveBeenCalledWith({
+      dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+      light: ":root[data-theme=\"custom\"] { --accent: #0969da; }"
+    }));
+    await waitFor(() => expect(mockedNotifyAppCustomThemeCssChanged).toHaveBeenCalledWith({
+      dark: ":root[data-theme=\"custom\"] { --bg-primary: #0d1117; }",
+      light: ":root[data-theme=\"custom\"] { --accent: #0969da; }"
+    }));
 
     const templatesCategoryButton = screen.getByRole("button", { name: "Modèles" });
     fireEvent.click(templatesCategoryButton);
@@ -1059,7 +1518,11 @@ describe("Markra workspace", () => {
     mockedResolveDesktopPlatform.mockReturnValue("linux");
     window.history.pushState({}, "", "/?settings=1");
 
-    renderApp();
+    const { container } = renderApp();
+
+    await waitFor(() => expect(container.querySelector(".settings-window")).toBeInTheDocument());
+    expect(container.querySelector(".settings-drag-region")).not.toBeInTheDocument();
+    expect(container.querySelector(".settings-content-header")).not.toHaveAttribute("data-tauri-drag-region");
 
     fireEvent.click(await screen.findByRole("button", { name: /close window/i }));
 
@@ -1075,12 +1538,18 @@ describe("Markra workspace", () => {
     });
     const initialPreferences = {
       aiQuickActionPrompts: defaultAiQuickActionPrompts,
+      autoRevealActiveFile: true,
+      autoSaveEnabled: true,
+      autoSaveIntervalMinutes: 10,
       autoUpdateEnabled: true,
       bodyFontSize: 16,
       clipboardImageFolder: "assets",
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default" as const,
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
+      editorFontFamily: { family: null, source: "theme" as const },
       extendedSyntax: {
         githubAlerts: true,
         highlight: true
@@ -1096,14 +1565,17 @@ describe("Markra workspace", () => {
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
       splitVisualPanePercent: 50,
+      spellcheckEnabled: false,
+      spellcheckIgnoredWords: [],
+      spellcheckLanguage: "en" as const,
       titlebarActions: [
         { id: "aiAgent" as const, visible: true },
         { id: "sourceMode" as const, visible: true },
-        { id: "splitMode" as const, visible: true },
         { id: "save" as const, visible: true },
         { id: "theme" as const, visible: true }
       ],
-      showWordCount: true
+      showWordCount: true,
+      wrapCodeBlocks: true
     };
     mockedGetStoredEditorPreferences.mockResolvedValue(initialPreferences);
     window.history.pushState({}, "", "/?settings=1");
@@ -1115,8 +1587,7 @@ describe("Markra workspace", () => {
 
     expect(within(toolbarGroup).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
       "Toggle Markra AI",
-      "Switch to source mode",
-      "Switch to split mode",
+      "Editor view mode",
       "Save Markdown",
       "Switch to dark theme",
       "Reset toolbar buttons"
@@ -1127,7 +1598,6 @@ describe("Markra workspace", () => {
         ...initialPreferences,
         titlebarActions: [
           { id: "sourceMode", visible: true },
-          { id: "splitMode", visible: true },
           { id: "save", visible: true },
           { id: "aiAgent", visible: true },
           { id: "theme", visible: true }
@@ -1136,8 +1606,7 @@ describe("Markra workspace", () => {
     });
 
     expect(within(toolbarGroup).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Switch to source mode",
-      "Switch to split mode",
+      "Editor view mode",
       "Save Markdown",
       "Toggle Markra AI",
       "Switch to dark theme",
@@ -1155,6 +1624,19 @@ describe("Markra workspace", () => {
     await waitFor(() => expect(container.querySelector(".settings-window")).toBeInTheDocument());
     expect(container.querySelector(".settings-drag-region")).not.toBeInTheDocument();
     expect(container.querySelector(".settings-window .mac-window-controls")).not.toBeInTheDocument();
+    const settingsChrome = container.querySelector(".settings-window-chrome") as HTMLElement;
+    expect(settingsChrome).toBeInTheDocument();
+    expect(settingsChrome).toHaveClass("fixed", "top-0", "h-10", "bg-(--bg-chrome)");
+    expect(settingsChrome).not.toHaveClass("border-b");
+    expect(settingsChrome).toHaveAttribute("data-tauri-drag-region");
+    expect(within(settingsChrome).getByText("Markra")).toBeInTheDocument();
+    expect(within(settingsChrome).getByText("Settings")).toBeInTheDocument();
+    expect(within(settingsChrome).getByRole("button", { name: "Minimize window" })).toBeInTheDocument();
+    expect(within(settingsChrome).getByRole("button", { name: "Maximize or restore window" })).toBeInTheDocument();
+    expect(within(settingsChrome).getByRole("button", { name: "Close window" })).toBeInTheDocument();
+    expect(container.querySelector(".settings-layout")).toHaveClass("absolute", "top-10", "bottom-0");
+    expect(container.querySelector(".settings-sidebar")).toHaveClass("border-r-0", "bg-(--bg-chrome)");
+    expect(container.querySelector(".settings-content")).toHaveClass("border-t", "border-l", "rounded-tl-md");
     expect(container.querySelector(".settings-sidebar-header")).toHaveClass("h-14", "items-center");
     expect(container.querySelector(".settings-sidebar-header")).not.toHaveClass("pt-14");
     expect(container.querySelector(".settings-sidebar-title")).toBeInTheDocument();
@@ -1183,12 +1665,18 @@ describe("Markra workspace", () => {
   it("updates markdown shortcuts from the dedicated settings tab", async () => {
     mockedGetStoredEditorPreferences.mockResolvedValue({
       aiQuickActionPrompts: defaultAiQuickActionPrompts,
+      autoRevealActiveFile: true,
+      autoSaveEnabled: true,
+      autoSaveIntervalMinutes: 10,
       autoUpdateEnabled: true,
       bodyFontSize: 16,
       clipboardImageFolder: "assets",
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
+      editorFontFamily: { family: null, source: "theme" },
       extendedSyntax: {
         githubAlerts: true,
         highlight: true
@@ -1207,14 +1695,17 @@ describe("Markra workspace", () => {
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
       splitVisualPanePercent: 50,
+      spellcheckEnabled: false,
+      spellcheckIgnoredWords: [],
+      spellcheckLanguage: "en",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },
-        { id: "splitMode", visible: true },
         { id: "save", visible: true },
         { id: "theme", visible: true }
       ],
-      showWordCount: true
+      showWordCount: true,
+      wrapCodeBlocks: true
     });
     window.history.pushState({}, "", "/?settings=1");
 
@@ -1528,8 +2019,10 @@ describe("Markra workspace", () => {
         ai: true,
         export: true,
         nativeWindowChrome: false,
+        networkProxy: true,
         pandoc: true,
         s3ImageUpload: true,
+        spellcheck: true,
         updater: true
       }
     });
@@ -1620,10 +2113,14 @@ describe("Markra workspace", () => {
       contentWidthPx: 980
     })));
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
-    expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-engine", "source");
-    expect(screen.getByLabelText("Markdown editor")).toHaveStyle({
+    const sourceEditor = (await screen.findByTestId("markdown-source-editor")).closest<HTMLElement>(
+      '[data-editor-engine="source"]'
+    );
+    expect(sourceEditor).toBeInTheDocument();
+    expect(sourceEditor).toHaveAttribute("data-editor-engine", "source");
+    expect(sourceEditor).toHaveStyle({
       maxWidth: "980px"
     });
     expect(screen.getByRole("separator", { name: "Resize editor width" })).toHaveAttribute("aria-valuenow", "980");
@@ -1717,7 +2214,7 @@ describe("Markra workspace", () => {
 
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle file list" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle workspace sidebar" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open Folder" }));
 
     expect(await screen.findByRole("complementary", { name: "Markdown file tree" })).toBeInTheDocument();
@@ -1745,7 +2242,7 @@ describe("Markra workspace", () => {
 
     renderApp();
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle file list" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle workspace sidebar" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open Folder" }));
 
     expect(mockedOpenNativeMarkdownFolder).toHaveBeenCalledTimes(1);
@@ -1907,6 +2404,95 @@ describe("Markra workspace", () => {
     expect(mockedListNativeMarkdownFilesForPath).toHaveBeenCalledWith(mockFolderPath);
   });
 
+  it("keeps a newly created Windows tree file selected without opening duplicate tabs", async () => {
+    const rootPath = "C:\\mock-vault";
+    const treeFilePath = "C:\\mock-vault\\Created.md";
+    const createdFilePath = "\\\\?\\C:\\mock-vault\\Created.md";
+    mockedOpenNativeMarkdownFolder.mockResolvedValue({
+      path: rootPath,
+      name: "mock-vault"
+    });
+    mockedListNativeMarkdownFilesForPath
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { name: "Created.md", path: treeFilePath, relativePath: "Created.md" }
+      ]);
+    mockedCreateNativeMarkdownTreeFile.mockResolvedValue({
+      name: "Created.md",
+      path: createdFilePath,
+      relativePath: "Created.md"
+    });
+    mockedReadNativeMarkdownFile.mockImplementation(async (path) => ({
+      content: "# Created\n\nSynthetic note.",
+      name: "Created.md",
+      path
+    }));
+
+    renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true, shiftKey: true });
+    expect(await screen.findByRole("heading", { name: "mock-vault" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New file" }));
+    const fileNameInput = screen.getByRole("textbox", { name: "New file name" });
+    fireEvent.change(fileNameInput, { target: { value: "Created" } });
+    fireEvent.keyDown(fileNameInput, { key: "Enter" });
+
+    const createdTreeButton = await screen.findByRole("button", { name: "Created.md" });
+    expect(createdTreeButton).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("tab", { name: /Created\.md/ })).toHaveLength(1);
+
+    fireEvent.click(createdTreeButton);
+
+    await waitFor(() =>
+      expect(screen.getAllByRole("tab", { name: /Created\.md/ })).toHaveLength(1)
+    );
+    expect(screen.getByRole("tab", { name: /Created\.md/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("shows native file tree create and rename errors", async () => {
+    const indexPath = `${mockFolderPath}/index.md`;
+    mockedOpenNativeMarkdownFolder.mockResolvedValue({
+      path: mockFolderPath,
+      name: "mock-vault"
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { name: "index.md", path: indexPath, relativePath: "index.md" },
+      { name: "notes.md", path: `${mockFolderPath}/notes.md`, relativePath: "notes.md" }
+    ]);
+    mockedCreateNativeMarkdownTreeFile.mockRejectedValue(new Error("File already exists"));
+    mockedRenameNativeMarkdownTreeFile.mockRejectedValue(new Error("File already exists"));
+
+    renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true, shiftKey: true });
+    expect(await screen.findByRole("heading", { name: "mock-vault" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New file" }));
+    const fileNameInput = screen.getByRole("textbox", { name: "New file name" });
+    fireEvent.change(fileNameInput, { target: { value: "index.md" } });
+    fireEvent.keyDown(fileNameInput, { key: "Enter" });
+
+    await waitFor(() => expect(document.querySelector(".app-toast")).toHaveTextContent("Could not create file. File already exists"));
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "index.md" }));
+    const contextHandlers = mockedShowNativeMarkdownFileTreeContextMenu.mock.calls.at(-1)?.[0];
+    act(() => {
+      contextHandlers?.renameFile?.({
+        name: "index.md",
+        path: indexPath,
+        relativePath: "index.md"
+      });
+    });
+    const renameInput = screen.getByRole("textbox", { name: "Rename file" });
+    fireEvent.change(renameInput, { target: { value: "notes.md" } });
+    fireEvent.keyDown(renameInput, { key: "Enter" });
+
+    await waitFor(() => expect(document.querySelector(".app-toast")).toHaveTextContent("Could not rename file. File already exists"));
+  });
+
   it("deletes a sidebar folder from the context menu", async () => {
     const docsPath = `${mockFolderPath}/docs`;
     const docsFolder = { kind: "folder" as const, name: "docs", path: docsPath, relativePath: "docs" };
@@ -1945,6 +2531,48 @@ describe("Markra workspace", () => {
       })
     );
     await waitFor(() => expect(mockedDeleteNativeMarkdownTreeFile).toHaveBeenCalledWith(mockFolderPath, docsPath));
+  });
+
+  it("uses plural confirmation copy when deleting selected sidebar files", async () => {
+    const alphaFile = { name: "alpha.md", path: `${mockFolderPath}/alpha.md`, relativePath: "alpha.md" };
+    const betaFile = { name: "beta.md", path: `${mockFolderPath}/beta.md`, relativePath: "beta.md" };
+    mockedOpenNativeMarkdownPath.mockResolvedValue({
+      kind: "folder",
+      folder: {
+        path: mockFolderPath,
+        name: "vault"
+      }
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([alphaFile, betaFile]);
+    mockedConfirmNativeMarkdownFileDelete.mockResolvedValue(true);
+    mockedDeleteNativeMarkdownTreeFile.mockResolvedValue(undefined);
+
+    renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    expect(await screen.findByRole("heading", { name: "vault" })).toBeInTheDocument();
+
+    const alphaButton = await screen.findByRole("button", { name: "alpha.md" });
+    const betaButton = await screen.findByRole("button", { name: "beta.md" });
+    fireEvent.click(alphaButton, { metaKey: true });
+    fireEvent.click(betaButton, { metaKey: true });
+    fireEvent.contextMenu(alphaButton);
+    const contextHandlers = mockedShowNativeMarkdownFileTreeContextMenu.mock.calls.at(-1)?.[0];
+
+    await act(async () => {
+      await contextHandlers?.deleteFile?.(alphaFile);
+    });
+
+    await waitFor(() =>
+      expect(mockedConfirmNativeMarkdownFileDelete).toHaveBeenCalledWith("2 files", {
+        cancelLabel: "Cancel",
+        message: "Delete these 2 files?",
+        okLabel: "Confirm"
+      })
+    );
+    await waitFor(() => expect(mockedDeleteNativeMarkdownTreeFile).toHaveBeenCalledWith(mockFolderPath, alphaFile.path));
+    await waitFor(() => expect(mockedDeleteNativeMarkdownTreeFile).toHaveBeenCalledWith(mockFolderPath, betaFile.path));
+    expect(mockedConfirmNativeMarkdownFileDelete).toHaveBeenCalledTimes(1);
   });
 
   it("saves a sidebar markdown file as a custom template", async () => {
@@ -2087,7 +2715,7 @@ describe("Markra workspace", () => {
       path: guidePath
     });
 
-    renderApp();
+    const { container } = renderApp();
 
     fireEvent.keyDown(window, { key: "o", metaKey: true });
     expect(await screen.findByText("Native file")).toBeInTheDocument();
@@ -2102,26 +2730,367 @@ describe("Markra workspace", () => {
     expect(screen.getByRole("tab", { name: /native\.md/ })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tab", { name: /pasted-image\.png/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("heading", { name: "pasted-image.png" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Markdown editor")).not.toBeInTheDocument();
+    expect(queryVisibleMilkdownEditor(container)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Markdown" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("tab", { name: /native\.md/ }));
 
     expect(await screen.findByText("Native file")).toBeInTheDocument();
-    expect(screen.getByLabelText("Markdown editor")).toBeInTheDocument();
+    expect(getVisibleMilkdownEditor(container)).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "pasted-image.png" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: /pasted-image\.png/ }));
 
     expect(await screen.findByRole("img", { name: "pasted-image.png" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Markdown editor")).not.toBeInTheDocument();
+    expect(queryVisibleMilkdownEditor(container)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "docs" }));
     fireEvent.click(await screen.findByRole("button", { name: "docs/guide.md" }));
 
-    expect(await screen.findByText("Guide")).toBeInTheDocument();
-    expect(screen.getByLabelText("Markdown editor")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Guide");
+    expect(getVisibleMilkdownEditor(container)).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "pasted-image.png" })).not.toBeInTheDocument();
+  });
+
+  it("inserts a dragged file-tree image asset at the editor drop point", async () => {
+    const imagePath = "/mock-files/assets/diagram.png";
+    mockOpenMarkdownFile({
+      content: "First\n\n\n\nSecond",
+      name: "native.md",
+      path: mockNativePath
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { name: "native.md", path: mockNativePath, relativePath: "native.md" },
+      { kind: "folder", name: "assets", path: "/mock-files/assets", relativePath: "assets" },
+      { kind: "asset", name: "diagram.png", path: imagePath, relativePath: "assets/diagram.png" }
+    ]);
+
+    const { container } = renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    expect(await screen.findByText("First")).toBeInTheDocument();
+    await waitFor(() => expect(mockedListNativeMarkdownFilesForPath).toHaveBeenCalledWith(mockNativePath));
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle file list" }));
+    fireEvent.click(await screen.findByRole("button", { name: "assets" }));
+
+    const editorSurface = container.querySelector<HTMLElement>(".ProseMirror");
+    if (!editorSurface) throw new Error("Expected the visual editor surface.");
+    const emptyParagraph = Array.from(editorSurface.querySelectorAll<HTMLElement>("p"))
+      .find((paragraph) => paragraph.textContent === "");
+    if (!emptyParagraph) throw new Error("Expected an empty paragraph drop target.");
+
+    const editorRect = domRect({
+      bottom: 360,
+      height: 260,
+      left: 260,
+      right: 920,
+      top: 100,
+      width: 660,
+      x: 260,
+      y: 100
+    });
+    const emptyParagraphRect = domRect({
+      bottom: 178,
+      height: 28,
+      left: 300,
+      right: 880,
+      top: 150,
+      width: 580,
+      x: 300,
+      y: 150
+    });
+    vi.spyOn(editorSurface, "getBoundingClientRect").mockReturnValue(editorRect);
+    vi.spyOn(editorSurface, "getClientRects").mockReturnValue([editorRect] as unknown as DOMRectList);
+    vi.spyOn(emptyParagraph, "getBoundingClientRect").mockReturnValue(emptyParagraphRect);
+    vi.spyOn(emptyParagraph, "getClientRects").mockReturnValue([emptyParagraphRect] as unknown as DOMRectList);
+
+    const range = document.createRange();
+    range.setStart(emptyParagraph, 0);
+    range.collapse(true);
+    const elementFromPoint = mockElementFromPoint(emptyParagraph);
+    Object.defineProperty(document, "caretPositionFromPoint", {
+      configurable: true,
+      value: undefined
+    });
+    Object.defineProperty(document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => range)
+    });
+
+    try {
+      const assetButton = await screen.findByRole("button", { name: "assets/diagram.png" });
+      const dataTransfer = createDragDataTransfer();
+
+      fireEvent.dragStart(assetButton, { dataTransfer });
+      dispatchDragEvent(editorSurface, "drop", {
+        clientX: 340,
+        clientY: 160,
+        dataTransfer
+      });
+      dispatchDragEvent(assetButton, "dragend", {
+        clientX: 340,
+        clientY: 160,
+        dataTransfer
+      });
+
+      const image = await waitFor(() => {
+        const insertedImage = editorSurface.querySelector<HTMLImageElement>('img[src="assets/diagram.png"]');
+        expect(insertedImage).toBeInTheDocument();
+        return insertedImage!;
+      });
+      expect(image).toHaveAttribute("alt", "diagram");
+
+      const topLevelBlocks = Array.from(editorSurface.children).filter(
+        (child) => child instanceof HTMLElement && !child.classList.contains("markra-trailing-paragraph")
+      );
+      expect(topLevelBlocks[0]).toHaveTextContent("First");
+      expect(topLevelBlocks[1]?.querySelector('img[src="assets/diagram.png"]')).toBeInTheDocument();
+      expect(topLevelBlocks[2]).toHaveTextContent("Second");
+      expect(editorSurface.querySelectorAll('img[src="assets/diagram.png"]')).toHaveLength(1);
+      expect(elementFromPoint).toHaveBeenCalledWith(340, 160);
+    } finally {
+      Reflect.deleteProperty(document, "caretPositionFromPoint");
+      Reflect.deleteProperty(document, "caretRangeFromPoint");
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
+  });
+
+  it("inserts a dragged file-tree image asset from the source drag end when editor drop is unavailable", async () => {
+    const imagePath = "/mock-files/assets/diagram.png";
+    mockOpenMarkdownFile({
+      content: "First\n\n\n\nSecond",
+      name: "native.md",
+      path: mockNativePath
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { name: "native.md", path: mockNativePath, relativePath: "native.md" },
+      { kind: "folder", name: "assets", path: "/mock-files/assets", relativePath: "assets" },
+      { kind: "asset", name: "diagram.png", path: imagePath, relativePath: "assets/diagram.png" }
+    ]);
+
+    const { container } = renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    expect(await screen.findByText("First")).toBeInTheDocument();
+    await waitFor(() => expect(mockedListNativeMarkdownFilesForPath).toHaveBeenCalledWith(mockNativePath));
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle file list" }));
+    fireEvent.click(await screen.findByRole("button", { name: "assets" }));
+
+    const editorSurface = container.querySelector<HTMLElement>(".ProseMirror");
+    if (!editorSurface) throw new Error("Expected the visual editor surface.");
+    const emptyParagraph = Array.from(editorSurface.querySelectorAll<HTMLElement>("p"))
+      .find((paragraph) => paragraph.textContent === "");
+    if (!emptyParagraph) throw new Error("Expected an empty paragraph drop target.");
+
+    const editorRect = domRect({
+      bottom: 360,
+      height: 260,
+      left: 260,
+      right: 920,
+      top: 100,
+      width: 660,
+      x: 260,
+      y: 100
+    });
+    const emptyParagraphRect = domRect({
+      bottom: 178,
+      height: 28,
+      left: 300,
+      right: 880,
+      top: 150,
+      width: 580,
+      x: 300,
+      y: 150
+    });
+    vi.spyOn(editorSurface, "getBoundingClientRect").mockReturnValue(editorRect);
+    vi.spyOn(editorSurface, "getClientRects").mockReturnValue([editorRect] as unknown as DOMRectList);
+    vi.spyOn(emptyParagraph, "getBoundingClientRect").mockReturnValue(emptyParagraphRect);
+    vi.spyOn(emptyParagraph, "getClientRects").mockReturnValue([emptyParagraphRect] as unknown as DOMRectList);
+
+    const range = document.createRange();
+    range.setStart(emptyParagraph, 0);
+    range.collapse(true);
+    const elementFromPoint = mockElementFromPoint(emptyParagraph);
+    Object.defineProperty(document, "caretPositionFromPoint", {
+      configurable: true,
+      value: undefined
+    });
+    Object.defineProperty(document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => range)
+    });
+
+    try {
+      const assetButton = await screen.findByRole("button", { name: "assets/diagram.png" });
+      const dataTransfer = createDragDataTransfer();
+
+      fireEvent.dragStart(assetButton, { dataTransfer });
+      dispatchDragEvent(assetButton, "dragend", {
+        clientX: 340,
+        clientY: 160,
+        dataTransfer
+      });
+
+      const image = await waitFor(() => {
+        const insertedImage = editorSurface.querySelector<HTMLImageElement>('img[src="assets/diagram.png"]');
+        expect(insertedImage).toBeInTheDocument();
+        return insertedImage!;
+      });
+      expect(image).toHaveAttribute("alt", "diagram");
+
+      const topLevelBlocks = Array.from(editorSurface.children).filter(
+        (child) => child instanceof HTMLElement && !child.classList.contains("markra-trailing-paragraph")
+      );
+      expect(topLevelBlocks[0]).toHaveTextContent("First");
+      expect(topLevelBlocks[1]?.querySelector('img[src="assets/diagram.png"]')).toBeInTheDocument();
+      expect(topLevelBlocks[2]).toHaveTextContent("Second");
+      expect(elementFromPoint).toHaveBeenCalledWith(340, 160);
+    } finally {
+      Reflect.deleteProperty(document, "caretPositionFromPoint");
+      Reflect.deleteProperty(document, "caretRangeFromPoint");
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
+  });
+
+  it("inserts a system-dropped image file reference at the editor drop point", async () => {
+    mockOpenMarkdownFile({
+      content: "First\n\n\n\nSecond",
+      name: "native.md",
+      path: mockNativePath
+    });
+
+    const { container } = renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    expect(await screen.findByText("First")).toBeInTheDocument();
+
+    const editorSurface = container.querySelector<HTMLElement>(".ProseMirror");
+    if (!editorSurface) throw new Error("Expected the visual editor surface.");
+    const emptyParagraph = Array.from(editorSurface.querySelectorAll<HTMLElement>("p"))
+      .find((paragraph) => paragraph.textContent === "");
+    if (!emptyParagraph) throw new Error("Expected an empty paragraph drop target.");
+
+    const editorRect = domRect({
+      bottom: 360,
+      height: 260,
+      left: 260,
+      right: 920,
+      top: 100,
+      width: 660,
+      x: 260,
+      y: 100
+    });
+    const emptyParagraphRect = domRect({
+      bottom: 178,
+      height: 28,
+      left: 300,
+      right: 880,
+      top: 150,
+      width: 580,
+      x: 300,
+      y: 150
+    });
+    vi.spyOn(editorSurface, "getBoundingClientRect").mockReturnValue(editorRect);
+    vi.spyOn(editorSurface, "getClientRects").mockReturnValue([editorRect] as unknown as DOMRectList);
+    vi.spyOn(emptyParagraph, "getBoundingClientRect").mockReturnValue(emptyParagraphRect);
+    vi.spyOn(emptyParagraph, "getClientRects").mockReturnValue([emptyParagraphRect] as unknown as DOMRectList);
+
+    const range = document.createRange();
+    range.setStart(emptyParagraph, 0);
+    range.collapse(true);
+    const elementFromPoint = mockElementFromPoint(emptyParagraph);
+    Object.defineProperty(document, "caretPositionFromPoint", {
+      configurable: true,
+      value: undefined
+    });
+    Object.defineProperty(document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => range)
+    });
+
+    try {
+      await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalled());
+      const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls.at(-1)?.[0];
+
+      await act(async () => {
+        await handleDrop?.({
+          kind: "image",
+          name: "System Drop.png",
+          path: "/mock-files/System Drop.png",
+          point: {
+            left: 340,
+            top: 160
+          }
+        });
+      });
+
+      await waitFor(() => {
+        expect(editorSurface.querySelector<HTMLImageElement>('img[src="System%20Drop.png"]')).toHaveAttribute(
+          "alt",
+          "System Drop"
+        );
+      });
+      expect(mockedReadNativeLocalImageFile).not.toHaveBeenCalled();
+      expect(mockedSaveNativeClipboardImage).not.toHaveBeenCalled();
+      expect(mockedOpenNativeMarkdownFileInNewWindow).not.toHaveBeenCalledWith("/mock-files/System Drop.png");
+      expect(elementFromPoint).toHaveBeenCalledWith(340, 160);
+    } finally {
+      Reflect.deleteProperty(document, "caretPositionFromPoint");
+      Reflect.deleteProperty(document, "caretRangeFromPoint");
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
+  });
+
+  it("falls back to the current cursor when a system image drop point cannot be resolved", async () => {
+    mockOpenMarkdownFile({
+      content: "",
+      name: "native.md",
+      path: mockNativePath
+    });
+
+    const { container } = renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalled());
+    const editorSurface = await waitFor(() => {
+      const surface = container.querySelector<HTMLElement>(".ProseMirror");
+      expect(surface).toBeInTheDocument();
+      return surface!;
+    });
+
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => null)
+    });
+
+    try {
+      const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls.at(-1)?.[0];
+
+      await act(async () => {
+        await handleDrop?.({
+          kind: "image",
+          name: "System Drop.png",
+          path: "/mock-files/System Drop.png",
+          point: {
+            left: -1000,
+            top: -1000
+          }
+        });
+      });
+
+      await waitFor(() => {
+        expect(editorSurface.querySelector<HTMLImageElement>('img[src="System%20Drop.png"]')).toHaveAttribute(
+          "alt",
+          "System Drop"
+        );
+      });
+      expect(mockedReadNativeLocalImageFile).not.toHaveBeenCalled();
+      expect(mockedSaveNativeClipboardImage).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
   });
 
   it("previews an image asset from a folder-only workspace", async () => {
@@ -2182,17 +3151,17 @@ describe("Markra workspace", () => {
       };
     });
 
-    renderApp();
+    const { container } = renderApp();
 
     fireEvent.keyDown(window, { key: "o", metaKey: true });
     expect(await screen.findByRole("heading", { name: "vault" })).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("button", { name: "docs" }));
     fireEvent.click(await screen.findByRole("button", { name: "docs/guide.md" }));
-    expect(await screen.findByText("Guide")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Guide");
 
     fireEvent.click(await screen.findByRole("button", { name: "docs/notes.md" }));
-    expect(await screen.findByText("Notes")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Notes");
 
     expect(mockedConfirmNativeUnsavedMarkdownDocumentDiscard).not.toHaveBeenCalled();
   });
@@ -2248,8 +3217,79 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /guide\.md/ }));
 
-    expect(await screen.findByText("Guide")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Guide");
     expect(screen.getByRole("tab", { name: /guide\.md/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps visual undo history after switching document tabs", async () => {
+    const guidePath = "/mock-files/vault/docs/guide.md";
+    const notesPath = "/mock-files/vault/docs/notes.md";
+    mockedOpenNativeMarkdownPath.mockResolvedValue({
+      kind: "folder",
+      folder: {
+        path: mockFolderPath,
+        name: "vault"
+      }
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { name: "guide.md", path: guidePath, relativePath: "docs/guide.md" },
+      { name: "notes.md", path: notesPath, relativePath: "docs/notes.md" }
+    ]);
+    mockedReadNativeMarkdownFile.mockImplementation(async (path) => {
+      if (path === guidePath) {
+        return {
+          content: "# Guide",
+          name: "guide.md",
+          path: guidePath
+        };
+      }
+
+      return {
+        content: "# Notes",
+        name: "notes.md",
+        path: notesPath
+      };
+    });
+
+    const { container } = renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    expect(await screen.findByRole("heading", { name: "vault" })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "docs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "docs/guide.md" }));
+    await expectVisibleMilkdownText(container, "Guide");
+
+    fireEvent.click(await screen.findByRole("button", { name: "docs/notes.md" }));
+    await expectVisibleMilkdownText(container, "Notes");
+
+    fireEvent.click(screen.getByRole("tab", { name: /guide\.md/ }));
+    await expectVisibleMilkdownText(container, "Guide");
+    await waitFor(() => expect(mockedInstallNativeApplicationMenu).toHaveBeenCalled());
+    const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls.at(-1)?.[0] as NativeMenuHandlers;
+
+    act(() => {
+      menuHandlers.insertTable?.();
+    });
+    await waitFor(() => expect(queryVisibleMilkdownTable(container)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("tab", { name: /notes\.md/ }));
+    await expectVisibleMilkdownText(container, "Notes");
+
+    fireEvent.click(screen.getByRole("tab", { name: /guide\.md/ }));
+    await expectVisibleMilkdownText(container, "Guide");
+    await waitFor(() => expect(queryVisibleMilkdownTable(container)).toBeInTheDocument());
+
+    act(() => {
+      menuHandlers.editUndo?.();
+    });
+    await waitFor(() => expect(queryVisibleMilkdownTable(container)).not.toBeInTheDocument());
+
+    act(() => {
+      menuHandlers.editRedo?.();
+    });
+    await waitFor(() => expect(queryVisibleMilkdownTable(container)).toBeInTheDocument());
   });
 
   it("opens a document tab to a side editor, toggles both panes to source mode, and closes the side tab from the titlebar", async () => {
@@ -2298,16 +3338,16 @@ describe("Markra workspace", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "docs" }));
     fireEvent.click(await screen.findByRole("button", { name: "docs/guide.md" }));
-    expect(await screen.findByText("Guide")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Guide");
 
     fireEvent.click(await screen.findByRole("button", { name: "docs/notes.md" }));
-    expect(await screen.findByText("Notes")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Notes");
 
     fireEvent.click(await screen.findByRole("button", { name: "docs/third.md" }));
-    expect(await screen.findByText("Third")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Third");
 
     fireEvent.click(screen.getByRole("tab", { name: /guide\.md/ }));
-    expect(await screen.findByText("Guide")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Guide");
 
     fireEvent.contextMenu(screen.getByRole("tab", { name: /notes\.md/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Open to side" }));
@@ -2351,26 +3391,22 @@ describe("Markra workspace", () => {
     expect(within(replacedSidePane).queryByRole("button", { name: "Close side document" })).not.toBeInTheDocument();
     expect(screen.queryAllByRole("textbox", { name: "Markdown source" })).toHaveLength(0);
 
-    const sourceModeButton = screen.getByRole("button", { name: "Switch to source mode" });
+    const sourceModeButton = screen.getByRole("button", { name: "Editor view mode: Preview" });
     expect(sourceModeButton).toBeEnabled();
-    fireEvent.click(sourceModeButton);
+    await selectEditorViewMode("Source code");
 
-    const sourceEditors = screen.getAllByRole("textbox", { name: "Markdown source" });
-    expect(sourceEditors.map((editor) => (editor as HTMLTextAreaElement).value.trimEnd())).toEqual(
+    const sourceEditors = await screen.findAllByRole("textbox", { name: "Markdown source" });
+    expect(sourceEditors.map((editor) => readMarkdownSource(editor).trimEnd())).toEqual(
       expect.arrayContaining(["# Guide\n\nReference", "# Third\n\nIndependent"])
     );
 
-    const sideSource = within(replacedSidePane).getByRole("textbox", { name: "Markdown source" });
-    expect(sideSource).toHaveValue("# Third\n\nIndependent");
+    const sideSource = await within(replacedSidePane).findByRole("textbox", { name: "Markdown source" });
+    expect(readMarkdownSource(sideSource).trimEnd()).toBe("# Third\n\nIndependent");
 
-    fireEvent.change(sideSource, {
-      target: {
-        value: "# Third\n\nIndependent update"
-      }
-    });
+    replaceMarkdownSource(sideSource, "# Third\n\nIndependent update");
     expect(screen.getByRole("tab", { name: /guide\.md/ })).toHaveAttribute("aria-selected", "true");
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
     expect(screen.queryAllByRole("textbox", { name: "Markdown source" })).toHaveLength(0);
     await waitFor(() => expect(within(replacedSidePane).getByText("Independent update")).toBeInTheDocument());
 
@@ -2598,16 +3634,16 @@ describe("Markra workspace", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "docs" }));
     fireEvent.click(await screen.findByRole("button", { name: "docs/1.md" }));
-    expect(await screen.findByText("First")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "First");
 
     fireEvent.click(await screen.findByRole("button", { name: "docs/2.md" }));
-    expect(await screen.findByText("Second")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Second");
 
     fireEvent.click(await screen.findByRole("button", { name: "docs/3.md" }));
-    expect(await screen.findByText("Third")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Third");
 
     fireEvent.click(screen.getByRole("tab", { name: /1\.md/ }));
-    expect(await screen.findByText("First")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "First");
 
     fireEvent.contextMenu(screen.getByRole("tab", { name: /2\.md/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Open to side" }));
@@ -2635,7 +3671,7 @@ describe("Markra workspace", () => {
     expect(mockedConfirmNativeUnsavedMarkdownDocumentDiscard).not.toHaveBeenCalled();
 
     fireEvent.click(within(inactiveGroup).getByRole("tab", { name: /2\.md/ }));
-    expect(await screen.findByText("First")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "First");
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
     fireEvent.contextMenu(screen.getByRole("tab", { name: /2\.md/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Open to side" }));
@@ -2702,25 +3738,42 @@ describe("Markra workspace", () => {
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
     mockedSaveStoredWorkspaceState.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
+    const groupedTabs = container.querySelector(".document-tabs-side-by-side-group") as HTMLElement;
+    const mainPaneTab = within(groupedTabs).getByRole("tab", { name: /1\.md/ });
+    const sidePaneTab = within(groupedTabs).getByRole("tab", { name: /2\.md/ });
+    expect(mainPaneTab).toHaveAttribute("aria-selected", "true");
+    expect(sidePaneTab).toHaveAttribute("aria-selected", "false");
+    expect(mainPaneTab).toHaveAttribute("data-document-tab-pane-focus", "true");
+    expect(sidePaneTab).not.toHaveAttribute("data-document-tab-pane-focus");
+
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
-    const sideSource = within(sidePane).getByRole("textbox", { name: "Markdown source" });
-    const mainSource = screen.getAllByRole("textbox", { name: "Markdown source" }).find((editor) =>
+    const sideSource = await within(sidePane).findByRole("textbox", { name: "Markdown source" });
+    const mainSource = (await screen.findAllByRole("textbox", { name: "Markdown source" })).find((editor) =>
       !sidePane.contains(editor)
-    ) as HTMLTextAreaElement;
+    ) as HTMLElement;
 
     fireEvent.focus(sideSource);
-    fireEvent.change(sideSource, {
-      target: {
-        value: "# Second\n\nFocused side edit"
-      }
-    });
+    await waitFor(() => expect(sidePaneTab).toHaveAttribute("aria-selected", "true"));
+    expect(mainPaneTab).toHaveAttribute("aria-selected", "false");
+
+    fireEvent.focus(mainSource);
+    await waitFor(() => expect(mainPaneTab).toHaveAttribute("aria-selected", "true"));
+    expect(sidePaneTab).toHaveAttribute("aria-selected", "false");
+
+    fireEvent.click(sidePaneTab);
+    await waitFor(() => expect(sidePaneTab).toHaveAttribute("aria-selected", "true"));
+    expect(mainPaneTab).toHaveAttribute("aria-selected", "false");
+    expect(sidePaneTab).toHaveAttribute("data-document-tab-pane-focus", "true");
+    expect(mainPaneTab).not.toHaveAttribute("data-document-tab-pane-focus");
+    await waitFor(() => expect(document.activeElement).toBe(sideSource));
+    replaceMarkdownSource(sideSource, "# Second\n\nClicked side tab edit");
     fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
 
     await waitFor(() =>
       expect(mockedSaveNativeMarkdownFile).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          contents: "# Second\n\nFocused side edit",
+          contents: "# Second\n\nClicked side tab edit",
           path: secondPath,
           suggestedName: "2.md"
         })
@@ -2728,11 +3781,7 @@ describe("Markra workspace", () => {
     );
 
     fireEvent.focus(sideSource);
-    fireEvent.change(sideSource, {
-      target: {
-        value: "# Second\n\nFocused side save as"
-      }
-    });
+    replaceMarkdownSource(sideSource, "# Second\n\nFocused side save as");
     fireEvent.keyDown(window, { key: "s", metaKey: true, shiftKey: true });
 
     await waitFor(() =>
@@ -2753,12 +3802,13 @@ describe("Markra workspace", () => {
       })
     );
 
-    fireEvent.focus(mainSource);
-    fireEvent.change(mainSource, {
-      target: {
-        value: "# First\n\nFocused main edit"
-      }
-    });
+    fireEvent.click(mainPaneTab);
+    await waitFor(() => expect(mainPaneTab).toHaveAttribute("aria-selected", "true"));
+    expect(sidePaneTab).toHaveAttribute("aria-selected", "false");
+    expect(mainPaneTab).toHaveAttribute("data-document-tab-pane-focus", "true");
+    expect(sidePaneTab).not.toHaveAttribute("data-document-tab-pane-focus");
+    await waitFor(() => expect(document.activeElement).toBe(mainSource));
+    replaceMarkdownSource(mainSource, "# First\n\nFocused main edit");
     fireEvent.keyDown(window, { key: "s", metaKey: true, shiftKey: true });
 
     await waitFor(() =>
@@ -2778,6 +3828,65 @@ describe("Markra workspace", () => {
         }
       })
     );
+  });
+
+  it("uses the focused side-by-side document as the active file tree path", async () => {
+    const firstPath = "/mock-files/vault/docs/1.md";
+    const secondPath = "/mock-files/vault/docs/2.md";
+    mockedOpenNativeMarkdownPath.mockResolvedValue({
+      kind: "folder",
+      folder: {
+        path: mockFolderPath,
+        name: "vault"
+      }
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { name: "1.md", path: firstPath, relativePath: "docs/1.md" },
+      { name: "2.md", path: secondPath, relativePath: "docs/2.md" }
+    ]);
+    mockedReadNativeMarkdownFile.mockImplementation(async (path) => {
+      if (path === firstPath) {
+        return {
+          content: "# First",
+          name: "1.md",
+          path: firstPath
+        };
+      }
+
+      return {
+        content: "# Second",
+        name: "2.md",
+        path: secondPath
+      };
+    });
+    const { container } = renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    expect(await screen.findByRole("heading", { name: "vault" })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "docs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "docs/1.md" }));
+    expect(await screen.findByText("First")).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "docs/2.md" }));
+    expect(await screen.findByText("Second")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /1\.md/ }));
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /2\.md/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open to side" }));
+    await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
+
+    await selectEditorViewMode("Source code");
+    const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
+    const sideSource = await within(sidePane).findByRole("textbox", { name: "Markdown source" });
+
+    expect(screen.getByRole("button", { name: "docs/1.md" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "docs/2.md" })).not.toHaveAttribute("aria-current");
+
+    fireEvent.focus(sideSource);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "docs/2.md" })).toHaveAttribute("aria-current", "page"));
+    expect(screen.getByRole("button", { name: "docs/1.md" })).not.toHaveAttribute("aria-current");
   });
 
   it("returns save actions to the main document after switching away from a focused side editor", async () => {
@@ -2843,22 +3952,18 @@ describe("Markra workspace", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Open to side" }));
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
-    const sideSource = within(sidePane).getByRole("textbox", { name: "Markdown source" });
+    const sideSource = await within(sidePane).findByRole("textbox", { name: "Markdown source" });
 
     fireEvent.focus(sideSource);
-    fireEvent.change(sideSource, {
-      target: {
-        value: "# Second\n\nFocused side draft"
-      }
-    });
+    replaceMarkdownSource(sideSource, "# Second\n\nFocused side draft");
 
     fireEvent.click(screen.getByRole("tab", { name: /3\.md/ }));
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).not.toBeInTheDocument());
 
     const inactiveGroup = container.querySelector(".document-tabs-side-by-side-group") as HTMLElement;
-    fireEvent.click(within(inactiveGroup).getByRole("tab", { name: /2\.md/ }));
+    fireEvent.click(within(inactiveGroup).getByRole("tab", { name: /1\.md/ }));
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
@@ -2920,9 +4025,9 @@ describe("Markra workspace", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Open to side" }));
     await waitFor(() => expect(container.querySelector(".editor-side-by-side-surface")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
     const sidePane = container.querySelector(".side-document-pane") as HTMLElement;
-    fireEvent.focus(within(sidePane).getByRole("textbox", { name: "Markdown source" }));
+    fireEvent.focus(await within(sidePane).findByRole("textbox", { name: "Markdown source" }));
 
     fireEvent.keyDown(window, { key: "w", metaKey: true });
 
@@ -2964,18 +4069,18 @@ describe("Markra workspace", () => {
       };
     });
 
-    renderApp();
+    const { container } = renderApp();
 
     fireEvent.keyDown(window, { key: "o", metaKey: true });
     expect(await screen.findByRole("heading", { name: "vault" })).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("button", { name: "docs" }));
     fireEvent.click(await screen.findByRole("button", { name: "docs/guide.md" }));
-    expect(await screen.findByText("Guide")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Guide");
     await waitFor(() => expect(screen.getByRole("tab", { name: /guide\.md/ })).toHaveAttribute("aria-selected", "true"));
     await settleEditorUpdates();
 
-    const guideScroll = screen.getByLabelText("Writing surface");
+    const guideScroll = getVisibleWritingSurface(container);
     mockScrollMetrics(guideScroll, {
       clientHeight: 300,
       scrollHeight: 1200,
@@ -2984,11 +4089,11 @@ describe("Markra workspace", () => {
     fireEvent.scroll(guideScroll);
 
     fireEvent.click(await screen.findByRole("button", { name: "docs/notes.md" }));
-    expect(await screen.findByText("Notes")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Notes");
     await waitFor(() => expect(screen.getByRole("tab", { name: /notes\.md/ })).toHaveAttribute("aria-selected", "true"));
     await settleEditorUpdates();
 
-    const notesScroll = screen.getByLabelText("Writing surface");
+    const notesScroll = getVisibleWritingSurface(container);
     mockScrollMetrics(notesScroll, {
       clientHeight: 300,
       scrollHeight: 1200,
@@ -2998,8 +4103,8 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /guide\.md/ }));
 
-    expect(await screen.findByText("Guide")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText("Writing surface").scrollTop).toBe(240));
+    await expectVisibleMilkdownText(container, "Guide");
+    await waitFor(() => expect(getVisibleWritingSurface(container).scrollTop).toBe(240));
   });
 
   it("renames an opened markdown file from a titlebar tab double click", async () => {
@@ -3238,12 +4343,18 @@ describe("Markra workspace", () => {
   it("does not expose side-open file tree actions when document tabs are hidden", async () => {
     mockedGetStoredEditorPreferences.mockResolvedValue({
       aiQuickActionPrompts: defaultAiQuickActionPrompts,
+      autoRevealActiveFile: true,
+      autoSaveEnabled: true,
+      autoSaveIntervalMinutes: 10,
       autoUpdateEnabled: true,
       bodyFontSize: 16,
       clipboardImageFolder: "assets",
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
+      editorFontFamily: { family: null, source: "theme" },
       extendedSyntax: {
         githubAlerts: true,
         highlight: true
@@ -3259,14 +4370,17 @@ describe("Markra workspace", () => {
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: false,
       splitVisualPanePercent: 50,
+      spellcheckEnabled: false,
+      spellcheckIgnoredWords: [],
+      spellcheckLanguage: "en",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },
-        { id: "splitMode", visible: true },
         { id: "save", visible: true },
         { id: "theme", visible: true }
       ],
-      showWordCount: true
+      showWordCount: true,
+      wrapCodeBlocks: true
     });
     mockedOpenNativeMarkdownPath.mockResolvedValue({
       kind: "folder",
@@ -3311,10 +4425,10 @@ describe("Markra workspace", () => {
       path: mockUntitledPath
     });
 
-    renderApp();
+    const { container } = renderApp();
 
     fireEvent.keyDown(window, { key: "o", metaKey: true });
-    expect(await screen.findByText("Native file")).toBeInTheDocument();
+    await expectVisibleMilkdownText(container, "Native file");
     expect(screen.getByRole("button", { name: "Toggle file list" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByRole("button", { name: "New file" })).not.toBeInTheDocument();
 
@@ -3324,7 +4438,7 @@ describe("Markra workspace", () => {
     expect(mockedSaveNativeMarkdownFile).not.toHaveBeenCalled();
     expect(screen.getByRole("tab", { name: /Untitled\.md/ })).toBeInTheDocument();
     expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument();
-    expect(screen.queryByText("Native file")).not.toBeInTheDocument();
+    expect(within(getVisibleMilkdownEditor(container)).queryByText("Native file")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
 
@@ -3372,12 +4486,18 @@ describe("Markra workspace", () => {
   it("keeps dirty editor content when opening another markdown file is cancelled", async () => {
     mockedGetStoredEditorPreferences.mockResolvedValue({
       aiQuickActionPrompts: defaultAiQuickActionPrompts,
+      autoRevealActiveFile: true,
+      autoSaveEnabled: true,
+      autoSaveIntervalMinutes: 10,
       autoUpdateEnabled: true,
       bodyFontSize: 16,
       clipboardImageFolder: "assets",
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
+      editorFontFamily: { family: null, source: "theme" },
       extendedSyntax: {
         githubAlerts: true,
         highlight: true
@@ -3393,14 +4513,17 @@ describe("Markra workspace", () => {
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: false,
       splitVisualPanePercent: 50,
+      spellcheckEnabled: false,
+      spellcheckIgnoredWords: [],
+      spellcheckLanguage: "en",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },
-        { id: "splitMode", visible: true },
         { id: "save", visible: true },
         { id: "theme", visible: true }
       ],
-      showWordCount: true
+      showWordCount: true,
+      wrapCodeBlocks: true
     });
     mockOpenMarkdownFile({
       content: "Original synthetic text",
@@ -3536,6 +4659,62 @@ describe("Markra workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Toggle file list" }));
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
+
+    await waitFor(() =>
+      expect(scrollTo).toHaveBeenCalledWith({
+        behavior: "auto",
+        top: 356
+      })
+    );
+  });
+
+  it("scrolls to a formatted outline heading using its readable title", async () => {
+    mockOpenMarkdownFile({
+      content: "# Native file\n\nParagraph\n\n## **Synthetic** heading\n\nTarget body",
+      name: "native.md",
+      path: mockNativePath
+    });
+
+    renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    const formattedHeading = await screen.findByRole("heading", { name: "Synthetic heading" });
+
+    const writingSurface = screen.getByLabelText("Writing surface");
+    const scrollTo = vi.fn();
+    Object.defineProperty(writingSurface, "scrollTop", {
+      configurable: true,
+      value: 120
+    });
+    Object.defineProperty(writingSurface, "scrollTo", {
+      configurable: true,
+      value: scrollTo
+    });
+    vi.spyOn(writingSurface, "getBoundingClientRect").mockReturnValue({
+      bottom: 710,
+      height: 700,
+      left: 0,
+      right: 900,
+      top: 10,
+      width: 900,
+      x: 0,
+      y: 10,
+      toJSON: () => ({})
+    });
+    vi.spyOn(formattedHeading, "getBoundingClientRect").mockReturnValue({
+      bottom: 350,
+      height: 40,
+      left: 160,
+      right: 760,
+      top: 310,
+      width: 600,
+      x: 160,
+      y: 310,
+      toJSON: () => ({})
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle file list" }));
+    fireEvent.click(screen.getByRole("button", { name: "Synthetic heading" }));
 
     await waitFor(() =>
       expect(scrollTo).toHaveBeenCalledWith({
@@ -3720,6 +4899,126 @@ describe("Markra workspace", () => {
     expect(mockedReadNativeMarkdownFile).toHaveBeenCalledWith(mockDroppedPath);
   });
 
+  it("opens an OS-opened markdown file in a new tab when document tabs are enabled", async () => {
+    let onOpenedPaths: ((paths: string[]) => unknown) | null = null;
+    mockOpenMarkdownFile({
+      content: "# Native file\n\nAlready open.",
+      name: "native.md",
+      path: mockNativePath
+    });
+    mockedListenNativeOpenedMarkdownPaths.mockImplementation(async (listener) => {
+      onOpenedPaths = listener;
+      return () => {};
+    });
+    mockedReadNativeMarkdownFile.mockImplementation(async (path) => {
+      if (path === mockNativePath) {
+        return {
+          content: "# Native file\n\nAlready open.",
+          name: "native.md",
+          path: mockNativePath
+        };
+      }
+
+      return {
+        content: "# Runtime file\n\nOpened while Markra was already running.",
+        name: "dropped.md",
+        path: mockDroppedPath
+      };
+    });
+
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Markdown or Folder" }));
+    expect(await screen.findByRole("heading", { name: "Native file" })).toBeInTheDocument();
+    await waitFor(() => expect(onOpenedPaths).not.toBeNull());
+
+    await act(async () => {
+      await onOpenedPaths?.([mockDroppedPath]);
+    });
+
+    expect(await screen.findByRole("heading", { name: "Runtime file" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /native\.md/ })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: /dropped\.md/ })).toHaveAttribute("aria-selected", "true");
+    expect(mockedOpenNativeMarkdownFileInNewWindow).not.toHaveBeenCalled();
+  });
+
+  it("opens an OS-opened markdown file from a child folder in the current workspace as a new tab", async () => {
+    const childFolderPath = "/mock-files/docs/dropped.md";
+    let onOpenedPaths: ((paths: string[]) => unknown) | null = null;
+    mockOpenMarkdownFile({
+      content: "# Native file\n\nAlready open.",
+      name: "native.md",
+      path: mockNativePath
+    });
+    mockedListenNativeOpenedMarkdownPaths.mockImplementation(async (listener) => {
+      onOpenedPaths = listener;
+      return () => {};
+    });
+    mockedReadNativeMarkdownFile.mockImplementation(async (path) => {
+      if (path === mockNativePath) {
+        return {
+          content: "# Native file\n\nAlready open.",
+          name: "native.md",
+          path: mockNativePath
+        };
+      }
+
+      return {
+        content: "# Child file\n\nOpened from a nested workspace folder.",
+        name: "dropped.md",
+        path: childFolderPath
+      };
+    });
+
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Markdown or Folder" }));
+    expect(await screen.findByRole("heading", { name: "Native file" })).toBeInTheDocument();
+    await waitFor(() => expect(onOpenedPaths).not.toBeNull());
+
+    await act(async () => {
+      await onOpenedPaths?.([childFolderPath]);
+    });
+
+    expect(await screen.findByRole("heading", { name: "Child file" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /native\.md/ })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: /dropped\.md/ })).toHaveAttribute("aria-selected", "true");
+    expect(mockedOpenNativeMarkdownFileInNewWindow).not.toHaveBeenCalled();
+  });
+
+  it("opens an OS-opened markdown file from another folder in a new window", async () => {
+    const otherFolderPath = "/other-vault/dropped.md";
+    let onOpenedPaths: ((paths: string[]) => unknown) | null = null;
+    mockOpenMarkdownFile({
+      content: "# Native file\n\nAlready open.",
+      name: "native.md",
+      path: mockNativePath
+    });
+    mockedListenNativeOpenedMarkdownPaths.mockImplementation(async (listener) => {
+      onOpenedPaths = listener;
+      return () => {};
+    });
+    mockedReadNativeMarkdownFile.mockResolvedValue({
+      content: "# Native file\n\nAlready open.",
+      name: "native.md",
+      path: mockNativePath
+    });
+
+    renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Markdown or Folder" }));
+    expect(await screen.findByRole("heading", { name: "Native file" })).toBeInTheDocument();
+    await waitFor(() => expect(onOpenedPaths).not.toBeNull());
+
+    await act(async () => {
+      await onOpenedPaths?.([otherFolderPath]);
+    });
+
+    await waitFor(() => expect(mockedOpenNativeMarkdownFileInNewWindow).toHaveBeenCalledWith(otherFolderPath));
+    expect(mockedReadNativeMarkdownFile).not.toHaveBeenCalledWith(otherFolderPath);
+    expect(screen.queryByRole("tab", { name: /dropped\.md/ })).not.toBeInTheDocument();
+  });
+
   it("opens a markdown folder when a native folder window opens with an initial path", async () => {
     window.history.pushState({}, "", "/?folder=%2Fmock-files%2Fvault");
     mockedListNativeMarkdownFilesForPath.mockResolvedValue([
@@ -3748,8 +5047,8 @@ describe("Markra workspace", () => {
     });
 
     renderApp();
-    await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalledTimes(1));
-    const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls[0]?.[0];
+    await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalled());
+    const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls.at(-1)?.[0];
 
     await act(async () => {
       await handleDrop?.({ kind: "file", name: "dropped.md", path: mockDroppedPath });
@@ -3764,8 +5063,8 @@ describe("Markra workspace", () => {
   it("opens a dropped markdown file in a new window when the current editor has content", async () => {
     renderApp();
     await screen.findByRole("heading", { name: "Welcome to Markra" });
-    await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalledTimes(1));
-    const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls[0]?.[0];
+    await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalled());
+    const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls.at(-1)?.[0];
 
     await act(async () => {
       await handleDrop?.({ kind: "file", name: "dropped.md", path: mockDroppedPath });
@@ -3785,8 +5084,8 @@ describe("Markra workspace", () => {
     ]);
 
     renderApp();
-    await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalledTimes(1));
-    const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls[0]?.[0];
+    await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalled());
+    const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls.at(-1)?.[0];
 
     await act(async () => {
       await handleDrop?.({ kind: "folder", name: "vault", path: mockFolderPath });
@@ -3810,8 +5109,8 @@ describe("Markra workspace", () => {
   it("opens a dropped markdown folder in a new window when the current editor has content", async () => {
     renderApp();
     await screen.findByRole("heading", { name: "Welcome to Markra" });
-    await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalledTimes(1));
-    const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls[0]?.[0];
+    await waitFor(() => expect(mockedInstallNativeMarkdownFileDrop).toHaveBeenCalled());
+    const handleDrop = mockedInstallNativeMarkdownFileDrop.mock.calls.at(-1)?.[0];
 
     await act(async () => {
       await handleDrop?.({ kind: "folder", name: "vault", path: mockFolderPath });
@@ -3837,6 +5136,49 @@ describe("Markra workspace", () => {
     await waitFor(() =>
       expect(mockedSaveNativeMarkdownFile).toHaveBeenCalledWith(
         expect.objectContaining({
+          path: null,
+          suggestedName: "Untitled.md"
+        })
+      )
+    );
+  });
+
+  it("starts untitled document saves in the open markdown folder", async () => {
+    mockedOpenNativeMarkdownPath.mockResolvedValue({
+      kind: "folder",
+      folder: {
+        path: mockFolderPath,
+        name: "vault"
+      }
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { name: "note.md", path: `${mockFolderPath}/note.md`, relativePath: "note.md" }
+    ]);
+    mockedReadNativeMarkdownFile.mockResolvedValue({
+      content: "# Note\n\nExisting file.",
+      name: "note.md",
+      path: `${mockFolderPath}/note.md`
+    });
+    mockedSaveNativeMarkdownFile.mockResolvedValue({
+      name: "Untitled.md",
+      path: `${mockFolderPath}/Untitled.md`
+    });
+
+    renderApp();
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    expect(await screen.findByRole("heading", { name: "vault" })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "note.md" }));
+    expect(await screen.findByText("Note")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
+
+    await waitFor(() =>
+      expect(mockedSaveNativeMarkdownFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          defaultDirectory: mockFolderPath,
           path: null,
           suggestedName: "Untitled.md"
         })
@@ -3879,25 +5221,247 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
-    expect((sourceEditor as HTMLTextAreaElement).value).toContain("# Welcome to Markra");
+    expect(readMarkdownSource(sourceEditor)).toContain("# Welcome to Markra");
     expect(screen.queryByRole("heading", { name: "Welcome to Markra" })).not.toBeInTheDocument();
 
-    fireEvent.change(sourceEditor, {
-      target: {
-        value: "# Source edit\n\nUpdated from source mode."
-      }
-    });
+    replaceMarkdownSource(sourceEditor, "# Source edit\n\nUpdated from source mode.");
 
     expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
-    expect(await screen.findByText("Source edit")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Source edit" })).toBeInTheDocument();
     expect(screen.getByText("Updated from source mode.")).toBeInTheDocument();
     expect(screen.getByLabelText("Markdown editor")).toHaveAttribute("data-editor-engine", "milkdown");
+  });
+
+  it("keeps raw source punctuation unchanged while editing in source mode", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    await selectEditorViewMode("Source code");
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+
+    replaceMarkdownSource(sourceEditor, "# Raw source\n\n**");
+    await settleEditorUpdates();
+
+    expect(readMarkdownSource(sourceEditor)).toBe("# Raw source\n\n**");
+  });
+
+  it("keeps source mode typing undoable and redoable before switching back to visual mode", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    await selectEditorViewMode("Source code");
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+    const originalSource = readMarkdownSource(sourceEditor);
+
+    replaceMarkdownSource(sourceEditor, "# Source draft\n\nUndo me.");
+    expect(readMarkdownSource(sourceEditor)).toBe("# Source draft\n\nUndo me.");
+
+    fireEvent.keyDown(sourceEditor, { ctrlKey: true, key: "z" });
+    await waitFor(() => {
+      expect(readMarkdownSource(sourceEditor)).toBe(originalSource);
+    });
+
+    fireEvent.keyDown(sourceEditor, { ctrlKey: true, key: "y" });
+    await waitFor(() => {
+      expect(readMarkdownSource(sourceEditor)).toBe("# Source draft\n\nUndo me.");
+    });
+  });
+
+  it("keeps visual undo history after switching to source mode and back", async () => {
+    const { container } = renderApp();
+
+    await expectVisibleMilkdownText(container, "Welcome to Markra");
+    await waitFor(() => expect(mockedInstallNativeApplicationMenu).toHaveBeenCalledTimes(1));
+    const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls[0]?.[0] as NativeMenuHandlers;
+
+    act(() => {
+      menuHandlers.insertTable?.();
+    });
+
+    await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument());
+
+    await selectEditorViewMode("Source code");
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+    await waitFor(() => expect(readMarkdownSource(sourceEditor)).toContain("| - | - |"));
+
+    await selectEditorViewMode("Preview");
+    await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
+
+    act(() => {
+      menuHandlers.editUndo?.();
+    });
+    await waitFor(() => expect(container.querySelector(".ProseMirror table")).not.toBeInTheDocument());
+
+    act(() => {
+      menuHandlers.editRedo?.();
+    });
+    await waitFor(() => expect(container.querySelector(".ProseMirror table")).toBeInTheDocument());
+  });
+
+  it("inserts the default menu image as an immediately clickable image block", async () => {
+    const { container } = renderApp();
+
+    await expectVisibleMilkdownText(container, "Welcome to Markra");
+    await waitFor(() => expect(mockedInstallNativeApplicationMenu).toHaveBeenCalledTimes(1));
+    const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls[0]?.[0] as NativeMenuHandlers;
+
+    act(() => {
+      menuHandlers.insertImage?.();
+    });
+
+    const image = await waitFor(() => {
+      const insertedImage = container.querySelector<HTMLImageElement>(
+        '.ProseMirror .markra-image-node img[src="assets/image.png"]'
+      );
+      expect(insertedImage).toBeInTheDocument();
+      return insertedImage!;
+    });
+
+    expect(image).toHaveAttribute("alt", "alt");
+    expect(container.querySelector(".ProseMirror .markra-live-image-preview")).not.toBeInTheDocument();
+
+    const initialSource = await waitFor(() => {
+      const sourceInput = container.querySelector<HTMLInputElement>(".ProseMirror .markra-image-node-source");
+      expect(sourceInput).toBeInTheDocument();
+      return sourceInput!;
+    });
+    expect(initialSource).toHaveFocus();
+    expect(initialSource.selectionStart).toBe("![alt](".length);
+    expect(initialSource.selectionEnd).toBe("![alt](assets/image.png".length);
+
+    expect(fireEvent.mouseDown(image)).toBe(false);
+    fireEvent.click(image);
+
+    const source = await waitFor(() => {
+      const sourceInput = container.querySelector<HTMLInputElement>(".ProseMirror .markra-image-node-source");
+      expect(sourceInput).toBeInTheDocument();
+      return sourceInput!;
+    });
+    expect(source).toHaveValue("![alt](assets/image.png)");
+  });
+
+  it("keeps source edits undoable after switching back to visual mode", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+    await waitFor(() => expect(mockedInstallNativeApplicationMenu).toHaveBeenCalledTimes(1));
+    const menuHandlers = mockedInstallNativeApplicationMenu.mock.calls[0]?.[0] as NativeMenuHandlers;
+
+    await selectEditorViewMode("Source code");
+    replaceMarkdownSource(
+      await screen.findByRole("textbox", { name: "Markdown source" }),
+      "# Source history\n\nShared undo."
+    );
+
+    await selectEditorViewMode("Preview");
+    expect(await screen.findByRole("heading", { name: "Source history" })).toBeInTheDocument();
+    expect(screen.getByText("Shared undo.")).toBeInTheDocument();
+
+    act(() => {
+      menuHandlers.editUndo?.();
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Source history" })).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole("heading", { name: "Welcome to Markra" })).toBeInTheDocument();
+
+    act(() => {
+      menuHandlers.editRedo?.();
+    });
+    expect(await screen.findByRole("heading", { name: "Source history" })).toBeInTheDocument();
+    expect(screen.getByText("Shared undo.")).toBeInTheDocument();
+  });
+
+  it("keeps callout body line breaks when switching from source to visual mode", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    await selectEditorViewMode("Source code");
+
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+    replaceMarkdownSource(sourceEditor, "> [!WARNING]\n>\n> First line\n> Second line");
+
+    await selectEditorViewMode("Preview");
+
+    await waitFor(() => {
+      expect(document.querySelector(".ProseMirror blockquote.markra-callout")).toBeInTheDocument();
+    });
+    const bodyParagraph = document.querySelector<HTMLElement>(
+      ".ProseMirror blockquote.markra-callout p:nth-of-type(2)"
+    );
+
+    const hardbreak = bodyParagraph?.querySelector<HTMLElement>('span.markra-hardbreak[data-type="hardbreak"]');
+    expect(hardbreak?.querySelector("br")).toBeInTheDocument();
+    expect(hardbreak).toHaveTextContent("");
+    expect(bodyParagraph).toHaveTextContent("First lineSecond line");
+  });
+
+  it("keeps explicit empty callout body lines when switching source and visual modes", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    await selectEditorViewMode("Source code");
+
+    const source = "> [!WARNING]\n>\n>";
+    replaceMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" }), source);
+
+    await selectEditorViewMode("Preview");
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(3);
+    });
+
+    await selectEditorViewMode("Source code");
+
+    await waitFor(() => {
+      expect(readMarkdownSource(screen.getByRole("textbox", { name: "Markdown source" }))).toBe(source);
+    });
+
+    await selectEditorViewMode("Preview");
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(3);
+    });
+  });
+
+  it("keeps trailing empty callout body lines after content when switching source and visual modes", async () => {
+    renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+
+    await selectEditorViewMode("Source code");
+
+    const source = "> [!WARNING]\n>\n> Synthetic details\n>\n>";
+    replaceMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" }), source);
+
+    await selectEditorViewMode("Preview");
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(4);
+    });
+
+    await selectEditorViewMode("Source code");
+
+    await waitFor(() => {
+      expect(readMarkdownSource(screen.getByRole("textbox", { name: "Markdown source" }))).toBe(source);
+    });
+
+    await selectEditorViewMode("Preview");
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ProseMirror blockquote.markra-callout p")).toHaveLength(4);
+    });
   });
 
   it("shows a large-file notice instead of rendering oversized markdown in visual mode", async () => {
@@ -3969,15 +5533,11 @@ describe("Markra workspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open in source mode" }));
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
-    expect(sourceEditor).toHaveValue(largeContent);
+    expect(readMarkdownSource(sourceEditor)).toBe(largeContent);
 
-    fireEvent.change(sourceEditor, {
-      target: {
-        value: `${largeContent}\n\nEdited in source mode.`
-      }
-    });
+    replaceMarkdownSource(sourceEditor, `${largeContent}\n\nEdited in source mode.`);
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     expect(await screen.findByText("This file is too large to render in visual mode.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Oversized source" })).not.toBeInTheDocument();
@@ -4008,15 +5568,15 @@ describe("Markra workspace", () => {
     await waitFor(() => expect(mockedReadNativeMarkdownFile).toHaveBeenCalledTimes(1));
     mockedReadNativeMarkdownFile.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
-    expect(sourceEditor).toHaveValue(restoredContent);
+    expect(readMarkdownSource(sourceEditor)).toBe(restoredContent);
 
     await settleEditorUpdates();
 
-    expect(screen.getByRole("textbox", { name: "Markdown source" })).toHaveValue(restoredContent);
-    expect(screen.getByRole("button", { name: "Switch to visual mode" })).toBeInTheDocument();
+    expect(readMarkdownSource(screen.getByRole("textbox", { name: "Markdown source" }))).toBe(restoredContent);
+    expect(screen.getByRole("button", { name: "Editor view mode: Source code" })).toBeInTheDocument();
     expect(mockedReadNativeMarkdownFile).not.toHaveBeenCalled();
   });
 
@@ -4024,19 +5584,16 @@ describe("Markra workspace", () => {
     const { container } = renderApp();
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+    await settleEditorUpdates();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to split mode" }));
+    await selectEditorViewMode("Preview + Source");
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
     const visualEditor = container.querySelector('[data-editor-engine="milkdown"]');
     expect(visualEditor).toBeInTheDocument();
     expect(container.querySelector(".editor-split-surface")).toBeInTheDocument();
 
-    fireEvent.change(sourceEditor, {
-      target: {
-        value: "# Split source edit\n\nUpdated from the source pane."
-      }
-    });
+    replaceMarkdownSource(sourceEditor, "# Split source edit\n\nUpdated from the source pane.");
 
     await waitFor(() => {
       const currentVisualEditor = container.querySelector('[data-editor-engine="milkdown"]') as HTMLElement | null;
@@ -4053,10 +5610,10 @@ describe("Markra workspace", () => {
     });
 
     await waitFor(() => {
-      const currentSourceEditor = screen.getByRole("textbox", { name: "Markdown source" }) as HTMLTextAreaElement;
-      expect(currentSourceEditor.value).toMatch(/\|\s+\|\s+\|\n\|\s+-+\s+\|\s+-+\s+\|\n\|\s+\|\s+\|/u);
-      expect(currentSourceEditor.value).not.toContain("Column 1");
-      expect(currentSourceEditor.value).not.toContain("Column 2");
+      const currentSource = readMarkdownSource(screen.getByRole("textbox", { name: "Markdown source" }));
+      expect(currentSource).toMatch(/\|\s+\|\s+\|\n\|\s+-+\s+\|\s+-+\s+\|\n\|\s+\|\s+\|/u);
+      expect(currentSource).not.toContain("Column 1");
+      expect(currentSource).not.toContain("Column 2");
     });
   });
 
@@ -4065,14 +5622,14 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to split mode" }));
+    await selectEditorViewMode("Preview + Source");
 
     const splitSurface = container.querySelector(".editor-split-surface");
     expect(splitSurface).toBeInTheDocument();
 
     const [visualPane, , sourcePane] = Array.from(splitSurface!.children) as HTMLElement[];
     expect(within(visualPane!).getByLabelText("Markdown editor")).toHaveAttribute("data-editor-engine", "milkdown");
-    expect(within(sourcePane!).getByRole("textbox", { name: "Markdown source" })).toBeInTheDocument();
+    expect(await within(sourcePane!).findByRole("textbox", { name: "Markdown source" })).toBeInTheDocument();
   });
 
   it("resizes split panes from the center divider and persists the ratio", async () => {
@@ -4080,7 +5637,7 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to split mode" }));
+    await selectEditorViewMode("Preview + Source");
 
     const splitSurface = container.querySelector<HTMLElement>(".editor-split-surface");
     expect(splitSurface).toBeInTheDocument();
@@ -4120,11 +5677,14 @@ describe("Markra workspace", () => {
 
     expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to split mode" }));
+    await selectEditorViewMode("Preview + Source");
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
 
-    const [visualScroll, sourceScroll] = Array.from(
+    const splitScrollElements = Array.from(
       container.querySelectorAll<HTMLElement>(".editor-split-surface .paper-scroll")
     );
+    const sourceScroll = sourceEditor.closest<HTMLElement>(".paper-scroll");
+    const visualScroll = splitScrollElements.find((element) => element !== sourceScroll) ?? null;
     expect(sourceScroll).toBeInTheDocument();
     expect(visualScroll).toBeInTheDocument();
 
@@ -4142,6 +5702,61 @@ describe("Markra workspace", () => {
     fireEvent.scroll(sourceScroll!);
 
     expect(visualScroll!.scrollTop).toBe(100);
+  });
+
+  it("recalibrates split pane scrolling after target layout changes", async () => {
+    const { container } = renderApp();
+
+    expect(await screen.findByText("Welcome to Markra")).toBeInTheDocument();
+    await settleEditorUpdates();
+
+    await selectEditorViewMode("Preview + Source");
+    const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
+
+    const splitScrollElements = Array.from(
+      container.querySelectorAll<HTMLElement>(".editor-split-surface .paper-scroll")
+    );
+    const sourceScroll = sourceEditor.closest<HTMLElement>(".paper-scroll");
+    const visualScroll = splitScrollElements.find((element) => element !== sourceScroll && !element.closest("[hidden]")) ?? null;
+    expect(sourceScroll).toBeInTheDocument();
+    expect(visualScroll).toBeInTheDocument();
+
+    const resyncFrames: FrameRequestCallback[] = [];
+    const flushResyncFrames = () => {
+      const frames = resyncFrames.splice(0);
+      frames.forEach((frame) => frame(0));
+    };
+    const requestAnimationFrameSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      resyncFrames.push(callback);
+      return resyncFrames.length;
+    });
+
+    mockScrollMetrics(sourceScroll!, {
+      clientHeight: 200,
+      scrollHeight: 1000,
+      scrollTop: 200
+    });
+    mockScrollMetrics(visualScroll!, {
+      clientHeight: 300,
+      scrollHeight: 700,
+      scrollTop: 0
+    });
+
+    fireEvent.scroll(sourceScroll!);
+    expect(visualScroll!.scrollTop).toBe(100);
+
+    mockScrollMetrics(visualScroll!, {
+      clientHeight: 300,
+      scrollHeight: 900,
+      scrollTop: visualScroll!.scrollTop
+    });
+
+    act(() => {
+      flushResyncFrames();
+    });
+
+    expect(visualScroll!.scrollTop).toBe(150);
+    requestAnimationFrameSpy.mockRestore();
   });
 
   it("keeps scroll progress when an opened file switches from visual to source mode", async () => {
@@ -4167,14 +5782,18 @@ describe("Markra workspace", () => {
     });
     fireEvent.scroll(visualScroll);
 
-    let restoreFrame: FrameRequestCallback | null = null;
+    const restoreFrames: FrameRequestCallback[] = [];
+    const flushRestoreFrames = () => {
+      const frames = restoreFrames.splice(0);
+      frames.forEach((frame) => frame(0));
+    };
     const requestAnimationFrameSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      restoreFrame = callback;
-      return 1;
+      restoreFrames.push(callback);
+      return restoreFrames.length;
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
-    const sourceScroll = screen.getByLabelText("Markdown source").closest(".paper-scroll")!;
+    await selectEditorViewMode("Source code");
+    const sourceScroll = (await screen.findByLabelText("Markdown source")).closest(".paper-scroll")!;
     mockScrollMetrics(sourceScroll, {
       clientHeight: 200,
       scrollHeight: 1200,
@@ -4182,13 +5801,13 @@ describe("Markra workspace", () => {
     });
 
     act(() => {
-      restoreFrame?.(0);
+      flushRestoreFrames();
     });
 
     expect(sourceScroll.scrollTop).toBe(500);
 
     fireEvent.scroll(sourceScroll);
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
     const restoredVisualScroll = screen.getByLabelText("Writing surface");
     mockScrollMetrics(restoredVisualScroll, {
       clientHeight: 200,
@@ -4197,7 +5816,7 @@ describe("Markra workspace", () => {
     });
 
     act(() => {
-      restoreFrame?.(0);
+      flushRestoreFrames();
     });
 
     expect(restoredVisualScroll.scrollTop).toBe(400);
@@ -4212,7 +5831,7 @@ describe("Markra workspace", () => {
     fireEvent.keyDown(window, { key: "s", altKey: true, metaKey: true });
 
     const sourceEditor = await screen.findByRole("textbox", { name: "Markdown source" });
-    expect((sourceEditor as HTMLTextAreaElement).value).toContain("# Welcome to Markra");
+    expect(readMarkdownSource(sourceEditor)).toContain("# Welcome to Markra");
 
     fireEvent.keyDown(window, { key: "s", altKey: true, metaKey: true });
 
@@ -4558,13 +6177,14 @@ describe("Markra workspace", () => {
     const image = container.querySelector<HTMLImageElement>('.ProseMirror img[src="assets/pasted-image.png"]');
     expect(image).toBeInTheDocument();
     expect(fireEvent.mouseDown(image!)).toBe(false);
+    fireEvent.click(image!);
 
     const sourceInput = await waitFor(() => {
       const input = container.querySelector<HTMLInputElement>(".ProseMirror .markra-image-node-source");
       expect(input).toBeInTheDocument();
       return input!;
     });
-    await waitFor(() => expect(sourceInput).toHaveFocus());
+    expect(sourceInput).not.toHaveFocus();
     expect(image?.closest(".markra-image-node")).toHaveClass("markra-image-node-selected");
 
     fireEvent.keyDown(window, { key: "f", metaKey: true });
@@ -4598,7 +6218,7 @@ describe("Markra workspace", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Replace" }));
 
-    expect((sourceEditor as HTMLTextAreaElement).value).toContain("# Hello to Markra");
+    expect(readMarkdownSource(sourceEditor)).toContain("# Hello to Markra");
   });
 
   it("toggles read-only mode from the keyboard shortcut and marks the status area", async () => {
@@ -4624,7 +6244,7 @@ describe("Markra workspace", () => {
     fireEvent.keyDown(window, { key: "s", altKey: true, metaKey: true });
     fireEvent.keyDown(window, { key: "l", altKey: true, metaKey: true });
 
-    expect(await screen.findByRole("textbox", { name: "Markdown source" })).toHaveAttribute("readonly");
+    expect(await screen.findByRole("textbox", { name: "Markdown source" })).toHaveAttribute("aria-readonly", "true");
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
   });
 
@@ -4665,12 +6285,12 @@ describe("Markra workspace", () => {
     expect(await screen.findByText("Native file")).toBeInTheDocument();
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
-    expect(await screen.findByRole("textbox", { name: "Markdown source" })).toHaveValue(originalContent);
+    expect(readMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" }))).toBe(originalContent);
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to visual mode" }));
+    await selectEditorViewMode("Preview");
 
     expect(await screen.findByText("Native file")).toBeInTheDocument();
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
@@ -4696,9 +6316,9 @@ describe("Markra workspace", () => {
 
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
+    await selectEditorViewMode("Source code");
 
-    expect((await screen.findByRole("textbox", { name: "Markdown source" }) as HTMLTextAreaElement).value.trim()).toBe(
+    expect(readMarkdownSource(await screen.findByRole("textbox", { name: "Markdown source" })).trim()).toBe(
       "### C\n\nSummary content."
     );
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
@@ -4720,12 +6340,11 @@ describe("Markra workspace", () => {
     fireEvent.keyDown(window, { key: "o", metaKey: true });
     expect(await screen.findByText("Native file")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Markdown source" }), {
-      target: {
-        value: "# Source save\n\nSaved from source mode."
-      }
-    });
+    await selectEditorViewMode("Source code");
+    replaceMarkdownSource(
+      await screen.findByRole("textbox", { name: "Markdown source" }),
+      "# Source save\n\nSaved from source mode."
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
 
     await waitFor(() =>
@@ -4783,12 +6402,11 @@ describe("Markra workspace", () => {
     fireEvent.keyDown(window, { key: "o", metaKey: true });
     expect(await screen.findByText("Native file")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch to source mode" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Markdown source" }), {
-      target: {
-        value: "# Source save\n\nSynced after save."
-      }
-    });
+    await selectEditorViewMode("Source code");
+    replaceMarkdownSource(
+      await screen.findByRole("textbox", { name: "Markdown source" }),
+      "# Source save\n\nSynced after save."
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save Markdown" }));
 
     await waitFor(() => expect(mockedSaveNativeMarkdownFile).toHaveBeenCalled());
@@ -4818,6 +6436,7 @@ describe("Markra workspace", () => {
       ...runtime,
       features: {
         ...runtime.features,
+        spellcheck: true,
         updater: false
       },
       files: {

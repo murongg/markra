@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import { debug, fileNameFromPath } from "@markra/shared";
+import { networkSettingsForNativeRequest } from "./network";
 import type {
   PicGoImageUploadSettings,
   S3ImageUploadSettings,
@@ -31,6 +32,11 @@ type MarkdownFileHistoryFileResponse = {
 };
 
 type MarkdownTemplateFileResponse = {
+  contents: string;
+};
+
+type TextFileResponse = {
+  path: string;
   contents: string;
 };
 
@@ -65,6 +71,12 @@ export type NativeMarkdownFile = {
   name: string;
   content: string;
   sizeBytes: number;
+};
+
+export type NativeSettingsFile = {
+  path: string;
+  name: string;
+  content: string;
 };
 
 export type NativeMarkdownFileHistoryEntry = {
@@ -102,6 +114,11 @@ export type NativeMarkdownOpenTarget =
       folder: NativeMarkdownFolder;
     };
 
+export type NativeMarkdownDropPoint = {
+  left: number;
+  top: number;
+};
+
 export type CreateNativeMarkdownTreeFileOptions = {
   contents?: string | null;
   parentPath?: string | null;
@@ -117,9 +134,16 @@ export type NativeMarkdownDroppedTarget =
       kind: "folder";
       path: string;
       name: string;
+    }
+  | {
+      kind: "image";
+      path: string;
+      name: string;
+      point?: NativeMarkdownDropPoint;
     };
 
 export type SaveNativeMarkdownFileInput = {
+  defaultDirectory?: string | null;
   historyCursorId?: string;
   path: string | null;
   skipHistorySnapshot?: boolean;
@@ -133,6 +157,11 @@ export type SaveNativeHtmlFileInput = {
 };
 
 export type SaveNativePdfFileInput = {
+  suggestedName: string;
+  contents: string;
+};
+
+export type SaveNativeSettingsFileInput = {
   suggestedName: string;
   contents: string;
 };
@@ -159,6 +188,11 @@ export type SavedNativeHtmlFile = {
 };
 
 export type SavedNativePdfFile = {
+  path: string;
+  name: string;
+};
+
+export type SavedNativeSettingsFile = {
   path: string;
   name: string;
 };
@@ -291,10 +325,25 @@ const htmlFilters = [
   }
 ];
 
+const imageFilters = [
+  {
+    name: "Images",
+    extensions: ["avif", "bmp", "gif", "jpeg", "jpg", "png", "svg", "webp"]
+  }
+];
+const imageFileExtensions = new Set(imageFilters.flatMap((filter) => filter.extensions));
+
 const pdfFilters = [
   {
     name: "PDF",
     extensions: ["pdf"]
+  }
+];
+
+const settingsFilters = [
+  {
+    name: "Markra settings",
+    extensions: ["json"]
   }
 ];
 
@@ -350,6 +399,19 @@ function treeRootPathFromPath(path: string) {
 function normalizeNativeParentPath(path: string | null | undefined) {
   const trimmedPath = path?.trim();
   return trimmedPath ? trimmedPath : null;
+}
+
+function nativePathSeparator(path: string) {
+  return path.includes("\\") && !path.includes("/") ? "\\" : "/";
+}
+
+function nativeDefaultSavePath(defaultDirectory: string | null | undefined, suggestedName: string) {
+  const directory = defaultDirectory?.trim();
+  const name = suggestedName.trim() || "Untitled.md";
+  if (!directory) return name;
+
+  const separator = nativePathSeparator(directory);
+  return `${directory.replace(/[\\/]+$/u, "")}${separator}${name.replace(/^[\\/]+/u, "")}`;
 }
 
 export async function takeNativeOpenedMarkdownPaths(): Promise<string[]> {
@@ -638,6 +700,10 @@ export async function openNativeMarkdownFolderInNewWindow(path: string) {
   await invoke("open_markdown_folder_in_new_window", { path });
 }
 
+export async function openNativeContainingFolder(path: string) {
+  await invoke("open_containing_folder", { path });
+}
+
 function pickerTitleOption(labels: NativeMarkdownPickerLabels | undefined) {
   const title = labels?.title.trim();
   return title ? { title } : {};
@@ -655,6 +721,38 @@ export async function openNativeMarkdownFile(labels?: NativeMarkdownPickerLabels
   if (!selectedPath || Array.isArray(selectedPath)) return null;
 
   return readNativeMarkdownFile(selectedPath);
+}
+
+function normalizeSelectedPaths(paths: string | string[] | null) {
+  if (!paths) return [];
+
+  return Array.isArray(paths) ? paths : [paths];
+}
+
+export async function openNativeLocalImages(labels?: NativeMarkdownPickerLabels): Promise<File[]> {
+  const selectedPaths = normalizeSelectedPaths(await open({
+    multiple: true,
+    fileAccessMode: "scoped",
+    filters: imageFilters,
+    ...pickerTitleOption(labels)
+  }));
+
+  const images: File[] = [];
+  for (const path of selectedPaths) {
+    images.push(await readNativeLocalImageFile(path));
+  }
+
+  return images;
+}
+
+export async function readNativeLocalImageFile(path: string): Promise<File> {
+  const image = await invoke<MarkdownImageFileResponse>("read_local_image_file", {
+    path
+  });
+
+  return new File([new Uint8Array(image.bytes)], fileNameFromPath(image.path), {
+    type: image.mimeType
+  });
 }
 
 export async function openNativeMarkdownPath(labels?: NativeMarkdownPickerLabels): Promise<NativeMarkdownOpenTarget | null> {
@@ -680,6 +778,27 @@ export async function openNativeMarkdownPath(labels?: NativeMarkdownPickerLabels
   };
 }
 
+export async function openNativeSettingsFile(labels?: NativeMarkdownPickerLabels): Promise<NativeSettingsFile | null> {
+  const selectedPath = await open({
+    multiple: false,
+    fileAccessMode: "scoped",
+    filters: settingsFilters,
+    ...pickerTitleOption(labels)
+  });
+
+  if (!selectedPath || Array.isArray(selectedPath)) return null;
+
+  const file = await invoke<TextFileResponse>("read_text_file", {
+    path: selectedPath
+  });
+
+  return {
+    path: file.path,
+    name: fileNameFromPath(file.path),
+    content: file.contents
+  };
+}
+
 function droppedTargetFromResponse(target: MarkdownOpenPathResponse): NativeMarkdownDroppedTarget {
   return {
     kind: target.kind,
@@ -696,12 +815,43 @@ export async function resolveNativeMarkdownPath(path: string): Promise<NativeMar
   return droppedTargetFromResponse(target);
 }
 
-async function firstDroppedMarkdownTarget(paths: string[]) {
+function imageDropTargetFromPath(path: string, point?: NativeMarkdownDropPoint): NativeMarkdownDroppedTarget | null {
+  const extension = path.split(/[\\/]/u).pop()?.split(".").pop()?.toLocaleLowerCase();
+  if (!extension || !imageFileExtensions.has(extension)) return null;
+
+  return {
+    kind: "image",
+    name: fileNameFromPath(path),
+    path,
+    ...(point ? { point } : {})
+  };
+}
+
+function nativeDropPointFromPosition(position: unknown): NativeMarkdownDropPoint | undefined {
+  if (!position || typeof position !== "object") return undefined;
+  const { x, y } = position as { x?: unknown; y?: unknown };
+  if (typeof x !== "number" || typeof y !== "number") return undefined;
+
+  const scaleFactor = typeof window.devicePixelRatio === "number" && window.devicePixelRatio > 0
+    ? window.devicePixelRatio
+    : 1;
+
+  return {
+    left: x / scaleFactor,
+    top: y / scaleFactor
+  };
+}
+
+async function firstDroppedMarkdownTarget(paths: string[], point?: NativeMarkdownDropPoint) {
   for (const path of paths) {
     try {
-      return await resolveNativeMarkdownPath(path);
+      return droppedTargetFromResponse(await invoke<MarkdownOpenPathResponse>("resolve_markdown_path", {
+        path
+      }));
     } catch {
-      // Keep looking; drag payloads can contain images or other unsupported files.
+      const imageTarget = imageDropTargetFromPath(path, point);
+      if (imageTarget) return imageTarget;
+      // Keep looking; drag payloads can contain unsupported files.
     }
   }
 
@@ -726,6 +876,7 @@ export async function openNativeMarkdownFolder(labels?: NativeMarkdownPickerLabe
 }
 
 export async function saveNativeMarkdownFile({
+  defaultDirectory,
   historyCursorId,
   path,
   skipHistorySnapshot,
@@ -742,7 +893,7 @@ export async function saveNativeMarkdownFile({
   const targetPath =
     path ??
     (await save({
-      defaultPath: suggestedName,
+      defaultPath: nativeDefaultSavePath(defaultDirectory, suggestedName),
       filters: markdownFilters
     }));
 
@@ -825,6 +976,28 @@ export async function saveNativePdfFile({
   };
 }
 
+export async function saveNativeSettingsFile({
+  suggestedName,
+  contents
+}: SaveNativeSettingsFileInput): Promise<SavedNativeSettingsFile | null> {
+  const targetPath = await save({
+    defaultPath: suggestedName,
+    filters: settingsFilters
+  });
+
+  if (!targetPath) return null;
+
+  await invoke("write_text_file", {
+    path: targetPath,
+    contents
+  });
+
+  return {
+    path: targetPath,
+    name: fileNameFromPath(targetPath)
+  };
+}
+
 export async function saveNativePandocFile({
   documentPath,
   format,
@@ -884,6 +1057,12 @@ function encodeMarkdownRelativePath(path: string) {
   return path.split("/").map(encodeMarkdownUrlSegment).join("/");
 }
 
+async function requestWithNetwork<TRequest extends Record<string, unknown>>(request: TRequest) {
+  const network = await networkSettingsForNativeRequest();
+
+  return network ? { ...request, network } : request;
+}
+
 export async function saveNativeClipboardImage({
   documentPath,
   fileName,
@@ -907,9 +1086,9 @@ export async function saveNativeClipboardImage({
 
 export async function downloadNativeWebImage({ src }: DownloadNativeWebImageInput): Promise<File> {
   const downloadedImage = await invoke<WebImageDownloadResponse>("download_web_image", {
-    request: {
+    request: await requestWithNetwork({
       url: src
-    }
+    })
   });
 
   return new File([new Uint8Array(downloadedImage.bytes)], downloadedImage.fileName, {
@@ -924,7 +1103,7 @@ export async function uploadNativeWebDavImage({
 }: UploadNativeWebDavImageInput): Promise<SavedNativeClipboardImage> {
   const bytes = Array.from(new Uint8Array(await image.arrayBuffer()));
   const uploadedImage = await invoke<RemoteImageUploadResponse>("upload_webdav_image", {
-    request: {
+    request: await requestWithNetwork({
       bytes,
       fileName,
       mimeType: image.type,
@@ -933,7 +1112,7 @@ export async function uploadNativeWebDavImage({
       serverUrl: settings.serverUrl,
       uploadPath: settings.uploadPath,
       username: settings.username
-    }
+    })
   });
 
   return {
@@ -949,13 +1128,13 @@ export async function uploadNativePicGoImage({
 }: UploadNativePicGoImageInput): Promise<SavedNativeClipboardImage> {
   const bytes = Array.from(new Uint8Array(await image.arrayBuffer()));
   const uploadedImage = await invoke<RemoteImageUploadResponse>("upload_picgo_image", {
-    request: {
+    request: await requestWithNetwork({
       bytes,
       fileName,
       mimeType: image.type,
       secret: settings.secret,
       serverUrl: settings.serverUrl
-    }
+    })
   });
 
   return {
@@ -971,7 +1150,7 @@ export async function uploadNativeS3Image({
 }: UploadNativeS3ImageInput): Promise<SavedNativeClipboardImage> {
   const bytes = Array.from(new Uint8Array(await image.arrayBuffer()));
   const uploadedImage = await invoke<RemoteImageUploadResponse>("upload_s3_image", {
-    request: {
+    request: await requestWithNetwork({
       accessKeyId: settings.accessKeyId,
       bucket: settings.bucket,
       bytes,
@@ -982,7 +1161,7 @@ export async function uploadNativeS3Image({
       region: settings.region,
       secretAccessKey: settings.secretAccessKey,
       uploadPath: settings.uploadPath
-    }
+    })
   });
 
   return {
@@ -1011,13 +1190,13 @@ export async function syncNativeMarkdownFolder({
   }
 
   return invoke<NativeMarkdownSyncResponse>("sync_webdav_markdown_folder", {
-    request: {
+    request: await requestWithNetwork({
       password: webdav.password,
       remotePath: webdav.remotePath,
       serverUrl: webdav.serverUrl,
       sourcePath,
       username: webdav.username
-    }
+    })
   });
 }
 
@@ -1102,8 +1281,9 @@ export async function installNativeMarkdownFileDrop(onDrop: NativeMarkdownFileDr
   try {
     return await getCurrentWindow().onDragDropEvent((event) => {
       if (event.payload.type !== "drop") return;
+      const point = nativeDropPointFromPosition(event.payload.position);
 
-      firstDroppedMarkdownTarget(event.payload.paths).then((target) => {
+      firstDroppedMarkdownTarget(event.payload.paths, point).then((target) => {
         if (!target) return;
 
         onDrop(target);

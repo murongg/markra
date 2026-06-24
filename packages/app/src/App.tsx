@@ -25,9 +25,8 @@ import {
   type RenderedMarkdownExport,
   type MarkdownExportSnapshot
 } from "./components/MarkdownExportDocument";
-import { MarkdownFileTreeDrawer } from "./components/MarkdownFileTreeDrawer";
 import { MarkdownPaper } from "./components/MarkdownPaper";
-import { MarkdownSourceEditor } from "./components/MarkdownSourceEditor";
+import { LazyMarkdownSourceEditor } from "./components/LazyMarkdownSourceEditor";
 import {
   MarkdownTabsBar,
   markdownTabDragDataType,
@@ -38,17 +37,24 @@ import { QuietStatus } from "./components/QuietStatus";
 import { QuickOpenPanel } from "./components/QuickOpenPanel";
 import { SideDocumentPane } from "./components/SideDocumentPane";
 import { SettingsWindow } from "./components/SettingsWindow";
+import { WorkspaceLayout } from "./components/WorkspaceLayout";
 import { useAppLanguage } from "./hooks/useAppLanguage";
 import { useAppTheme } from "./hooks/useAppTheme";
 import { useAiCommandUi } from "./hooks/useAiCommandUi";
 import {
-  shouldCloseAiCommandOnAgentPanelOpen,
   shouldHideAiCommandForAiAgentPanel,
   shouldHideSelectionToolbarForAiAgentPanel
 } from "./hooks/ai-agent-panel-visibility";
+import {
+  aiAgentPanelMaxWidth,
+  aiAgentPanelMinWidth,
+  useAiAgentPanelState
+} from "./hooks/useAiAgentPanelState";
 import { useAiAgentSessionList } from "./hooks/useAiAgentSessionList";
 import { useAiAgentSession } from "./hooks/useAiAgentSession";
 import { useAiSettings } from "./hooks/useAiSettings";
+import { useDocumentSearchState } from "./hooks/useDocumentSearchState";
+import { useEditorContentWidthState } from "./hooks/useEditorContentWidthState";
 import { useEditorPreferences } from "./hooks/useEditorPreferences";
 import { useDeferredAiSelectionReveal } from "./hooks/ai-selection-reveal";
 import { useExportSettings } from "./hooks/useExportSettings";
@@ -56,52 +62,66 @@ import { shouldFocusEditorOnReady, useEditorController } from "./hooks/useEditor
 import { useMarkdownDocument } from "./hooks/useMarkdownDocument";
 import { useMarkdownFileTree } from "./hooks/useMarkdownFileTree";
 import { useSelectionToolbarAnchorRefresh } from "./hooks/useSelectionToolbarAnchorRefresh";
+import { useSharedEditorHistory } from "./hooks/useSharedEditorHistory";
 import { useSideBySideTabs } from "./hooks/useSideBySideTabs";
 import { useAutoUpdater } from "./hooks/useAutoUpdater";
 import { useBackupSettings } from "./hooks/useBackupSettings";
 import { useDefaultContextMenuBlocker } from "./hooks/useDefaultContextMenuBlocker";
 import { useSyncSettings } from "./hooks/useSyncSettings";
+import { useWorkspaceLinkIndex } from "./hooks/useWorkspaceLinkIndex";
 import { useWebSearchSettings } from "./hooks/useWebSearchSettings";
+import { useSettingsWindowRoute } from "./hooks/useSettingsWindowRoute";
+import { useStartupWindowReveal } from "./hooks/useStartupWindowReveal";
+import { useWorkspaceBackupSync } from "./hooks/useWorkspaceBackupSync";
+import { useWorkspaceSearch } from "./hooks/useWorkspaceSearch";
 import {
   useApplicationShortcuts,
   useNativeMarkdownDrop,
   useNativeMenuHandlers,
   useNativeMenus
 } from "./hooks/useNativeBindings";
+import type { Editor as MilkdownEditor } from "@milkdown/kit/core";
 import {
   aiTranslationLanguageName,
   clampNumber,
   debug,
-  findSearchRanges,
-  normalizeSearchIndex,
+  markdownImageDragPayloadForFile,
+  markdownImageDragSrcForDocument,
   t,
-  type I18nKey,
-  type SearchRange
+  type I18nKey
 } from "@markra/shared";
 import { showAppToast } from "./lib/app-toast";
-import { runMarkdownBackup } from "./lib/backup";
-import { runMarkdownSync } from "./lib/sync";
-import { createMarkdownImageSrcResolver } from "@markra/markdown";
+import { createMarkdownImageSrcResolver, getWordCount } from "@markra/markdown";
 import { buildMarkdownHtmlDocument, exportDocumentFileName, localFileUrlFromPath } from "./lib/document-export";
 import { resolveMarkdownDocumentLinkFile } from "./lib/document-links";
-import type { EditorContentWidth } from "./lib/editor-width";
-import { saveEditorImage } from "./lib/image-upload";
+import { saveEditorImage, saveLocalEditorImage } from "./lib/image-upload";
+import { aiCommandSelection, automaticAiSelection } from "./lib/ai-selection";
 import { shouldBlockLargeMarkdownVisual } from "./lib/large-markdown";
 import { markAppPerformance } from "./lib/performance-marks";
-import { replaceMovedPath } from "./lib/path-move";
-import { resolveDesktopPlatform } from "./lib/platform";
-import { selectionAnchorFromDomSelection, type SelectionAnchor } from "./lib/selection-anchor";
+import { replaceMovedPath, sameNativePath } from "./lib/path-move";
+import { createAppSpellcheckerForLanguage } from "./lib/spellcheck";
 import {
-  searchWorkspaceFiles,
-  type WorkspaceSearchResponse,
-  type WorkspaceSearchResult
-} from "./lib/workspace-search";
+  resolveDesktopOsVersion,
+  resolveDesktopPlatform,
+  webKitScrollWorkaroundForPlatform
+} from "./lib/platform";
+import { selectionAnchorFromDomSelection, type SelectionAnchor } from "./lib/selection-anchor";
+import { runEditorLinkCommand } from "./app/editor-link-command";
+import { isPandocSetupError, runPandocSetupAction } from "./app/pandoc-setup";
+import type { WorkspaceSearchResult } from "./lib/workspace-search";
 import type {
   SelectionHeadingLevel,
   SelectionFormattingAction,
   SelectionFormattingToolbarAction
 } from "./lib/selection-formatting";
-import { openNativeExternalUrl, openSettingsWindow } from "./lib/tauri";
+import {
+  closeNativeWindow,
+  openNativeExternalUrl,
+  openSettingsWindow,
+  showNativeAppAbout,
+  toggleNativeWindowFullscreen,
+  toggleNativeWindowMaximized
+} from "./lib/tauri";
 import { aiAgentWebSearchAvailable, type AiDiffResult, type AiEditIntent, type AiSelectionContext } from "@markra/ai";
 import {
   AI_EDITOR_PREVIEW_APPLIED_EVENT,
@@ -120,6 +140,7 @@ import {
   deleteStoredAiAgentSession,
   getStoredWorkspaceState,
   initializeStoredAiAgentSession,
+  normalizeSpellcheckIgnoredWords,
   splitVisualPanePercentMax,
   splitVisualPanePercentMin,
   saveStoredEditorPreferences,
@@ -132,24 +153,24 @@ import {
   type TitlebarActionPreference
 } from "./lib/settings/app-settings";
 import {
-  notifyAppBackupSettingsChanged,
-  notifyAppEditorPreferencesChanged,
-  notifyAppSyncSettingsChanged
+  notifyAppEditorPreferencesChanged
 } from "./lib/settings/settings-events";
 import { getAppRuntime } from "./runtime";
 import {
   confirmNativeMarkdownFileDelete,
   confirmNativeUnsavedMarkdownDocumentDiscard,
   downloadNativeWebImage,
+  openNativeContainingFolder,
+  openNativeLocalImages,
   readNativeMarkdownImageFile,
   readNativeMarkdownFile,
   readNativeMarkdownTemplateFile,
   saveNativeHtmlFile,
   saveNativePandocFile,
   saveNativePdfFile,
-  searchNativeMarkdownFilesForPath,
   showNativePandocSetup,
   writeNativeMarkdownTemplateFile,
+  type NativeMarkdownDroppedTarget,
   type NativeMarkdownFolderFile,
   type NativePandocExportFormat
 } from "./lib/tauri";
@@ -159,60 +180,45 @@ import {
   markdownTemplateEntryFromTemplate,
   type MarkdownTemplate
 } from "./lib/templates";
+import {
+  aiPreviewActionKey,
+  aiResultSignature,
+  createImageDocumentTab,
+  defaultSaveDirectoryFromFileTree,
+  documentTabAsFolderFile,
+  imageDocumentTabId,
+  replaceTextRange,
+  replaceTextRanges,
+  restoreElementScrollTop,
+  selectionAnchorsEqual,
+  unsavedMarkdownFileNameFromTreeInput,
+  type ImageDocumentTab
+} from "./app/workspace-model";
 
-const aiAgentPanelDefaultWidth = 384;
-const aiAgentPanelMinWidth = 320;
-const aiAgentPanelMaxWidth = 760;
 const splitPaneKeyboardStepPercent = 5;
-const aiResultSignatureSeparator = "\u001f";
 const aiSelectionCopySuccessMs = 1600;
 const sideDocumentPaneKeyboardStepPercent = 5;
 const sideDocumentMainPanePercentMin = 35;
 const sideDocumentMainPanePercentMax = 70;
 const defaultSideDocumentMainPanePercent = 50;
-export const globalSearchDebounceMs = 180;
-const globalSearchRecentQueryLimit = 8;
-const emptyWorkspaceSearchResponse: WorkspaceSearchResponse = {
-  results: [],
-  searchedFileCount: 0,
-  truncated: false,
-  unreadableFileCount: 0
-};
-
-type ImageDocumentTab = NativeMarkdownFolderFile & {
-  id: string;
-};
-
-function imageDocumentTabId(path: string) {
-  return `image:${path}`;
-}
-
-function createImageDocumentTab(file: NativeMarkdownFolderFile): ImageDocumentTab {
-  return {
-    ...file,
-    id: imageDocumentTabId(file.path)
-  };
-}
-
-function unsavedMarkdownFileNameFromTreeInput(fileName: string) {
-  const trimmedName = fileName.trim();
-  if (!trimmedName) return "Untitled.md";
-  return /\.(?:md|markdown)$/iu.test(trimmedName) ? trimmedName : `${trimmedName}.md`;
-}
-
-function documentTabAsFolderFile(tab: MarkdownTabsBarDocumentItem): NativeMarkdownFolderFile | null {
-  if (!tab.path) return null;
-
-  return {
-    ...(tab.displayKind === "image" ? { kind: "asset" as const } : {}),
-    name: tab.name || "Untitled.md",
-    path: tab.path,
-    relativePath: tab.path
-  };
-}
+const quietStatusOverlayInset = 56;
 
 function persistSideDocumentGroup(group: StoredWorkspaceSideBySideGroup | null) {
   saveStoredWorkspaceState({ sideBySideGroup: group }).catch(() => {});
+}
+
+function editorBottomOverlayInset(aiCommandActive: boolean, aiCommandInset: number) {
+  return Math.max(quietStatusOverlayInset, aiCommandActive ? aiCommandInset : 0);
+}
+
+function nativeFileOperationFailureMessage(message: string, error: unknown) {
+  const detail = error instanceof Error
+    ? error.message.trim()
+    : typeof error === "string"
+      ? error.trim()
+      : "";
+
+  return detail ? `${message} ${detail}` : message;
 }
 
 type AiQuickActionIntent = Exclude<AiEditIntent, "custom">;
@@ -228,133 +234,33 @@ type PendingEditorModeScroll = {
   targetSurface: EditorSurface;
 };
 
-function isSettingsWindowRoute() {
-  return new URLSearchParams(window.location.search).has("settings");
-}
-
-function useSettingsWindowRoute() {
-  const [isSettingsRoute, setIsSettingsRoute] = useState(isSettingsWindowRoute);
-
-  useEffect(() => {
-    const handleRouteChange = () => {
-      setIsSettingsRoute(isSettingsWindowRoute());
-    };
-
-    window.addEventListener("popstate", handleRouteChange);
-
-    return () => {
-      window.removeEventListener("popstate", handleRouteChange);
-    };
-  }, []);
-
-  return isSettingsRoute;
-}
-
-const pandocInstallUrl = "https://pandoc.org/installing.html";
-
-function isPandocSetupError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-
-  return /Pandoc export requires Pandoc|Pandoc executable not found|Failed to launch Pandoc/u.test(message);
-}
-
-async function runPandocSetupAction(action: "cancel" | "install" | "setPath") {
-  if (action === "install") {
-    await openNativeExternalUrl(pandocInstallUrl);
-    return;
-  }
-
-  if (action === "setPath") {
-    await openSettingsWindow("exportPandocPath");
-  }
-}
-
-function aiResultSignature(result: AiDiffResult) {
-  if (result.type === "error") return `error${aiResultSignatureSeparator}${result.message}`;
-
-  return [
-    result.type,
-    result.from,
-    result.to,
-    result.original,
-    result.replacement
-  ].join(aiResultSignatureSeparator);
-}
-
-function aiPreviewActionKey(result: AiDiffResult, previewId?: string) {
-  return previewId ? `preview${aiResultSignatureSeparator}${previewId}` : `result${aiResultSignatureSeparator}${aiResultSignature(result)}`;
-}
-
-function explicitAiTextSelection(selection: AiSelectionContext | null | undefined) {
-  if (selection?.source !== "selection" || !selection.text.trim()) return null;
-
-  return selection;
-}
-
-function aiCommandTextSelection(selection: AiSelectionContext | null | undefined) {
-  if (!selection?.text.trim()) return null;
-
-  return selection;
-}
-
-function selectionAnchorsEqual(left: SelectionAnchor | null, right: SelectionAnchor | null) {
-  if (left === right) return true;
-  if (!left || !right) return false;
-
-  return left.bottom === right.bottom
-    && left.left === right.left
-    && left.right === right.right
-    && left.top === right.top;
-}
-
-function replaceTextRange(content: string, range: SearchRange, replacement: string) {
-  return `${content.slice(0, range.from)}${replacement}${content.slice(range.to)}`;
-}
-
-function replaceTextRanges(content: string, ranges: SearchRange[], replacement: string) {
-  return [...ranges]
-    .sort((left, right) => right.from - left.from)
-    .reduce((nextContent, range) => replaceTextRange(nextContent, range, replacement), content);
-}
-
-function restoreElementScrollTop(element: HTMLElement, scrollTop: number) {
-  try {
-    element.scrollTop = scrollTop;
-  } catch {
-    // Non-browser DOM doubles can expose scrollTop as read-only.
-  }
-}
-
-function nextGlobalSearchRecentQueries(current: string[], query: string) {
-  const normalizedQuery = query.trim();
-  if (!normalizedQuery) return current;
-
-  const normalizedQueryKey = normalizedQuery.toLowerCase();
-  const nextQueries = [
-    normalizedQuery,
-    ...current.filter((currentQuery) => currentQuery.toLowerCase() !== normalizedQueryKey)
-  ].slice(0, globalSearchRecentQueryLimit);
-
-  return current.length === nextQueries.length
-    && current.every((currentQuery, index) => currentQuery === nextQueries[index])
-    ? current
-    : nextQueries;
-}
+export { runEditorLinkCommand } from "./app/editor-link-command";
+export { globalSearchDebounceMs } from "./hooks/useWorkspaceSearch";
 
 export default function App() {
   const isSettingsRoute = useSettingsWindowRoute();
 
-  return isSettingsRoute ? <SettingsWindow /> : <WorkspaceApp />;
+  return isSettingsRoute ? <SettingsRouteApp /> : <WorkspaceApp />;
+}
+
+function SettingsRouteApp() {
+  useStartupWindowReveal({ ready: true });
+
+  return <SettingsWindow />;
 }
 
 function WorkspaceApp() {
   const desktopPlatform = resolveDesktopPlatform();
+  const desktopOsVersion = resolveDesktopOsVersion();
+  const webKitScrollWorkaround = webKitScrollWorkaroundForPlatform(desktopPlatform, desktopOsVersion);
   const appFeatures = getAppRuntime().features;
   const aiFeatureEnabled = appFeatures.ai;
   const exportFeatureEnabled = appFeatures.export;
-  const nativeWindowChromeEnabled = appFeatures.nativeWindowChrome;
+  const nativeWindowChromeEnabled = appFeatures.nativeWindowChrome && desktopPlatform !== "linux";
+  const windowsSelfDrawnChromeEnabled = nativeWindowChromeEnabled && desktopPlatform === "windows";
   const pandocFeatureEnabled = appFeatures.pandoc;
   const s3ImageUploadFeatureEnabled = appFeatures.s3ImageUpload;
+  const spellcheckFeatureEnabled = appFeatures.spellcheck;
   const updaterFeatureEnabled = appFeatures.updater;
   const appTheme = useAppTheme();
   const appLanguage = useAppLanguage();
@@ -362,25 +268,29 @@ function WorkspaceApp() {
   const backupSettings = useBackupSettings();
   const syncSettings = useSyncSettings();
   const editorPreferences = useEditorPreferences();
+  const appSpellchecker = useMemo(
+    () =>
+      spellcheckFeatureEnabled
+        ? createAppSpellcheckerForLanguage(editorPreferences.preferences.spellcheckLanguage)
+        : undefined,
+    [editorPreferences.preferences.spellcheckLanguage, spellcheckFeatureEnabled]
+  );
   const exportSettings = useExportSettings();
   const webSearchSettings = useWebSearchSettings();
   const [markdownTemplates, setMarkdownTemplates] = useState<MarkdownTemplate[]>([]);
   const [aiAgentSessionId, setAiAgentSessionId] = useState<string | null>(null);
-  const [aiAgentOpen, setAiAgentOpen] = useState(false);
-  const [aiAgentPanelWidth, setAiAgentPanelWidth] = useState(aiAgentPanelDefaultWidth);
-  const [aiAgentPanelResizing, setAiAgentPanelResizing] = useState(false);
-  const [editorContentWidth, setEditorContentWidth] = useState<EditorContentWidth>("default");
-  const [editorContentWidthPx, setEditorContentWidthPx] = useState<number | null>(null);
   const [aiResults, setAiResults] = useState<AiDiffResult[]>([]);
   const [activeImageFile, setActiveImageFile] = useState<NativeMarkdownFolderFile | null>(null);
   const [imageTabs, setImageTabs] = useState<ImageDocumentTab[]>([]);
   const [activeAiSelection, setActiveAiSelection] = useState<AiSelectionContext | null>(null);
+  const [selectedWordCount, setSelectedWordCount] = useState<number | null>(null);
   const [aiCommandOverlayInset, setAiCommandOverlayInset] = useState(0);
   const [aiSelectionToolbarAnchor, setAiSelectionToolbarAnchor] = useState<SelectionAnchor | null>(null);
   const [aiSelectionToolbarActiveActions, setAiSelectionToolbarActiveActions] = useState<SelectionFormattingAction[]>([]);
   const [aiSelectionToolbarHeadingLevel, setAiSelectionToolbarHeadingLevel] = useState<SelectionHeadingLevel | null>(null);
   const [aiSelectionToolbarCopySucceeded, setAiSelectionToolbarCopySucceeded] = useState(false);
   const [aiContextMenuActionPending, setAiContextMenuActionPending] = useState(false);
+  const [activeOutlineIndex, setActiveOutlineIndex] = useState<number | null>(null);
   const setAiSelectionToolbarAnchorIfChanged = useCallback((nextAnchor: SelectionAnchor | null) => {
     setAiSelectionToolbarAnchor((currentAnchor) =>
       selectionAnchorsEqual(currentAnchor, nextAnchor) ? currentAnchor : nextAnchor
@@ -389,24 +299,6 @@ function WorkspaceApp() {
   const [editorMode, setEditorMode] = useState<EditorMode>("visual");
   const [activeEditorSurface, setActiveEditorSurface] = useState<EditorSurface>("visual");
   const [readOnlyMode, setReadOnlyMode] = useState(false);
-  const [documentSearchOpen, setDocumentSearchOpen] = useState(false);
-  const [documentSearchReplaceOpen, setDocumentSearchReplaceOpen] = useState(false);
-  const [documentSearchQuery, setDocumentSearchQuery] = useState("");
-  const [documentSearchReplacement, setDocumentSearchReplacement] = useState("");
-  const [documentSearchCaseSensitive, setDocumentSearchCaseSensitive] = useState(false);
-  const [documentSearchActiveIndex, setDocumentSearchActiveIndex] = useState(0);
-  const [documentSearchRevealRevision, setDocumentSearchRevealRevision] = useState(0);
-  const [visualDocumentSearchMatches, setVisualDocumentSearchMatches] = useState<SearchRange[]>([]);
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
-  const backupRunningRef = useRef(false);
-  const backupSourcePathRef = useRef<string | null>(null);
-  const syncRunningRef = useRef(false);
-  const syncSourcePathRef = useRef<string | null>(null);
-  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
-  const [globalSearchCaseSensitive, setGlobalSearchCaseSensitive] = useState(false);
-  const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
-  const [globalSearchResponse, setGlobalSearchResponse] = useState<WorkspaceSearchResponse>(emptyWorkspaceSearchResponse);
-  const [globalSearchRecentQueries, setGlobalSearchRecentQueries] = useState<string[]>([]);
   const [quickOpenOpen, setQuickOpenOpen] = useState(false);
   const [documentHistoryOpen, setDocumentHistoryOpen] = useState(false);
   const [documentHistoryRefreshKey, setDocumentHistoryRefreshKey] = useState(0);
@@ -424,10 +316,8 @@ function WorkspaceApp() {
   const aiContextMenuActionIdRef = useRef(0);
   const aiSelectionCopySuccessTimerRef = useRef<number | null>(null);
   const exportRequestIdRef = useRef(0);
-  const pendingEditorContentWidthPxRef = useRef<number | null>(null);
   const pendingSplitVisualPanePercentRef = useRef(defaultSplitVisualPanePercent);
   const pendingSideDocumentMainPanePercentRef = useRef(defaultSideDocumentMainPanePercent);
-  const sourceToVisualSyncingRef = useRef(false);
   const lastDocumentSearchRevealRevisionRef = useRef(0);
   const documentRevisionRef = useRef(0);
   const visualEditorReadyRevisionRef = useRef<number | null>(null);
@@ -437,13 +327,17 @@ function WorkspaceApp() {
     sizeBytes: null as number | null
   });
   const largeMarkdownVisualBlockedRef = useRef(false);
+  const mainDocumentPaneRef = useRef<HTMLDivElement | null>(null);
   const sourceScrollRef = useRef<HTMLElement | null>(null);
   const visualScrollRef = useRef<HTMLElement | null>(null);
+  const mainVisualEditorsRef = useRef(new Map<string, MilkdownEditor>());
   const documentTabViewStatesRef = useRef(new Map<string, DocumentTabViewState>());
   const pendingEditorModeScrollRef = useRef<PendingEditorModeScroll | null>(null);
   const splitSurfaceRef = useRef<HTMLDivElement | null>(null);
   const sideDocumentSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const titlebarTabFocusTimerRef = useRef<number | null>(null);
   const splitScrollSyncTargetRef = useRef<EditorSurface | null>(null);
+  const splitScrollSyncFrameRef = useRef<number | null>(null);
   const splitPaneResizeCleanupRef = useRef<(() => unknown) | null>(null);
   const sideDocumentPaneResizeCleanupRef = useRef<(() => unknown) | null>(null);
   const exportContextRef = useRef({
@@ -460,6 +354,23 @@ function WorkspaceApp() {
     thinkingEnabled: false,
     webSearchEnabled: false
   });
+
+  useEffect(() => {
+    const root = globalThis.document?.documentElement;
+    if (!root) return;
+
+    if (webKitScrollWorkaround) {
+      root.dataset.webkitScrollWorkaround = webKitScrollWorkaround;
+      return () => {
+        if (root.dataset.webkitScrollWorkaround === webKitScrollWorkaround) {
+          delete root.dataset.webkitScrollWorkaround;
+        }
+      };
+    }
+
+    delete root.dataset.webkitScrollWorkaround;
+  }, [webKitScrollWorkaround]);
+
   const translate = useCallback((key: I18nKey) => t(appLanguage.language, key), [appLanguage.language]);
   const clearAiSelectionToolbarCopySuccess = useCallback(() => {
     if (aiSelectionCopySuccessTimerRef.current !== null) {
@@ -495,9 +406,14 @@ function WorkspaceApp() {
   }, [editorPreferences.preferences.markdownTemplates]);
 
   const editor = useEditorController();
+  const clearEditorSelectionFormatting = editor.clearSelectionFormatting;
   const findEditorSearchMatches = editor.findSearchMatches;
   const getEditorCurrentMarkdown = editor.getCurrentMarkdown;
   const handleMilkdownEditorReady = editor.handleEditorReady;
+  const insertEditorMarkdownImage = editor.insertMarkdownImage;
+  const insertEditorMarkdownImages = editor.insertMarkdownImages;
+  const insertEditorMarkdownImagesAtPoint = editor.insertMarkdownImagesAtPoint;
+  const insertEditorMarkdownLink = editor.insertMarkdownLink;
   const insertEditorMarkdownSnippet = editor.insertMarkdownSnippet;
   const insertEditorMarkdownTable = editor.insertMarkdownTable;
   const isEditorCurrentMarkdownEquivalent = editor.isCurrentMarkdownEquivalent;
@@ -546,6 +462,9 @@ function WorkspaceApp() {
       visualEditorReadyRevisionRef.current = null;
     }
   }, [handleMilkdownEditorReady]);
+  const handleActiveOutlineIndexChange = useCallback((index: number | null) => {
+    setActiveOutlineIndex((current) => current === index ? current : index);
+  }, []);
   useDefaultContextMenuBlocker();
   const fileTree = useMarkdownFileTree({
     onWorkspaceSessionChange: setAiAgentSessionId
@@ -555,6 +474,8 @@ function WorkspaceApp() {
     createFile: createMarkdownTreeFile,
     createFolder: createMarkdownTreeFolder,
     deleteFile: deleteMarkdownTreeFile,
+    fileTreeAssetsVisible,
+    fileTreeSort,
     moveFile: moveMarkdownTreeFile,
     open: fileTreeOpen,
     openFolderPath,
@@ -562,6 +483,7 @@ function WorkspaceApp() {
     openRecentFolder,
     removeRecentFolder,
     renameFile: renameMarkdownTreeFile,
+    recentFoldersOpen: recentMarkdownFoldersOpen,
     recentFolders: recentMarkdownFolders,
     refresh: refreshMarkdownFileTree,
     resizing: fileTreeResizing,
@@ -570,6 +492,9 @@ function WorkspaceApp() {
     sourcePath: fileTreeSourcePath,
     rootNameForDocument,
     setRootFromMarkdownFilePath,
+    setFileTreeSort,
+    setFileTreeAssetsVisible,
+    setRecentFoldersOpen: setRecentMarkdownFoldersOpen,
     startResize: startFileTreeResize,
     toggle: toggleFileTree,
     width: fileTreeWidth,
@@ -578,6 +503,10 @@ function WorkspaceApp() {
     workspaceLayoutClassName,
     workspaceLayoutStyle
   } = fileTree;
+  const defaultMarkdownSaveDirectory = useMemo(
+    () => defaultSaveDirectoryFromFileTree(fileTreeSourcePath),
+    [fileTreeSourcePath]
+  );
   const confirmDiscardUnsavedChanges = useCallback((currentDocument: { name: string }) => {
     return confirmNativeUnsavedMarkdownDocumentDiscard(currentDocument.name, {
       cancelLabel: translate("app.cancelDiscardUnsavedMarkdownDocument"),
@@ -585,123 +514,24 @@ function WorkspaceApp() {
       okLabel: translate("app.confirmDiscardUnsavedMarkdownDocumentAction")
     });
   }, [translate]);
-  const runWorkspaceBackup = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (backupRunningRef.current || backupSettings.loading) return null;
-
-    backupRunningRef.current = true;
-    try {
-      const result = await runMarkdownBackup({
-        settings: backupSettings.settings,
-        sourcePath: backupSourcePathRef.current
-      });
-
-      if (result.status === "backed-up") {
-        await notifyAppBackupSettingsChanged(result.settings);
-        if (!silent) {
-          showAppToast({
-            id: "backup",
-            message: translate("settings.backup.completed"),
-            status: "success"
-          });
-        }
-      } else if (!silent) {
-        showAppToast({
-          id: "backup",
-          message: translate(
-            result.reason === "missing-source"
-              ? "settings.backup.missingSource"
-              : "settings.backup.missingTarget"
-          ),
-          status: "error"
-        });
-      }
-
-      return result;
-    } catch (error) {
-      debug(() => ["[markra-backup] backup failed", {
-        error: error instanceof Error ? error.message : String(error)
-      }]);
-      if (!silent) {
-        showAppToast({
-          id: "backup",
-          message: translate("settings.backup.failed"),
-          status: "error"
-        });
-      }
-      return null;
-    } finally {
-      backupRunningRef.current = false;
-    }
-  }, [backupSettings.loading, backupSettings.settings, translate]);
-  const runWorkspaceSync = useCallback(async ({
-    silent = false,
-    sourcePath = syncSourcePathRef.current
-  }: {
-    silent?: boolean;
-    sourcePath?: string | null;
-  } = {}) => {
-    if (syncRunningRef.current || syncSettings.loading || editorPreferences.loading) return null;
-
-    syncRunningRef.current = true;
-    try {
-      const result = await runMarkdownSync({
-        settings: syncSettings.settings,
-        sourcePath,
-        storageWebDavSettings: editorPreferences.preferences.imageUpload.webdav
-      });
-
-      if (result.status === "synced") {
-        await notifyAppSyncSettingsChanged(result.settings);
-        if (!silent) {
-          showAppToast({
-            id: "sync",
-            message: translate("settings.sync.completed"),
-            status: "success"
-          });
-        }
-      } else if (!silent) {
-        showAppToast({
-          id: "sync",
-          message: translate(
-            result.reason === "missing-source"
-              ? "settings.sync.missingSource"
-              : "settings.sync.missingWebDav"
-          ),
-          status: "error"
-        });
-      }
-
-      return result;
-    } catch (error) {
-      debug(() => ["[markra-sync] sync failed", {
-        error: error instanceof Error ? error.message : String(error)
-      }]);
-      if (!silent) {
-        showAppToast({
-          id: "sync",
-          message: translate("settings.sync.failed"),
-          status: "error"
-        });
-      }
-      return null;
-    } finally {
-      syncRunningRef.current = false;
-    }
-  }, [
-    editorPreferences.loading,
-    editorPreferences.preferences.imageUpload.webdav,
-    syncSettings.loading,
-    syncSettings.settings,
+  const {
+    backupStatusLabel,
+    beforeNativeAppExitBackup,
+    runWorkspaceSync,
+    setSourcePath: setWorkspaceBackupSyncSourcePath,
+    syncStatusLabel
+  } = useWorkspaceBackupSync({
+    backupSettings,
+    editorPreferences,
+    syncSettings,
     translate
-  ]);
-  const beforeNativeAppExitBackup = useCallback(async () => {
-    if (!backupSettings.settings.backupOnExit) return;
-
-    await runWorkspaceBackup({ silent: true });
-  }, [backupSettings.settings.backupOnExit, runWorkspaceBackup]);
+  });
   const markdownDocument = useMarkdownDocument({
+    autoSaveEnabled: editorPreferences.preferences.autoSaveEnabled,
+    autoSaveIntervalMinutes: editorPreferences.preferences.autoSaveIntervalMinutes,
     beforeNativeAppExit: beforeNativeAppExitBackup,
     confirmDiscardUnsavedChanges,
+    defaultSaveDirectory: defaultMarkdownSaveDirectory,
     documentTabsEnabled: editorPreferences.preferences.showDocumentTabs,
     editorReady: isDocumentEditorReady,
     getCurrentMarkdown: readCurrentMarkdownForDocument,
@@ -711,7 +541,8 @@ function WorkspaceApp() {
     onTreeRootFromFilePath: setRootFromMarkdownFilePath,
     onWorkspaceSessionChange: setAiAgentSessionId,
     preferencesReady: !editorPreferences.loading,
-    restoreWorkspaceOnStartup: editorPreferences.preferences.restoreWorkspaceOnStartup
+    restoreWorkspaceOnStartup: editorPreferences.preferences.restoreWorkspaceOnStartup,
+    workspaceSourcePath: fileTreeSourcePath
   });
   const {
     clearRecentMarkdownFiles,
@@ -737,6 +568,7 @@ function WorkspaceApp() {
     restoreDocumentContent,
     saveCurrentDocumentContent,
     saveCurrentDocument,
+    saveDirtyMarkdownFiles,
     saveMarkdownTab,
     selectMarkdownTab,
     selectWorkspaceSession,
@@ -744,114 +576,199 @@ function WorkspaceApp() {
     wordCount
   } = markdownDocument;
   documentRevisionRef.current = document.revision;
+  const activeDocumentOutlineIndex =
+    !sourceSurfaceActive &&
+    activeOutlineIndex !== null &&
+    activeOutlineIndex >= 0 &&
+    activeOutlineIndex < outlineItems.length
+      ? activeOutlineIndex
+      : null;
   visualEditorReadyDetailRef.current = {
     chars: document.content.length,
     path: document.path,
     sizeBytes: document.sizeBytes ?? null
   };
+  const documentLinksOpen = editorPreferences.preferences.documentLinksOpen;
+  const documentLinksVisible = editorPreferences.preferences.documentLinksVisible;
+  const workspaceLinkIndex = useWorkspaceLinkIndex({
+    documentContent: document.content,
+    documentPath: document.path,
+    enabled: documentLinksVisible === true,
+    fileTreeFiles
+  });
+  const handleDocumentLinksOpenChange = useCallback((openDocumentLinks: boolean) => {
+    if (openDocumentLinks === editorPreferences.preferences.documentLinksOpen) return;
+
+    const nextPreferences = {
+      ...editorPreferences.preferences,
+      documentLinksOpen: openDocumentLinks
+    };
+
+    saveStoredEditorPreferences(nextPreferences)
+      .then(() => notifyAppEditorPreferencesChanged(nextPreferences))
+      .catch(() => {});
+  }, [editorPreferences.preferences]);
+  useEffect(() => {
+    setSelectedWordCount(null);
+  }, [activeImageFile?.path, activeTabId, editorMode]);
+  const handleMainVisualEditorReady = useCallback((
+    tabId: string,
+    readyEditor: MilkdownEditor | null,
+    options?: Parameters<typeof handleMilkdownEditorReady>[1]
+  ) => {
+    if (readyEditor) {
+      mainVisualEditorsRef.current.set(tabId, readyEditor);
+    } else {
+      mainVisualEditorsRef.current.delete(tabId);
+    }
+
+    if (tabId === activeTabId) {
+      handleVisualEditorReady(readyEditor, options);
+    }
+  }, [activeTabId, handleVisualEditorReady]);
+  useEffect(() => {
+    if (!activeTabId) {
+      handleVisualEditorReady(null);
+      return;
+    }
+
+    const activeEditor = mainVisualEditorsRef.current.get(activeTabId);
+    if (!activeEditor) return;
+
+    handleVisualEditorReady(activeEditor, { autoFocus: false });
+  }, [activeTabId, handleVisualEditorReady]);
+  useEffect(() => {
+    setActiveOutlineIndex(null);
+  }, [activeTabId, document.path]);
   const workspaceKey = document.path ?? fileTree.sourcePath ?? null;
-  backupSourcePathRef.current = fileTreeSourcePath ?? document.path;
-  syncSourcePathRef.current = fileTreeSourcePath ?? document.path;
-  const backupStatusLabel = useMemo(() => {
-    if (backupSettings.settings.lastBackupAt === null) return null;
-
-    return `${translate("settings.backup.lastBackup")} ${new Intl.DateTimeFormat(undefined, {
-      timeStyle: "short"
-    }).format(new Date(backupSettings.settings.lastBackupAt))}`;
-  }, [backupSettings.settings.lastBackupAt, translate]);
-  const syncStatusLabel = useMemo(() => {
-    if (syncSettings.settings.lastSyncAt === null) return null;
-
-    return `${translate("settings.sync.lastSync")} ${new Intl.DateTimeFormat(undefined, {
-      timeStyle: "short"
-    }).format(new Date(syncSettings.settings.lastSyncAt))}`;
-  }, [syncSettings.settings.lastSyncAt, translate]);
-  useEffect(() => {
-    if (backupSettings.loading) return;
-    if (backupSettings.settings.intervalMinutes <= 0) return;
-    if (!backupSettings.settings.targetPath.trim()) return;
-
-    const intervalMs = backupSettings.settings.intervalMinutes * 60 * 1000;
-    const intervalId = window.setInterval(() => {
-      runWorkspaceBackup({ silent: true }).catch(() => {});
-    }, intervalMs);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [
-    backupSettings.loading,
-    backupSettings.settings.intervalMinutes,
-    backupSettings.settings.targetPath,
-    runWorkspaceBackup
-  ]);
-  useEffect(() => {
-    if (syncSettings.loading) return;
-    if (editorPreferences.loading) return;
-    if (!syncSettings.settings.enabled) return;
-    if (syncSettings.settings.intervalMinutes <= 0) return;
-    if (!editorPreferences.preferences.imageUpload.webdav.serverUrl.trim()) return;
-    if (!syncSettings.settings.remotePath.trim()) return;
-
-    const intervalMs = syncSettings.settings.intervalMinutes * 60 * 1000;
-    const intervalId = window.setInterval(() => {
-      runWorkspaceSync({ silent: true }).catch(() => {});
-    }, intervalMs);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [
-    runWorkspaceSync,
-    editorPreferences.loading,
-    editorPreferences.preferences.imageUpload.webdav.serverUrl,
-    syncSettings.loading,
-    syncSettings.settings.enabled,
-    syncSettings.settings.intervalMinutes,
-    syncSettings.settings.remotePath
-  ]);
+  setWorkspaceBackupSyncSourcePath(fileTreeSourcePath ?? document.path);
+  const workspaceSearch = useWorkspaceSearch({
+    activeImageFile,
+    documentContent: document.content,
+    documentPath: document.path,
+    fileTreeFiles,
+    fileTreeSourcePath
+  });
+  const {
+    caseSensitive: globalSearchCaseSensitive,
+    closeSearch: closeGlobalSearch,
+    hideSearch: hideGlobalSearch,
+    loading: globalSearchLoading,
+    open: globalSearchOpen,
+    openSearch: openGlobalSearch,
+    query: globalSearchQuery,
+    recentQueries: globalSearchRecentQueries,
+    response: globalSearchResponse,
+    selectRecentQuery: selectGlobalSearchRecentQuery,
+    setCaseSensitive: setGlobalSearchCaseSensitive,
+    setQuery: setGlobalSearchQuery
+  } = workspaceSearch;
   const hasOpenDocument = document.open;
   const largeMarkdownVisualBlocked =
     hasOpenDocument && !activeImageFile && shouldBlockLargeMarkdownVisual(document.content, {
       sizeBytes: document.sizeBytes
     });
   largeMarkdownVisualBlockedRef.current = largeMarkdownVisualBlocked;
+  const startupSettingsReady = appLanguage.ready && !editorPreferences.loading;
+  const startupWindowReady =
+    startupSettingsReady &&
+    (
+      Boolean(activeImageFile) ||
+      !hasOpenDocument ||
+      sourceSurfaceActive ||
+      largeMarkdownVisualBlocked ||
+      visualEditorReadyRevisionRef.current === documentRevisionRef.current
+    );
+  useStartupWindowReveal({ ready: startupWindowReady });
   const documentHistoryAvailable = hasOpenDocument && document.path !== null && !activeImageFile && !readOnlyMode;
   const documentSearchAvailable = hasOpenDocument && !activeImageFile;
   const documentSearchSurface: EditorSurface =
     sourceSurfaceActive || largeMarkdownVisualBlocked ? "source" : "visual";
-  const sourceDocumentSearchMatches = useMemo(
-    () =>
-      documentSearchOpen && documentSearchSurface === "source"
-        ? findSearchRanges(document.content, documentSearchQuery, {
-            caseSensitive: documentSearchCaseSensitive
-          })
-        : [],
-    [
-      document.content,
-      documentSearchCaseSensitive,
-      documentSearchOpen,
-      documentSearchQuery,
-      documentSearchSurface
-    ]
-  );
-  const documentSearchMatches =
-    documentSearchSurface === "source" ? sourceDocumentSearchMatches : visualDocumentSearchMatches;
-  const documentSearchMatchCount = documentSearchMatches.length;
-  const normalizedDocumentSearchActiveIndex = normalizeSearchIndex(
-    documentSearchActiveIndex,
-    documentSearchMatchCount
-  );
-  const activeDocumentSearchMatch =
-    normalizedDocumentSearchActiveIndex >= 0
-      ? documentSearchMatches[normalizedDocumentSearchActiveIndex] ?? null
-      : null;
-  const visibleSourceDocumentSearchMatches =
-    documentSearchOpen && documentSearchSurface === "source" ? sourceDocumentSearchMatches : [];
+  const {
+    activeIndex: normalizedDocumentSearchActiveIndex,
+    activeMatch: activeDocumentSearchMatch,
+    caseSensitive: documentSearchCaseSensitive,
+    close: closeDocumentSearch,
+    hide: hideDocumentSearch,
+    matchCount: documentSearchMatchCount,
+    matches: documentSearchMatches,
+    navigate: navigateDocumentSearch,
+    open: documentSearchOpen,
+    openReplace: openDocumentReplace,
+    openSearch: openDocumentSearch,
+    query: documentSearchQuery,
+    replacement: documentSearchReplacement,
+    replaceOpen: documentSearchReplaceOpen,
+    resetActiveIndex: resetDocumentSearchActiveIndex,
+    revealRevision: documentSearchRevealRevision,
+    selectMatch: selectDocumentSearchMatch,
+    setCaseSensitive: setDocumentSearchCaseSensitive,
+    setReplacement: setDocumentSearchReplacement,
+    setReplaceOpen: setDocumentSearchReplaceOpen,
+    setQuery: setDocumentSearchQuery,
+    setVisualMatches: setVisualDocumentSearchMatches,
+    visibleSourceMatches: visibleSourceDocumentSearchMatches,
+    visualMatches: visualDocumentSearchMatches
+  } = useDocumentSearchState({
+    available: documentSearchAvailable,
+    sourceContent: document.content,
+    surface: documentSearchSurface
+  });
+  const {
+    isApplyingSourceToVisualSync,
+    markSourceEditForHistory,
+    syncSourceEditsToVisualHistory
+  } = useSharedEditorHistory({
+    documentContent: document.content,
+    documentRevision: document.revision,
+    largeMarkdownVisualBlocked,
+    replaceEditorMarkdown,
+    sourceSurfaceActive,
+    syncSourceToVisual: splitMode && activeEditorSurface === "source",
+    visualEditorReadySequence
+  });
   const activeAiAgentSessionId = workspaceSessionId ?? aiAgentSessionId;
   const aiResult = aiResults.at(-1) ?? null;
-  const activeEditorContentWidth = editorContentWidth;
-  const activeEditorContentWidthPx = editorContentWidthPx ?? editorPreferences.preferences.contentWidthPx ?? null;
+  const commitEditorContentWidth = useCallback((nextWidth: {
+    contentWidth: typeof editorPreferences.preferences.contentWidth;
+    contentWidthPx: number;
+  }) => {
+    const nextPreferences = {
+      ...editorPreferences.preferences,
+      contentWidth: nextWidth.contentWidth,
+      contentWidthPx: nextWidth.contentWidthPx
+    };
+
+    saveStoredEditorPreferences(nextPreferences)
+      .then(() => notifyAppEditorPreferencesChanged(nextPreferences))
+      .catch(() => {});
+  }, [editorPreferences.preferences]);
+  const handleAddSpellcheckIgnoredWord = useCallback((word: string) => {
+    const nextIgnoredWords = normalizeSpellcheckIgnoredWords([
+      ...editorPreferences.preferences.spellcheckIgnoredWords,
+      word
+    ]);
+    if (nextIgnoredWords.join("\n") === editorPreferences.preferences.spellcheckIgnoredWords.join("\n")) return;
+
+    const nextPreferences = {
+      ...editorPreferences.preferences,
+      spellcheckIgnoredWords: nextIgnoredWords
+    };
+
+    saveStoredEditorPreferences(nextPreferences)
+      .then(() => notifyAppEditorPreferencesChanged(nextPreferences))
+      .catch(() => {});
+  }, [editorPreferences.preferences]);
+  const {
+    activeWidth: activeEditorContentWidth,
+    activeWidthPx: activeEditorContentWidthPx,
+    onResizeEnd: handleEditorContentWidthResizeEnd,
+    onWidthChange: handleEditorContentWidthChange
+  } = useEditorContentWidthState({
+    contentWidth: editorPreferences.preferences.contentWidth,
+    contentWidthPx: editorPreferences.preferences.contentWidthPx ?? null,
+    onCommit: commitEditorContentWidth
+  });
   const resolvedSplitVisualPanePercent =
     clampNumber(splitVisualPanePercent, splitVisualPanePercentMin, splitVisualPanePercentMax) ?? defaultSplitVisualPanePercent;
   const resolvedSideDocumentMainPanePercent =
@@ -868,7 +785,6 @@ function WorkspaceApp() {
     "--side-document-main-pane": `${resolvedSideDocumentMainPanePercent}fr`,
     "--side-document-secondary-pane": `${100 - resolvedSideDocumentMainPanePercent}fr`
   } as CSSProperties), [resolvedSideDocumentMainPanePercent]);
-  const resolveImageSrc = useMemo(() => createMarkdownImageSrcResolver(document.path), [document.path]);
   const resolveExportImageSrc = useMemo(
     () => createMarkdownImageSrcResolver(document.path, { convertFileSrc: localFileUrlFromPath }),
     [document.path]
@@ -943,10 +859,19 @@ function WorkspaceApp() {
     if (activeImageFile || !activeTabId) return;
 
     const nextState: DocumentTabViewState = {};
-    if (visualScrollRef.current) nextState.visualScrollTop = visualScrollRef.current.scrollTop;
-    if (sourceScrollRef.current) nextState.sourceScrollTop = sourceScrollRef.current.scrollTop;
+    if (editorMode === "visual" && visualScrollRef.current) {
+      nextState.visualScrollTop = visualScrollRef.current.scrollTop;
+    } else if (editorMode === "source" && sourceScrollRef.current) {
+      nextState.sourceScrollTop = sourceScrollRef.current.scrollTop;
+    } else if (editorMode === "split") {
+      if (activeEditorSurface === "visual" && visualScrollRef.current) {
+        nextState.visualScrollTop = visualScrollRef.current.scrollTop;
+      } else if (activeEditorSurface === "source" && sourceScrollRef.current) {
+        nextState.sourceScrollTop = sourceScrollRef.current.scrollTop;
+      }
+    }
     if (Object.keys(nextState).length > 0) saveDocumentTabViewState(activeTabId, nextState);
-  }, [activeImageFile, activeTabId, saveDocumentTabViewState]);
+  }, [activeEditorSurface, activeImageFile, activeTabId, editorMode, saveDocumentTabViewState]);
   const queueEditorModeScroll = useCallback((targetSurface: EditorSurface) => {
     if (!activeTabId) return;
 
@@ -972,6 +897,10 @@ function WorkspaceApp() {
     await openNativeExternalUrl(href);
   }, [captureActiveDocumentViewState, document.path, fileTreeFiles, openTreeMarkdownFile]);
   const getActiveAiSelection = useCallback(() => activeAiSelectionRef.current, []);
+  const updateSelectedWordCount = useCallback((selectedText: string | null | undefined) => {
+    const count = selectedText?.trim() ? getWordCount(selectedText) : 0;
+    setSelectedWordCount(count > 0 ? count : null);
+  }, []);
   const updateActiveAiSelection = useCallback((selection: AiSelectionContext | null) => {
     activeAiSelectionRef.current = selection;
     setActiveAiSelection(selection);
@@ -998,12 +927,6 @@ function WorkspaceApp() {
     settings: webSearchSettings.settings,
     settingsLoading: webSearchSettings.loading
   });
-  const aiAgentInset = aiFeatureEnabled && aiAgentOpen ? `${aiAgentPanelWidth}px` : "0px";
-  const editorAgentLayoutClassName = `editor-agent-layout grid min-h-0 ${
-    aiAgentPanelResizing
-      ? "transition-none"
-      : "transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none"
-  }`;
   const handleAiResult = useCallback(
     (result: AiDiffResult, previewId?: string) => {
       editor.clearAiSelection();
@@ -1028,12 +951,6 @@ function WorkspaceApp() {
   const handleAiPreviewReady = useCallback((result: AiDiffResult, previewId?: string) => {
     editor.scrollToAiPreview(result, { previewId });
   }, [editor]);
-  const handleAiAgentSessionRestore = useCallback((session: { panelOpen: boolean; panelWidth: number | null }) => {
-    if (!aiFeatureEnabled) return;
-
-    setAiAgentOpen(session.panelOpen);
-    setAiAgentPanelWidth(clampNumber(session.panelWidth, aiAgentPanelMinWidth, aiAgentPanelMaxWidth) ?? aiAgentPanelDefaultWidth);
-  }, [aiFeatureEnabled]);
   const handleAiAgentSessionModelRestore = useCallback((selection: { agentModelId: string | null; agentProviderId: string | null }) => {
     if (!selection.agentProviderId || !selection.agentModelId) return;
     if (selection.agentProviderId === aiSettings.agentProviderId && selection.agentModelId === aiSettings.agentModelId) return;
@@ -1054,6 +971,40 @@ function WorkspaceApp() {
     workspaceFiles: fileTreeFiles
   });
   const aiCommandVisible = aiCommand.open && (hasAiCommandContext || Boolean(aiResult) || aiContextMenuActionPending);
+  const closeAiCommand = aiCommand.closeAiCommand;
+  const restoreAiCommand = aiCommand.restoreAiCommand;
+  const closeInlineAiCommandForAgentPanel = useCallback(() => {
+    aiContextMenuActionIdRef.current += 1;
+    setAiContextMenuActionPending(false);
+    closeAiCommand();
+    editor.clearAiSelection();
+  }, [closeAiCommand, editor]);
+  const {
+    closePanel: closeAiAgentPanel,
+    enabledOpen: aiAgentPanelEnabledOpen,
+    endResize: endAiAgentPanelResize,
+    open: aiAgentOpen,
+    openPanel: openAiAgentPanel,
+    resizing: aiAgentPanelResizing,
+    restoreSession: restoreAiAgentPanelSession,
+    setWidth: setAiAgentPanelWidth,
+    startResize: startAiAgentPanelResize,
+    togglePanel: toggleAiAgentPanel,
+    width: aiAgentPanelWidth
+  } = useAiAgentPanelState({
+    closeAiCommandOnAgentPanelOpen: editorPreferences.preferences.closeAiCommandOnAgentPanelOpen,
+    enabled: aiFeatureEnabled,
+    onCloseInlineAiCommand: closeInlineAiCommandForAgentPanel
+  });
+  const handleAiAgentSessionRestore = useCallback((session: { panelOpen: boolean; panelWidth: number | null }) => {
+    restoreAiAgentPanelSession(session);
+  }, [restoreAiAgentPanelSession]);
+  const aiAgentInset = aiFeatureEnabled && aiAgentOpen ? `${aiAgentPanelWidth}px` : "0px";
+  const editorAgentLayoutClassName = `editor-agent-layout grid min-h-0 ${
+    aiAgentPanelResizing
+      ? "transition-none"
+      : "transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none"
+  }`;
   const aiAgent = useAiAgentSession({
     documentPath: document.path,
     getDocumentContent: getAiDocumentContent,
@@ -1067,7 +1018,7 @@ function WorkspaceApp() {
     onAiResult: handleAiResult,
     onSessionModelRestore: handleAiAgentSessionModelRestore,
     onSessionRestore: handleAiAgentSessionRestore,
-    panelOpen: aiFeatureEnabled && aiAgentOpen,
+    panelOpen: aiAgentPanelEnabledOpen,
     panelWidth: aiAgentPanelWidth,
     provider: aiSettings.agentProvider,
     readDocumentImage: readAiDocumentImage,
@@ -1144,18 +1095,10 @@ function WorkspaceApp() {
     selectWorkspaceSession,
     workspaceKey
   ]);
-  const closeAiCommand = aiCommand.closeAiCommand;
-  const restoreAiCommand = aiCommand.restoreAiCommand;
   const handleAiCommandClose = useCallback(() => {
     aiContextMenuActionIdRef.current += 1;
     setAiContextMenuActionPending(false);
     setAiSelectionToolbarAnchor(null);
-    closeAiCommand();
-    editor.clearAiSelection();
-  }, [closeAiCommand, editor]);
-  const closeInlineAiCommandForAgentPanel = useCallback(() => {
-    aiContextMenuActionIdRef.current += 1;
-    setAiContextMenuActionPending(false);
     closeAiCommand();
     editor.clearAiSelection();
   }, [closeAiCommand, editor]);
@@ -1165,29 +1108,6 @@ function WorkspaceApp() {
 
     if (nextReadOnlyMode) handleAiCommandClose();
   }, [handleAiCommandClose, readOnlyMode]);
-  const shouldCloseAiCommandForAiAgentOpen = useCallback(
-    (nextOpen: boolean) => shouldCloseAiCommandOnAgentPanelOpen({
-      closeAiCommandOnAgentPanelOpen: editorPreferences.preferences.closeAiCommandOnAgentPanelOpen,
-      currentOpen: aiAgentOpen,
-      nextOpen
-    }),
-    [aiAgentOpen, editorPreferences.preferences.closeAiCommandOnAgentPanelOpen]
-  );
-  const setAiAgentPanelOpen = useCallback((nextOpen: boolean) => {
-    if (!aiFeatureEnabled) return;
-
-    if (shouldCloseAiCommandForAiAgentOpen(nextOpen)) closeInlineAiCommandForAgentPanel();
-    setAiAgentOpen(nextOpen);
-  }, [aiFeatureEnabled, closeInlineAiCommandForAgentPanel, shouldCloseAiCommandForAiAgentOpen]);
-  const openAiAgentPanel = useCallback(() => {
-    setAiAgentPanelOpen(true);
-  }, [setAiAgentPanelOpen]);
-  const closeAiAgentPanel = useCallback(() => {
-    setAiAgentPanelOpen(false);
-  }, [setAiAgentPanelOpen]);
-  const toggleAiAgentPanel = useCallback(() => {
-    setAiAgentPanelOpen(!aiAgentOpen);
-  }, [aiAgentOpen, setAiAgentPanelOpen]);
   useEffect(() => {
     if (!shouldHideAiCommandForAiAgentPanel({
       aiAgentOpen,
@@ -1252,7 +1172,10 @@ function WorkspaceApp() {
     openAiAgentPanel();
   }, [activeAiAgentSessionId, aiAgentSessions, createInitializedAiAgentSession, openAiAgentPanel, selectWorkspaceSession]);
   const handleTextSelectionChange = useCallback((selection: AiSelectionContext | null) => {
-    updateActiveAiSelection(selection);
+    const automaticSelection = automaticAiSelection(selection);
+
+    updateSelectedWordCount(selection?.source === "selection" ? selection.text : null);
+    updateActiveAiSelection(automaticSelection);
     clearAiSelectionToolbarCopySuccess();
     setAiSelectionToolbarActiveActions([]);
     setAiSelectionToolbarHeadingLevel(null);
@@ -1276,7 +1199,7 @@ function WorkspaceApp() {
       return;
     }
 
-    if (selection.source !== "selection") {
+    if (!automaticSelection) {
       setAiSelectionToolbarAnchor(null);
       editor.clearAiSelection();
       if (aiResultsRef.current.length === 0) aiCommand.closeAiCommand();
@@ -1320,7 +1243,7 @@ function WorkspaceApp() {
         getEditorSelectionAnchor() ?? selectionAnchorFromDomSelection(window.getSelection())
       );
     } else if (!hideInlineAiCommandForAgentPanel) {
-      aiCommand.openAiCommand(selection);
+      aiCommand.openAiCommand(automaticSelection);
       return;
     } else {
       setAiSelectionToolbarAnchor(null);
@@ -1328,7 +1251,7 @@ function WorkspaceApp() {
     }
 
     if (showQuickInput && !hideInlineAiCommandForAgentPanel) {
-      aiCommand.openAiCommand(selection);
+      aiCommand.openAiCommand(automaticSelection);
     }
   }, [
     aiAgentOpen,
@@ -1343,6 +1266,7 @@ function WorkspaceApp() {
     clearAiSelectionToolbarCopySuccess,
     readOnlyMode,
     setAiSelectionToolbarAnchorIfChanged,
+    updateSelectedWordCount,
     updateActiveAiSelection
   ]);
   const getEditorSelection = editor.getSelection;
@@ -1357,7 +1281,7 @@ function WorkspaceApp() {
     aiContextMenuActionRef.current = (intent: AiQuickActionIntent, prompt: string) => {
       if (!aiFeatureEnabled || sourceSurfaceActive || readOnlyMode) return;
 
-      const selection = explicitAiTextSelection(getActiveAiSelection()) ?? explicitAiTextSelection(getEditorSelection());
+      const selection = automaticAiSelection(getActiveAiSelection()) ?? automaticAiSelection(getEditorSelection());
       if (!selection) return;
 
       holdAiSelection(selection);
@@ -1407,7 +1331,7 @@ function WorkspaceApp() {
     if (!aiFeatureEnabled) return false;
     if (sourceSurfaceActive || readOnlyMode) return false;
 
-    const selection = explicitAiTextSelection(getActiveAiSelection()) ?? explicitAiTextSelection(getEditorSelection());
+    const selection = automaticAiSelection(getActiveAiSelection()) ?? automaticAiSelection(getEditorSelection());
 
     return Boolean(selection);
   }, [aiFeatureEnabled, getActiveAiSelection, getEditorSelection, readOnlyMode, sourceSurfaceActive]);
@@ -1423,7 +1347,7 @@ function WorkspaceApp() {
 
     if (sourceSurfaceActive || readOnlyMode) return;
 
-    const selection = aiCommandTextSelection(getActiveAiSelection()) ?? aiCommandTextSelection(getEditorSelection());
+    const selection = aiCommandSelection(getActiveAiSelection()) ?? aiCommandSelection(getEditorSelection());
     if (!selection) return;
 
     updateActiveAiSelection(selection);
@@ -1441,7 +1365,7 @@ function WorkspaceApp() {
     updateActiveAiSelection
   ]);
   const handleAiCommandSelectionContextFocus = useCallback(() => {
-    const selection = aiCommandTextSelection(getActiveAiSelection()) ?? aiCommandTextSelection(getEditorSelection());
+    const selection = aiCommandSelection(getActiveAiSelection()) ?? aiCommandSelection(getEditorSelection());
     if (!selection) return;
 
     holdAiSelection(selection);
@@ -1523,6 +1447,10 @@ function WorkspaceApp() {
     layoutSignature: aiSelectionToolbarLayoutSignature,
     refresh: refreshAiSelectionToolbarAnchor
   });
+  const handleAiSelectionToolbarDismiss = useCallback(() => {
+    setAiSelectionToolbarAnchor(null);
+    clearAiSelectionToolbarCopySuccess();
+  }, [clearAiSelectionToolbarCopySuccess]);
   const handleAiSelectionToolbarOpenCommand = useCallback(() => {
     setAiSelectionToolbarAnchor(null);
     if (aiCommandVisible) return;
@@ -1670,13 +1598,6 @@ function WorkspaceApp() {
   }, [handleSaveClipboardImage, readOnlyMode, translate]);
 
   useEffect(() => {
-    const storedWidth = editorPreferences.preferences.contentWidthPx ?? null;
-    setEditorContentWidth(editorPreferences.preferences.contentWidth);
-    setEditorContentWidthPx(storedWidth);
-    pendingEditorContentWidthPxRef.current = storedWidth;
-  }, [editorPreferences.preferences.contentWidth, editorPreferences.preferences.contentWidthPx]);
-
-  useEffect(() => {
     setSplitVisualPanePercent(editorPreferences.preferences.splitVisualPanePercent);
     pendingSplitVisualPanePercentRef.current = editorPreferences.preferences.splitVisualPanePercent;
   }, [editorPreferences.preferences.splitVisualPanePercent]);
@@ -1687,28 +1608,13 @@ function WorkspaceApp() {
       splitPaneResizeCleanupRef.current = null;
       sideDocumentPaneResizeCleanupRef.current?.();
       sideDocumentPaneResizeCleanupRef.current = null;
+      if (splitScrollSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(splitScrollSyncFrameRef.current);
+        splitScrollSyncFrameRef.current = null;
+      }
     };
   }, []);
 
-  const handleEditorContentWidthChange = useCallback((width: number) => {
-    pendingEditorContentWidthPxRef.current = width;
-    setEditorContentWidthPx(width);
-  }, []);
-
-  const handleEditorContentWidthResizeEnd = useCallback(() => {
-    const nextWidth = pendingEditorContentWidthPxRef.current;
-    if (nextWidth === null) return;
-
-    const nextPreferences = {
-      ...editorPreferences.preferences,
-      contentWidth: activeEditorContentWidth,
-      contentWidthPx: nextWidth
-    };
-
-    saveStoredEditorPreferences(nextPreferences)
-      .then(() => notifyAppEditorPreferencesChanged(nextPreferences))
-      .catch(() => {});
-  }, [activeEditorContentWidth, editorPreferences.preferences]);
   const resizeSplitVisualPane = useCallback((nextPercent: number | null) => {
     if (nextPercent === null) return;
 
@@ -1929,10 +1835,13 @@ function WorkspaceApp() {
         setActiveImageFile(null);
         await openTreeMarkdownFile(file);
       }
-    } catch {
-      // Native file errors are surfaced by the platform operation when possible.
+    } catch (error) {
+      showAppToast({
+        message: nativeFileOperationFailureMessage(translate("app.markdownFileCreateFailed"), error),
+        status: "error"
+      });
     }
-  }, [captureActiveDocumentViewState, createBlankDocument, createMarkdownTreeFile, fileTree.sourcePath, openTreeMarkdownFile]);
+  }, [captureActiveDocumentViewState, createBlankDocument, createMarkdownTreeFile, fileTree.sourcePath, openTreeMarkdownFile, translate]);
   const handleQuickCreateMarkdownTreeFile = useCallback(() => {
     captureActiveDocumentViewState();
     setActiveImageFile(null);
@@ -1988,18 +1897,24 @@ function WorkspaceApp() {
   const handleCreateMarkdownTreeFolder = useCallback(async (folderName: string, parentPath: string | null = null) => {
     try {
       await createMarkdownTreeFolder(folderName, parentPath);
-    } catch {
-      // Native folder errors are surfaced by the platform operation when possible.
+    } catch (error) {
+      showAppToast({
+        message: nativeFileOperationFailureMessage(translate("app.markdownFolderCreateFailed"), error),
+        status: "error"
+      });
     }
-  }, [createMarkdownTreeFolder]);
+  }, [createMarkdownTreeFolder, translate]);
   const handleRenameMarkdownTreeFile = useCallback(async (file: NativeMarkdownFolderFile, fileName: string) => {
     try {
       const renamedFile = await renameMarkdownTreeFile(file, fileName);
       if (renamedFile) applyRenamedTreeFile(file.path, renamedFile);
-    } catch {
-      // Keep the existing tree state if the native rename fails.
+    } catch (error) {
+      showAppToast({
+        message: nativeFileOperationFailureMessage(translate("app.markdownFileRenameFailed"), error),
+        status: "error"
+      });
     }
-  }, [applyRenamedTreeFile, renameMarkdownTreeFile]);
+  }, [applyRenamedTreeFile, renameMarkdownTreeFile, translate]);
   const handleMoveMarkdownTreeFile = useCallback(async (
     file: NativeMarkdownFolderFile,
     targetParentPath: string | null
@@ -2011,20 +1926,34 @@ function WorkspaceApp() {
       // Keep the existing tree state if the native move fails.
     }
   }, [applyMovedTreeFile, moveMarkdownTreeFile]);
-  const handleDeleteMarkdownTreeFile = useCallback(async (file: NativeMarkdownFolderFile) => {
+  const handleDeleteMarkdownTreeFile = useCallback(async (
+    file: NativeMarkdownFolderFile,
+    context?: { files: readonly NativeMarkdownFolderFile[] }
+  ) => {
+    const deleteTargets = context?.files?.length ? context.files : [file];
+    const uniqueDeleteTargets = deleteTargets.filter((target, index, targets) =>
+      targets.findIndex((candidate) => sameNativePath(candidate.path, target.path)) === index
+    );
+    const deletingMultipleFiles = uniqueDeleteTargets.length > 1;
     const fileIsFolder = file.kind === "folder";
-    const confirmed = await confirmNativeMarkdownFileDelete(file.name, {
+    const deleteCount = String(uniqueDeleteTargets.length);
+    const deleteCountLabel = translate("app.workspaceSearch.fileCountPlural").replace("{count}", deleteCount);
+    const confirmed = await confirmNativeMarkdownFileDelete(deletingMultipleFiles ? deleteCountLabel : file.name, {
       cancelLabel: translate(fileIsFolder ? "app.cancelDeleteMarkdownFolder" : "app.cancelDeleteMarkdownFile"),
-      message: translate(fileIsFolder ? "app.confirmDeleteMarkdownFolder" : "app.confirmDeleteMarkdownFile"),
+      message: deletingMultipleFiles
+        ? translate("app.confirmDeleteSelectedMarkdownFiles").replace("{count}", deleteCount)
+        : translate(fileIsFolder ? "app.confirmDeleteMarkdownFolder" : "app.confirmDeleteMarkdownFile"),
       okLabel: translate(fileIsFolder ? "app.confirmDeleteMarkdownFolderAction" : "app.confirmDeleteMarkdownFileAction")
     });
     if (!confirmed) return;
 
-    try {
-      const deleted = await deleteMarkdownTreeFile(file);
-      if (deleted) detachDeletedDocumentFile(file.path);
-    } catch {
-      // Leave the file visible when native deletion fails.
+    for (const targetFile of uniqueDeleteTargets) {
+      try {
+        const deleted = await deleteMarkdownTreeFile(targetFile);
+        if (deleted) detachDeletedDocumentFile(targetFile.path);
+      } catch {
+        // Leave the file visible when native deletion fails.
+      }
     }
   }, [deleteMarkdownTreeFile, detachDeletedDocumentFile, translate]);
   const handleSaveMarkdownFileAsTemplate = useCallback(async (file: NativeMarkdownFolderFile) => {
@@ -2087,157 +2016,46 @@ function WorkspaceApp() {
     await openTreeMarkdownFile(file);
   }, [captureActiveDocumentViewState, openImageTab, openTreeMarkdownFile]);
   const handleQuickOpenOpen = useCallback(() => {
-    setGlobalSearchOpen(false);
-    setDocumentSearchOpen(false);
+    hideGlobalSearch();
+    hideDocumentSearch();
     setQuickOpenOpen(true);
-  }, []);
+  }, [hideDocumentSearch, hideGlobalSearch]);
   const handleQuickOpenClose = useCallback(() => {
     setQuickOpenOpen(false);
   }, []);
   const handleGlobalSearchOpen = useCallback(() => {
     setQuickOpenOpen(false);
-    setGlobalSearchOpen(true);
-  }, []);
-  const handleGlobalSearchClose = useCallback(() => {
-    setGlobalSearchOpen(false);
-    setGlobalSearchQuery("");
-    setGlobalSearchLoading(false);
-    setGlobalSearchResponse(emptyWorkspaceSearchResponse);
-  }, []);
+    openGlobalSearch();
+  }, [openGlobalSearch]);
+  const handleGlobalSearchClose = closeGlobalSearch;
   const handleGlobalSearchQueryChange = useCallback((query: string) => {
     setGlobalSearchQuery(query);
-  }, []);
+  }, [setGlobalSearchQuery]);
   const handleGlobalSearchCaseSensitiveChange = useCallback((caseSensitive: boolean) => {
     setGlobalSearchCaseSensitive(caseSensitive);
-  }, []);
+  }, [setGlobalSearchCaseSensitive]);
   const handleGlobalSearchRecentQuerySelect = useCallback((query: string) => {
-    setGlobalSearchQuery(query);
-  }, []);
+    selectGlobalSearchRecentQuery(query);
+  }, [selectGlobalSearchRecentQuery]);
   const handleGlobalSearchResultOpen = useCallback(async (result: WorkspaceSearchResult) => {
-    setGlobalSearchOpen(false);
+    hideGlobalSearch();
     await handleOpenTreeFile(result.file);
     if (!documentSearchOpen) return;
 
     setDocumentSearchQuery(globalSearchQuery.trim());
     setDocumentSearchCaseSensitive(globalSearchCaseSensitive);
     setDocumentSearchReplaceOpen(false);
-    setDocumentSearchActiveIndex(result.matchIndex);
-    setDocumentSearchRevealRevision((current) => current + 1);
-  }, [documentSearchOpen, globalSearchCaseSensitive, globalSearchQuery, handleOpenTreeFile]);
-  useEffect(() => {
-    const query = globalSearchQuery.trim();
-    const fileTreeSearchableFileCount = fileTreeFiles.filter((file) =>
-      file.kind !== "asset" && file.kind !== "folder"
-    ).length;
-
-    if (!globalSearchOpen) {
-      setGlobalSearchLoading(false);
-      setGlobalSearchResponse({
-        ...emptyWorkspaceSearchResponse,
-        searchedFileCount: fileTreeSearchableFileCount
-      });
-      return;
-    }
-
-    if (!query) {
-      let active = true;
-
-      setGlobalSearchLoading(false);
-      setGlobalSearchResponse({
-        ...emptyWorkspaceSearchResponse,
-        searchedFileCount: fileTreeSearchableFileCount
-      });
-
-      const loadNativeFileCount = async () => {
-        if (!fileTreeSourcePath) return null;
-
-        return searchNativeMarkdownFilesForPath({
-          caseSensitive: globalSearchCaseSensitive,
-          currentDocument: null,
-          path: fileTreeSourcePath,
-          query: ""
-        }).catch(() => null);
-      };
-
-      loadNativeFileCount().then((response) => {
-        if (!active || !response) return;
-
-        setGlobalSearchResponse({
-          ...emptyWorkspaceSearchResponse,
-          searchedFileCount: response.searchedFileCount,
-          truncated: response.truncated,
-          unreadableFileCount: response.unreadableFileCount
-        });
-      });
-
-      return () => {
-        active = false;
-      };
-    }
-
-    let active = true;
-    setGlobalSearchLoading(true);
-    setGlobalSearchRecentQueries((current) => nextGlobalSearchRecentQueries(current, query));
-
-    const runGlobalSearch = async () => {
-      const nativeResponse = fileTreeSourcePath
-        ? await searchNativeMarkdownFilesForPath({
-            caseSensitive: globalSearchCaseSensitive,
-            currentDocument: !activeImageFile && document.path
-              ? {
-                  content: document.content,
-                  path: document.path
-                }
-              : null,
-            path: fileTreeSourcePath,
-            query
-          }).catch(() => null)
-        : null;
-      if (nativeResponse) return nativeResponse;
-
-      return searchWorkspaceFiles(fileTreeFiles, query, {
-        caseSensitive: globalSearchCaseSensitive,
-        readFile: async (path) => {
-          if (!activeImageFile && document.path === path) {
-            return {
-              content: document.content,
-              path
-            };
-          }
-
-          const file = await readNativeMarkdownFile(path);
-
-          return {
-            content: file.content,
-            path: file.path
-          };
-        }
-      });
-    };
-
-    const searchTimeout = window.setTimeout(() => {
-      runGlobalSearch().then((response) => {
-        if (active) setGlobalSearchResponse(response);
-      }).catch(() => {
-        if (active) setGlobalSearchResponse(emptyWorkspaceSearchResponse);
-      }).finally(() => {
-        if (active) setGlobalSearchLoading(false);
-      });
-    }, globalSearchDebounceMs);
-
-    return () => {
-      active = false;
-      window.clearTimeout(searchTimeout);
-    };
+    selectDocumentSearchMatch(result.matchIndex);
   }, [
-    activeImageFile,
-    document.content,
-    document.path,
-    fileTreeFiles,
-    fileTreeSourcePath,
+    documentSearchOpen,
     globalSearchCaseSensitive,
-    globalSearchOpen,
-    globalSearchQuery
+    globalSearchQuery,
+    handleOpenTreeFile,
+    hideGlobalSearch,
+    selectDocumentSearchMatch,
+    setDocumentSearchCaseSensitive,
+    setDocumentSearchQuery,
+    setDocumentSearchReplaceOpen
   ]);
   const handleOpenTreeFileToSide = useCallback(async (file: NativeMarkdownFolderFile) => {
     captureActiveDocumentViewState();
@@ -2369,6 +2187,20 @@ function WorkspaceApp() {
     updateActiveAiSelection
   ]);
   const handleFileTreeToggle = useCallback(() => toggleFileTree(document.path), [document.path, toggleFileTree]);
+  const [fileTreeRevealPathRequest, setFileTreeRevealPathRequest] = useState<{ id: number; path: string } | null>(null);
+  const fileTreeRevealPathRequestIdRef = useRef(0);
+  const handleRevealPathInFileTree = useCallback((path: string | null | undefined) => {
+    const targetPath = path?.trim();
+    if (!targetPath) return;
+
+    if (!fileTreeOpen) toggleFileTree(targetPath);
+
+    fileTreeRevealPathRequestIdRef.current += 1;
+    setFileTreeRevealPathRequest({
+      id: fileTreeRevealPathRequestIdRef.current,
+      path: targetPath
+    });
+  }, [fileTreeOpen, toggleFileTree]);
   const handleDocumentHistoryOpen = useCallback(() => {
     if (!documentHistoryAvailable) return;
 
@@ -2437,6 +2269,12 @@ function WorkspaceApp() {
   const handleOpenSettings = useCallback(() => {
     openSettingsWindow().catch(() => {});
   }, []);
+  const handleShowAbout = useCallback(() => {
+    showNativeAppAbout().catch(() => {});
+  }, []);
+  const handleExitApp = useCallback(() => {
+    closeNativeWindow().catch(() => {});
+  }, []);
   const rawFileTreeRootName = rootNameForDocument(document.path);
   const fileTreeRootName =
     rawFileTreeRootName === "No folder"
@@ -2481,6 +2319,11 @@ function WorkspaceApp() {
     editorPreferences.preferences.showDocumentTabs &&
     (hasOpenDocument || Boolean(activeImageFile)) &&
     titlebarTabs.some((tab) => titlebarTabs.length > 1 || tab.path !== null || tab.dirty);
+  const currentFileTreePath = activeImageFile?.path ?? (
+    focusedSideDocumentTabId && sideDocumentTab?.path
+      ? sideDocumentTab.path
+      : hasOpenDocument ? document.path : null
+  );
   const titleDocumentName = activeImageFile ? activeImageFile.name : hasOpenDocument ? document.name : fileTreeRootName;
   const titleDocumentKind = activeImageFile ? "image" : hasOpenDocument ? "file" : "folder";
   const sourceModeAvailable = hasOpenDocument && !activeImageFile;
@@ -2501,49 +2344,72 @@ function WorkspaceApp() {
     setDocumentOperationTarget("side");
   }, []);
   const handleVisualMarkdownChange = useCallback((content: string, options?: { documentRevision?: number }) => {
-    if (sourceToVisualSyncingRef.current) return;
+    if (isApplyingSourceToVisualSync()) return;
+    if (sourceSurfaceActive) return;
     if (readOnlyMode) return;
 
     if (splitMode) setActiveEditorSurface("visual");
-    handleMarkdownChange(content, options);
-  }, [handleMarkdownChange, readOnlyMode, splitMode]);
+    handleMarkdownChange(content, { ...options, surface: "visual" });
+  }, [handleMarkdownChange, isApplyingSourceToVisualSync, readOnlyMode, sourceSurfaceActive, splitMode]);
   const handleSourceMarkdownChange = useCallback((content: string, options?: { documentRevision?: number }) => {
     if (readOnlyMode) return;
 
+    markSourceEditForHistory(content, options);
     if (splitMode) setActiveEditorSurface("source");
-    handleMarkdownChange(content, options);
-  }, [handleMarkdownChange, readOnlyMode, splitMode]);
-  const syncSplitPaneScroll = useCallback((sourceSurface: EditorSurface, event: ReactUIEvent<HTMLElement>) => {
-    if (!splitMode) return;
+    handleMarkdownChange(content, { ...options, surface: "source" });
+  }, [handleMarkdownChange, markSourceEditForHistory, readOnlyMode, splitMode]);
+  const syncSplitPaneScrollPosition = useCallback((sourceSurface: EditorSurface, sourceElement: HTMLElement) => {
+    if (!splitMode) return false;
 
     if (splitScrollSyncTargetRef.current === sourceSurface) {
       splitScrollSyncTargetRef.current = null;
-      return;
+      return false;
     }
 
-    const sourceElement = event.currentTarget;
     const targetSurface: EditorSurface = sourceSurface === "source" ? "visual" : "source";
     const targetElement = targetSurface === "visual" ? visualScrollRef.current : sourceScrollRef.current;
-    if (!targetElement) return;
+    if (!targetElement) return false;
 
     const sourceMaxScrollTop = Math.max(0, sourceElement.scrollHeight - sourceElement.clientHeight);
     const targetMaxScrollTop = Math.max(0, targetElement.scrollHeight - targetElement.clientHeight);
-    if (targetMaxScrollTop <= 0) return;
+    if (targetMaxScrollTop <= 0) return true;
 
     const nextScrollTop =
       sourceMaxScrollTop <= 0
         ? 0
         : Math.round((sourceElement.scrollTop / sourceMaxScrollTop) * targetMaxScrollTop);
-    if (Math.abs(targetElement.scrollTop - nextScrollTop) < 1) return;
+    if (Math.abs(targetElement.scrollTop - nextScrollTop) >= 1) {
+      splitScrollSyncTargetRef.current = targetSurface;
+      targetElement.scrollTop = nextScrollTop;
+      window.setTimeout(() => {
+        if (splitScrollSyncTargetRef.current === targetSurface) {
+          splitScrollSyncTargetRef.current = null;
+        }
+      }, 0);
+    }
 
-    splitScrollSyncTargetRef.current = targetSurface;
-    targetElement.scrollTop = nextScrollTop;
-    window.setTimeout(() => {
-      if (splitScrollSyncTargetRef.current === targetSurface) {
-        splitScrollSyncTargetRef.current = null;
-      }
-    }, 0);
+    return true;
   }, [splitMode]);
+  const scheduleSplitPaneScrollResync = useCallback((sourceSurface: EditorSurface, sourceElement: HTMLElement) => {
+    if (!splitMode) return;
+
+    if (splitScrollSyncFrameRef.current !== null) {
+      window.cancelAnimationFrame(splitScrollSyncFrameRef.current);
+    }
+
+    splitScrollSyncFrameRef.current = window.requestAnimationFrame(() => {
+      splitScrollSyncFrameRef.current = null;
+      if (!sourceElement.isConnected) return;
+
+      syncSplitPaneScrollPosition(sourceSurface, sourceElement);
+    });
+  }, [splitMode, syncSplitPaneScrollPosition]);
+  const syncSplitPaneScroll = useCallback((sourceSurface: EditorSurface, event: ReactUIEvent<HTMLElement>) => {
+    const sourceElement = event.currentTarget;
+    if (!syncSplitPaneScrollPosition(sourceSurface, sourceElement)) return;
+
+    scheduleSplitPaneScrollResync(sourceSurface, sourceElement);
+  }, [scheduleSplitPaneScrollResync, syncSplitPaneScrollPosition]);
   const handleSourcePaneScroll = useCallback((event: ReactUIEvent<HTMLElement>) => {
     saveDocumentTabViewState(activeTabId, { sourceScrollTop: event.currentTarget.scrollTop });
     syncSplitPaneScroll("source", event);
@@ -2559,12 +2425,186 @@ function WorkspaceApp() {
       documentRevision: document.revision
     });
   }, [document.content, document.revision, getEditorCurrentMarkdown, handleVisualMarkdownChange, readOnlyMode, splitMode]);
+  const saveLocalEditorImageFiles = useCallback(async (images: File[]) => {
+    if (!document.path) {
+      showAppToast({
+        message: translate("app.clipboardImageRequiresSavedDocument"),
+        status: "error"
+      });
+      return [];
+    }
+    if (images.length === 0) return [];
+
+    const savedImages: Array<{ alt: string; src: string }> = [];
+    let refreshTree = false;
+
+    for (const image of images) {
+      const result = await saveLocalEditorImage({
+        documentPath: document.path,
+        image,
+        preferences: editorPreferences.preferences
+      }).catch(() => null);
+
+      if (!result) {
+        showAppToast({
+          message: translate("app.clipboardImageSaveFailed"),
+          status: "error"
+        });
+        continue;
+      }
+
+      if (result.status === "skipped") {
+        showAppToast({
+          message: translate("app.clipboardImageRequiresSavedDocument"),
+          status: "error"
+        });
+        continue;
+      }
+
+      savedImages.push(result.image);
+      refreshTree = refreshTree || result.refreshTree;
+    }
+
+    if (savedImages.length === 0) return [];
+
+    try {
+      if (refreshTree) {
+        await refreshMarkdownFileTree(document.path);
+      }
+    } catch {
+      showAppToast({
+        message: translate("app.clipboardImageSaveFailed"),
+        status: "error"
+      });
+      return [];
+    }
+
+    return savedImages;
+  }, [
+    document.path,
+    editorPreferences.preferences,
+    refreshMarkdownFileTree,
+    translate
+  ]);
+  const handleImportLocalImages = useCallback(async () => {
+    if (readOnlyMode) return;
+
+    if (!document.path) {
+      showAppToast({
+        message: translate("app.clipboardImageRequiresSavedDocument"),
+        status: "error"
+      });
+      return;
+    }
+
+    const images = await openNativeLocalImages({
+      title: translate("menu.importLocalImages")
+    }).catch(() => null);
+    if (!images) {
+      showAppToast({
+        message: translate("app.clipboardImageSaveFailed"),
+        status: "error"
+      });
+      return;
+    }
+
+    const savedImages = await saveLocalEditorImageFiles(images);
+    if (savedImages.length === 0) return;
+
+    insertEditorMarkdownImages(savedImages);
+    syncVisualMarkdownAfterEditorCommand();
+  }, [
+    document.path,
+    insertEditorMarkdownImages,
+    readOnlyMode,
+    saveLocalEditorImageFiles,
+    syncVisualMarkdownAfterEditorCommand,
+    translate
+  ]);
+  const handleDroppedLocalImage = useCallback(async (target: Extract<NativeMarkdownDroppedTarget, { kind: "image" }>) => {
+    if (readOnlyMode || activeImageFile || !document.path) return;
+
+    const payload = markdownImageDragPayloadForFile({
+      name: target.name,
+      path: target.path,
+      relativePath: target.path
+    });
+    const imageReference = {
+      alt: payload.alt,
+      src: markdownImageDragSrcForDocument(payload, document.path)
+    };
+
+    const insertedAtDropPoint = target.point
+      ? insertEditorMarkdownImagesAtPoint([imageReference], target.point)
+      : false;
+    if (!insertedAtDropPoint) {
+      insertEditorMarkdownImages([imageReference]);
+    }
+
+    syncVisualMarkdownAfterEditorCommand();
+  }, [
+    activeImageFile,
+    document.path,
+    insertEditorMarkdownImages,
+    insertEditorMarkdownImagesAtPoint,
+    readOnlyMode,
+    syncVisualMarkdownAfterEditorCommand
+  ]);
+  const handleInsertFileTreeImageAsset = useCallback((
+    file: NativeMarkdownFolderFile,
+    point: { left: number; top: number }
+  ) => {
+    if (readOnlyMode || activeImageFile || !document.path || file.kind !== "asset") return;
+
+    const payload = markdownImageDragPayloadForFile(file);
+    const inserted = insertEditorMarkdownImagesAtPoint(
+      [{
+        alt: payload.alt,
+        src: markdownImageDragSrcForDocument(payload, document.path)
+      }],
+      point
+    );
+    if (inserted) syncVisualMarkdownAfterEditorCommand();
+  }, [
+    activeImageFile,
+    document.path,
+    insertEditorMarkdownImagesAtPoint,
+    readOnlyMode,
+    syncVisualMarkdownAfterEditorCommand
+  ]);
+  const handleNativeMarkdownDrop = useCallback(async (target: NativeMarkdownDroppedTarget) => {
+    if (target.kind === "image") {
+      await handleDroppedLocalImage(target);
+      return;
+    }
+
+    await handleDroppedMarkdownPath(target);
+  }, [handleDroppedLocalImage, handleDroppedMarkdownPath]);
   const handleInsertMarkdownSnippet = useCallback((...args: Parameters<typeof insertEditorMarkdownSnippet>) => {
     if (readOnlyMode) return;
 
     insertEditorMarkdownSnippet(...args);
     syncVisualMarkdownAfterEditorCommand();
   }, [insertEditorMarkdownSnippet, readOnlyMode, syncVisualMarkdownAfterEditorCommand]);
+  const handleInsertMarkdownImage = useCallback(() => {
+    if (readOnlyMode) return;
+
+    insertEditorMarkdownImage();
+    syncVisualMarkdownAfterEditorCommand();
+  }, [insertEditorMarkdownImage, readOnlyMode, syncVisualMarkdownAfterEditorCommand]);
+  const handleInsertMarkdownLink = useCallback(() => {
+    runEditorLinkCommand({
+      insertMarkdownLink: insertEditorMarkdownLink,
+      readOnlyMode,
+      syncAiSelectionToolbarFormattingState,
+      syncVisualMarkdownAfterEditorCommand
+    });
+  }, [
+    insertEditorMarkdownLink,
+    readOnlyMode,
+    syncAiSelectionToolbarFormattingState,
+    syncVisualMarkdownAfterEditorCommand
+  ]);
   const handleInsertMarkdownTable = useCallback(() => {
     if (readOnlyMode) return;
 
@@ -2572,10 +2612,11 @@ function WorkspaceApp() {
     syncVisualMarkdownAfterEditorCommand();
   }, [insertEditorMarkdownTable, readOnlyMode, syncVisualMarkdownAfterEditorCommand]);
   const handleRunEditorShortcut = useCallback((...args: Parameters<typeof runEditorShortcut>) => {
-    if (readOnlyMode) return;
+    if (readOnlyMode) return false;
 
-    runEditorShortcut(...args);
+    const handled = runEditorShortcut(...args);
     syncVisualMarkdownAfterEditorCommand();
+    return handled;
   }, [readOnlyMode, runEditorShortcut, syncVisualMarkdownAfterEditorCommand]);
   const handleAiSelectionToolbarFormattingAction = useCallback((action: SelectionFormattingToolbarAction) => {
     if (readOnlyMode) return;
@@ -2588,16 +2629,26 @@ function WorkspaceApp() {
       return;
     }
 
+    if (action === "clearFormatting") {
+      if (!clearEditorSelectionFormatting()) return;
+
+      syncVisualMarkdownAfterEditorCommand();
+      syncAiSelectionToolbarFormattingState();
+      return;
+    }
+
     const normalizedShortcuts = normalizeMarkdownShortcuts(editorPreferences.preferences.markdownShortcuts);
     const shortcut = markdownShortcutToKeyboardEventInit(normalizedShortcuts[action]);
     if (!shortcut) return;
 
     handleRunEditorShortcut(shortcut.key, {
       altKey: Boolean(shortcut.altKey),
+      code: shortcut.code,
       shiftKey: Boolean(shortcut.shiftKey)
     });
     syncAiSelectionToolbarFormattingState();
   }, [
+    clearEditorSelectionFormatting,
     editorPreferences.preferences.markdownShortcuts,
     handleRunEditorShortcut,
     readOnlyMode,
@@ -2621,8 +2672,8 @@ function WorkspaceApp() {
     if (readOnlyMode) return;
 
     setAiSelectionToolbarAnchor(null);
-    handleInsertMarkdownSnippet("[", "](https://)", "text");
-  }, [handleInsertMarkdownSnippet, readOnlyMode]);
+    handleInsertMarkdownLink();
+  }, [handleInsertMarkdownLink, readOnlyMode]);
   const handleAiSelectionToolbarCopySelection = useCallback(() => {
     const selectedText = activeAiSelection?.source === "selection" ? activeAiSelection.text : "";
     if (!selectedText.trim() || !navigator.clipboard) return;
@@ -2642,40 +2693,20 @@ function WorkspaceApp() {
       .catch(() => {});
   }, [activeAiSelection]);
   const handleDocumentSearchOpen = useCallback(() => {
-    if (!documentSearchAvailable) return;
-
-    setDocumentSearchOpen(true);
-    setDocumentSearchReplaceOpen(false);
-    setDocumentSearchActiveIndex(0);
-  }, [documentSearchAvailable]);
+    openDocumentSearch();
+  }, [openDocumentSearch]);
   const handleDocumentReplaceOpen = useCallback(() => {
-    if (!documentSearchAvailable) return;
-
-    setDocumentSearchOpen(true);
-    setDocumentSearchReplaceOpen(true);
-    setDocumentSearchActiveIndex(0);
-  }, [documentSearchAvailable]);
+    openDocumentReplace();
+  }, [openDocumentReplace]);
   const handleDocumentSearchClose = useCallback(() => {
-    setDocumentSearchOpen(false);
-    setDocumentSearchReplaceOpen(false);
-    setDocumentSearchActiveIndex(0);
-  }, []);
+    closeDocumentSearch();
+  }, [closeDocumentSearch]);
   const handleDocumentSearchQueryChange = useCallback((query: string) => {
     setDocumentSearchQuery(query);
-    setDocumentSearchActiveIndex(0);
-  }, []);
+  }, [setDocumentSearchQuery]);
   const handleDocumentSearchCaseSensitiveChange = useCallback((caseSensitive: boolean) => {
     setDocumentSearchCaseSensitive(caseSensitive);
-    setDocumentSearchActiveIndex(0);
-  }, []);
-  const navigateDocumentSearch = useCallback((direction: 1 | -1) => {
-    if (documentSearchMatchCount <= 0) return;
-
-    setDocumentSearchActiveIndex((current) =>
-      normalizeSearchIndex((current < 0 ? 0 : current) + direction, documentSearchMatchCount)
-    );
-    setDocumentSearchRevealRevision((current) => current + 1);
-  }, [documentSearchMatchCount]);
+  }, [setDocumentSearchCaseSensitive]);
   const handleDocumentSearchNext = useCallback(() => {
     navigateDocumentSearch(1);
   }, [navigateDocumentSearch]);
@@ -2705,12 +2736,12 @@ function WorkspaceApp() {
 
     if (documentSearchSurface === "source") {
       handleSourceMarkdownChange(replaceTextRanges(document.content, documentSearchMatches, documentSearchReplacement));
-      setDocumentSearchActiveIndex(0);
+      resetDocumentSearchActiveIndex();
       return;
     }
 
     replaceAllEditorSearchMatches(documentSearchMatches, documentSearchReplacement);
-    setDocumentSearchActiveIndex(0);
+    resetDocumentSearchActiveIndex();
   }, [
     document.content,
     documentSearchMatches,
@@ -2718,14 +2749,9 @@ function WorkspaceApp() {
     documentSearchSurface,
     handleSourceMarkdownChange,
     replaceAllEditorSearchMatches,
-    readOnlyMode
+    readOnlyMode,
+    resetDocumentSearchActiveIndex
   ]);
-  useEffect(() => {
-    if (documentSearchAvailable) return;
-
-    setDocumentSearchOpen(false);
-    setDocumentSearchReplaceOpen(false);
-  }, [documentSearchAvailable]);
   useEffect(() => {
     if (!documentSearchOpen || !documentSearchAvailable || documentSearchSurface !== "visual") {
       setVisualDocumentSearchMatches([]);
@@ -2747,10 +2773,6 @@ function WorkspaceApp() {
     findEditorSearchMatches,
     visualEditorReadySequence
   ]);
-  useEffect(() => {
-    const nextIndex = normalizeSearchIndex(documentSearchActiveIndex, documentSearchMatchCount);
-    if (nextIndex !== documentSearchActiveIndex) setDocumentSearchActiveIndex(nextIndex);
-  }, [documentSearchActiveIndex, documentSearchMatchCount]);
   useEffect(() => {
     if (!documentSearchOpen || documentSearchSurface !== "visual") {
       showEditorSearchMatches([], -1, { suppressEditorChrome: false });
@@ -2789,39 +2811,26 @@ function WorkspaceApp() {
       path: document.path
     };
   }, [activeImageFile, document.content, document.name, document.path, hasOpenDocument]);
-  const handleEditorModeToggle = useCallback(() => {
+  const handleEditorModeSelect = useCallback((nextMode: EditorMode) => {
     if (!sourceModeAvailable) return;
+    if (nextMode === editorMode) return;
 
     captureActiveDocumentViewState();
 
-    if (sourceMode) {
+    if (nextMode === "visual") {
+      if (sourceMode) syncSourceEditsToVisualHistory();
       queueEditorModeScroll("visual");
       setEditorMode("visual");
       setActiveEditorSurface("visual");
       return;
     }
 
-    updateActiveAiSelection(null);
-    handleAiCommandClose();
-    queueEditorModeScroll("source");
-    setEditorMode("source");
-    setActiveEditorSurface("source");
-  }, [
-    captureActiveDocumentViewState,
-    handleAiCommandClose,
-    queueEditorModeScroll,
-    sourceMode,
-    sourceModeAvailable,
-    updateActiveAiSelection
-  ]);
-  const handleEditorSplitToggle = useCallback(() => {
-    if (!sourceModeAvailable) return;
-
-    captureActiveDocumentViewState();
-
-    if (splitMode) {
-      setEditorMode("visual");
-      setActiveEditorSurface("visual");
+    if (nextMode === "source") {
+      updateActiveAiSelection(null);
+      handleAiCommandClose();
+      queueEditorModeScroll("source");
+      setEditorMode("source");
+      setActiveEditorSurface("source");
       return;
     }
 
@@ -2833,13 +2842,21 @@ function WorkspaceApp() {
   }, [
     captureActiveDocumentViewState,
     clearSideDocumentGroup,
+    editorMode,
     handleAiCommandClose,
+    queueEditorModeScroll,
     sideDocumentGroup,
     sourceMode,
     sourceModeAvailable,
-    splitMode,
+    syncSourceEditsToVisualHistory,
     updateActiveAiSelection
   ]);
+  const handleEditorModeToggle = useCallback(() => {
+    handleEditorModeSelect(sourceMode ? "visual" : "source");
+  }, [handleEditorModeSelect, sourceMode]);
+  const handleEditorSplitToggle = useCallback(() => {
+    handleEditorModeSelect(splitMode ? "visual" : "split");
+  }, [handleEditorModeSelect, splitMode]);
   const handleOpenMarkdownFolder = useCallback(async () => {
     captureActiveDocumentViewState();
     await openMarkdownFolder({
@@ -2876,6 +2893,9 @@ function WorkspaceApp() {
     setActiveImageFile(null);
     clearOpenDocument({ persistWorkspace: false });
   }, [captureActiveDocumentViewState, clearOpenDocument, confirmCanDiscardCurrentDocument, openRecentFolder]);
+  const handleOpenContainingFolder = useCallback((path: string) => {
+    openNativeContainingFolder(path).catch(() => {});
+  }, []);
   const clearExportSnapshot = useCallback((id: number) => {
     setExportSnapshot((current) => current?.id === id ? null : current);
   }, []);
@@ -3023,19 +3043,6 @@ function WorkspaceApp() {
     saveDocumentTabViewState,
     visualEditorReadySequence
   ]);
-  useEffect(() => {
-    if (!splitMode || activeEditorSurface !== "source") return;
-
-    sourceToVisualSyncingRef.current = true;
-    replaceEditorMarkdown(document.content);
-    sourceToVisualSyncingRef.current = false;
-  }, [
-    activeEditorSurface,
-    document.content,
-    replaceEditorMarkdown,
-    splitMode,
-    visualEditorReadySequence
-  ]);
   const aiAgentContext = useMemo(() => ({
     documentName: titleDocumentName,
     headingCount: outlineItems.length,
@@ -3056,6 +3063,7 @@ function WorkspaceApp() {
   ]);
   const appUpdater = useAutoUpdater(appLanguage.language, updaterFeatureEnabled && appLanguage.ready && !editorPreferences.loading, {
     autoCheck: updaterFeatureEnabled && editorPreferences.preferences.autoUpdateEnabled,
+    beforeRestart: saveDirtyMarkdownFiles,
     confirmRestart: confirmCanDiscardCurrentDocument
   });
   const nativeMenuHandlers = useNativeMenuHandlers({
@@ -3066,6 +3074,9 @@ function WorkspaceApp() {
     exportHtml: exportFeatureEnabled ? exportHtmlDocument : undefined,
     exportLatex: exportFeatureEnabled && pandocFeatureEnabled ? exportLatexDocument : undefined,
     exportPdf: exportFeatureEnabled ? exportPdfDocument : undefined,
+    importLocalImages: handleImportLocalImages,
+    insertMarkdownImage: handleInsertMarkdownImage,
+    insertMarkdownLink: handleInsertMarkdownLink,
     insertMarkdownSnippet: handleInsertMarkdownSnippet,
     insertMarkdownTable: handleInsertMarkdownTable,
     language: appLanguage.language,
@@ -3082,12 +3093,13 @@ function WorkspaceApp() {
     toggleAiAgent: aiFeatureEnabled ? handleAiAgentToggle : undefined,
     toggleAiCommand: aiFeatureEnabled ? handleAiCommandToggle : undefined,
     toggleDocumentHistory: handleDocumentHistoryOpen,
+    toggleFullscreen: toggleNativeWindowFullscreen,
     toggleMarkdownFiles: handleFileTreeToggle,
     toggleReadOnlyMode: handleReadOnlyModeToggle,
     toggleSourceMode: handleEditorModeToggle
   });
 
-  useNativeMarkdownDrop(handleDroppedMarkdownPath);
+  useNativeMarkdownDrop(handleNativeMarkdownDrop);
   useNativeMenus(nativeMenuHandlers, appLanguage.ready ? appLanguage.language : null, {
     getAiCommandsAvailable: aiFeatureEnabled ? getAiContextMenuAvailable : () => false,
     markdownShortcuts: editorPreferences.preferences.markdownShortcuts,
@@ -3322,6 +3334,42 @@ function WorkspaceApp() {
     updateActiveAiSelection
   ]);
 
+  const focusEditorInDocumentPane = useCallback((target: "main" | "side") => {
+    if (titlebarTabFocusTimerRef.current !== null) {
+      window.clearTimeout(titlebarTabFocusTimerRef.current);
+      titlebarTabFocusTimerRef.current = null;
+    }
+
+    titlebarTabFocusTimerRef.current = window.setTimeout(() => {
+      titlebarTabFocusTimerRef.current = null;
+
+      const pane =
+        target === "side"
+          ? sideDocumentSurfaceRef.current?.querySelector<HTMLElement>(".side-document-pane") ?? null
+          : mainDocumentPaneRef.current;
+      if (!pane) return;
+
+      const sourceEditorSelector = ".markdown-source-editor [role='textbox']";
+      const visualEditorSelector = ".markdown-paper [role='textbox']";
+      const preferredSelector =
+        target === "side"
+          ? sourceMode ? sourceEditorSelector : visualEditorSelector
+          : sourceMode || (splitMode && activeEditorSurface === "source") ? sourceEditorSelector : visualEditorSelector;
+      const editor =
+        pane.querySelector<HTMLElement>(preferredSelector) ??
+        pane.querySelector<HTMLElement>("[role='textbox']");
+
+      editor?.focus({ preventScroll: true });
+    }, 0);
+  }, [activeEditorSurface, sourceMode, splitMode]);
+
+  useEffect(() => () => {
+    if (titlebarTabFocusTimerRef.current !== null) {
+      window.clearTimeout(titlebarTabFocusTimerRef.current);
+      titlebarTabFocusTimerRef.current = null;
+    }
+  }, []);
+
   const handleSelectTitlebarTab = useCallback((tabId: string) => {
     captureActiveDocumentViewState();
     setDocumentOperationTarget("main");
@@ -3345,6 +3393,11 @@ function WorkspaceApp() {
     selectMarkdownTab,
     updateActiveAiSelection
   ]);
+  const handleFocusTitlebarTab = useCallback((tabId: string) => {
+    const target = sideDocumentGroup?.sideTabId === tabId ? "side" : "main";
+    setDocumentOperationTarget(target);
+    focusEditorInDocumentPane(target);
+  }, [focusEditorInDocumentPane, sideDocumentGroup?.sideTabId]);
   const handleRenameTitlebarTab = useCallback(async (tab: MarkdownTabsBarDocumentItem, fileName: string) => {
     const file = documentTabAsFolderFile(tab);
     if (!file) return;
@@ -3352,26 +3405,32 @@ function WorkspaceApp() {
     try {
       const renamedFile = await renameMarkdownTreeFile(file, fileName);
       if (renamedFile) applyRenamedTreeFile(file.path, renamedFile);
-    } catch {
-      // Keep the existing tab state if the native rename fails.
+    } catch (error) {
+      showAppToast({
+        message: nativeFileOperationFailureMessage(translate("app.markdownFileRenameFailed"), error),
+        status: "error"
+      });
     }
-  }, [applyRenamedTreeFile, renameMarkdownTreeFile]);
+  }, [applyRenamedTreeFile, renameMarkdownTreeFile, translate]);
 
   const titlebarDocumentTabs = documentTabsVisible ? (
     <MarkdownTabsBar
       activeTabId={activeTitlebarTabId}
+      focusedTabId={focusedSideDocumentTabId ?? activeTitlebarTabId}
       items={titlebarItems}
       language={appLanguage.language}
       nativeDragRegionEnabled={nativeWindowChromeEnabled}
       placement="titlebar"
       onCancelSideBySide={handleCancelTitlebarSideBySide}
       onCloseTab={handleCloseTitlebarTab}
+      onFocusTab={handleFocusTitlebarTab}
       onNewTab={() => {
         captureActiveDocumentViewState();
         setActiveImageFile(null);
         createBlankDocument().catch(() => {});
       }}
       onOpenTabToSide={handleOpenTitlebarTabToSide}
+      onRevealTabInFileTree={handleRevealPathInFileTree}
       onRenameTab={handleRenameTitlebarTab}
       onSelectTab={handleSelectTitlebarTab}
     />
@@ -3382,6 +3441,144 @@ function WorkspaceApp() {
       : editorPreferences.preferences.titlebarActions.filter((action) => action.id !== "aiAgent"),
     [aiFeatureEnabled, editorPreferences.preferences.titlebarActions]
   );
+  const mainVisualEditorTabs = documentTabs.filter((tab) => tab.open);
+  const mainVisualEditors = (
+    <>
+      {mainVisualEditorTabs.map((tab) => {
+        const tabActive = tab.id === activeTabId;
+        const tabVisualBlocked = shouldBlockLargeMarkdownVisual(tab.content, {
+          sizeBytes: tab.sizeBytes
+        });
+        if (tabVisualBlocked) {
+          if (!tabActive || sourceMode) return null;
+
+          return (
+            <LargeMarkdownNotice
+              key={`${tab.id}:large-visual-notice`}
+              language={appLanguage.language}
+              onOpenSourceMode={handleEditorModeToggle}
+            />
+          );
+        }
+
+        const visualHidden = !tabActive || sourceMode;
+
+        return (
+          <div
+            key={tab.id}
+            aria-hidden={visualHidden ? "true" : undefined}
+            className="h-full min-h-0"
+            hidden={visualHidden}
+          >
+            <MarkdownPaper
+              autoFocus={
+                tabActive &&
+                !sourceMode &&
+                (splitMode ? activeEditorSurface === "visual" : shouldFocusEditorOnReady(tab.content))
+              }
+              bottomOverlayInset={
+                tabActive && !sourceMode
+                  ? editorBottomOverlayInset(
+                      aiCommandVisible && (!splitMode || activeEditorSurface === "visual"),
+                      aiCommandOverlayInset
+                    )
+                  : 0
+              }
+              bodyFontSize={editorPreferences.preferences.bodyFontSize}
+              contentWidth={activeEditorContentWidth}
+              contentWidthPx={activeEditorContentWidthPx}
+              documentKey={tab.id}
+              documentPath={tab.path}
+              editorFontFamily={editorPreferences.preferences.editorFontFamily}
+              editorTheme={appTheme.editorTheme}
+              extendedSyntax={editorPreferences.preferences.extendedSyntax}
+              initialContent={tab.content}
+              language={appLanguage.language}
+              lineHeight={editorPreferences.preferences.lineHeight}
+              markdownShortcuts={editorPreferences.preferences.markdownShortcuts}
+              onActiveOutlineIndexChange={tabActive ? handleActiveOutlineIndexChange : undefined}
+              onEditorReady={(readyEditor, options) => handleMainVisualEditorReady(tab.id, readyEditor, options)}
+              onMarkdownChange={(content) => {
+                const options = { documentRevision: tab.revision };
+                if (tabActive) {
+                  handleVisualMarkdownChange(content, options);
+                  return;
+                }
+
+                handleMarkdownTabChange(tab.id, content, { ...options, surface: "visual" });
+              }}
+              onContentWidthChange={handleEditorContentWidthChange}
+              onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
+              onSaveClipboardImage={handleSaveClipboardImage}
+              onSaveRemoteClipboardImage={handleSaveRemoteClipboardImage}
+              openExternalUrl={handleOpenEditorLink}
+              readOnly={readOnlyMode}
+              onTextSelectionChange={tabActive ? handleTextSelectionChange : undefined}
+              resolveImageSrc={createMarkdownImageSrcResolver(tab.path)}
+              revision={tab.revision}
+              onScroll={tabActive ? handleVisualPaneScroll : undefined}
+              scrollRef={tabActive ? visualScrollRef : undefined}
+              spellcheckEnabled={spellcheckFeatureEnabled && editorPreferences.preferences.spellcheckEnabled}
+              spellcheckIgnoredWords={editorPreferences.preferences.spellcheckIgnoredWords}
+              spellchecker={appSpellchecker}
+              onAddSpellcheckIgnoredWord={handleAddSpellcheckIgnoredWord}
+              topInset="titlebar"
+              workspaceFiles={fileTreeFiles}
+              wrapCodeBlocks={editorPreferences.preferences.wrapCodeBlocks}
+            />
+          </div>
+        );
+      })}
+    </>
+  );
+  const aiAgentPanel = aiFeatureEnabled ? (
+    <AiAgentPanel
+      activeSessionId={activeAiAgentSessionId}
+      availableModels={aiSettings.availableTextModels}
+      context={aiAgentContext}
+      documentAvailable={hasOpenDocument && !activeImageFile}
+      draft={aiAgent.draft}
+      language={appLanguage.language}
+      messages={aiAgent.messages}
+      modelName={aiAgentModelName}
+      open={aiAgentOpen}
+      providerName={aiAgentProviderName}
+      sessions={aiAgentSessions.sessions}
+      selectedModelId={aiSettings.agentModelId}
+      selectedProviderId={aiSettings.agentProviderId}
+      status={aiAgent.status}
+      thinkingEnabled={aiAgent.thinkingEnabled}
+      webSearchAvailable={webSearchAvailable}
+      webSearchEnabled={aiAgent.webSearchEnabled}
+      maxWidth={aiAgentPanelMaxWidth}
+      minWidth={aiAgentPanelMinWidth}
+      width={aiAgentPanelWidth}
+      onArchiveSession={(sessionId, archived) => {
+        handleArchiveAiAgentSession(sessionId, archived).catch(() => {});
+      }}
+      onClose={closeAiAgentPanel}
+      onCreateSession={handleCreateAiAgentSession}
+      onDeleteSession={(sessionId) => {
+        handleDeleteAiAgentSession(sessionId).catch(() => {});
+      }}
+      onDisableThinking={() => aiAgent.setSessionThinkingEnabled(false)}
+      onDraftChange={aiAgent.setDraft}
+      onInterrupt={aiAgent.interrupt}
+      onRenameSession={(sessionId, title) => {
+        handleRenameAiAgentSession(sessionId, title).catch(() => {});
+      }}
+      onResize={setAiAgentPanelWidth}
+      onResizeEnd={endAiAgentPanelResize}
+      onResizeStart={startAiAgentPanelResize}
+      onRetryMessage={aiAgent.retryMessage}
+      onSelectSession={handleSelectAiAgentSession}
+      onSelectModel={aiSettings.selectAgentModel}
+      onSubmit={aiAgent.submit}
+      onSubmitEditedMessage={aiAgent.submitEditedMessage}
+      onToggleThinking={() => aiAgent.setThinkingEnabled((enabled) => !enabled)}
+      onToggleWebSearch={() => aiAgent.setWebSearchEnabled((enabled) => !enabled)}
+    />
+  ) : null;
 
   return (
     <>
@@ -3398,6 +3595,7 @@ function WorkspaceApp() {
           markdownFilesOpen={fileTreeOpen}
           markdownFilesResizing={fileTreeResizing}
           markdownFilesWidth={fileTreeWidth}
+          menuHandlers={nativeMenuHandlers}
           nativeWindowChrome={nativeWindowChromeEnabled}
           quickCreateMarkdownFileVisible={!fileTreeOpen}
           historyDisabled={!documentHistoryAvailable}
@@ -3409,16 +3607,22 @@ function WorkspaceApp() {
           titlebarActions={appTitlebarActions}
           titleContent={titlebarDocumentTabs}
           onCreateMarkdownFile={handleQuickCreateMarkdownTreeFile}
+          onExitApp={handleExitApp}
           onOpenMarkdown={handleOpenMarkdownFile}
           onOpenMarkdownFolder={handleOpenMarkdownFolder}
+          onOpenSettings={handleOpenSettings}
           onSaveMarkdown={handleSaveDocument}
+          onSelectEditorMode={handleEditorModeSelect}
           onShowDocumentHistory={handleDocumentHistoryOpen}
+          onShowAbout={handleShowAbout}
           onTitlebarActionsChange={handleTitlebarActionsChange}
           onToggleAiAgent={handleAiAgentToggle}
           onToggleMarkdownFiles={handleFileTreeToggle}
           onToggleSplitMode={handleEditorSplitToggle}
           onToggleSourceMode={handleEditorModeToggle}
           onToggleTheme={appTheme.toggleTheme}
+          onToggleWindowMaximized={toggleNativeWindowMaximized}
+          workspaceName={fileTree.sourcePath ? fileTreeRootName : undefined}
         />
 
         {documentHistoryOpen && document.path ? (
@@ -3433,62 +3637,70 @@ function WorkspaceApp() {
 
         <span className="screen-reader-title sr-only">{titleDocumentName}</span>
 
-        <div className={workspaceLayoutClassName} style={workspaceLayoutStyle}>
-          <div className="markdown-file-tree-slot min-h-0 overflow-hidden">
-            <MarkdownFileTreeDrawer
-              currentPath={activeImageFile?.path ?? (hasOpenDocument ? document.path : null)}
-              customTemplates={markdownTemplates}
-              files={fileTreeFiles}
-              folderOpen={Boolean(fileTree.sourcePath)}
-              language={appLanguage.language}
-              maxWidth={fileTreeMaxWidth}
-              minWidth={fileTreeMinWidth}
-              open={fileTreeOpen}
-              outlineItems={outlineItems}
-              recentFolders={recentMarkdownFolders}
-              rootPath={fileTree.sourcePath}
-              rootName={fileTreeRootName}
-              sidebarLayoutMode={editorPreferences.preferences.sidebarLayoutMode}
-              width={fileTreeWidth}
-              onCreateFile={handleCreateMarkdownTreeFile}
-              onCreateFolder={handleCreateMarkdownTreeFolder}
-              onDeleteFile={handleDeleteMarkdownTreeFile}
-              onMoveFile={handleMoveMarkdownTreeFile}
-              onOpenFile={handleOpenTreeFile}
-              onOpenFileToSide={
-                editorPreferences.preferences.showDocumentTabs
-                  ? handleOpenTreeFileToSide
-                  : undefined
-              }
-              onOpenFolder={handleOpenMarkdownFolder}
-              onOpenRecentFolder={handleOpenRecentMarkdownFolder}
-              onOpenSettings={handleOpenSettings}
-              onRemoveRecentFolder={removeRecentFolder}
-              onRenameFile={handleRenameMarkdownTreeFile}
-              onResize={resizeFileTree}
-              onResizeEnd={endFileTreeResize}
-              onResizeStart={startFileTreeResize}
-              onSaveFileAsTemplate={handleSaveMarkdownFileAsTemplate}
-              onSelectOutlineItem={editor.selectOutlineItem}
-              onToggleMarkdownFiles={handleFileTreeToggle}
-            />
-          </div>
-
-          <div
-            className={editorAgentLayoutClassName}
-            style={{ gridTemplateColumns: `minmax(0,1fr) ${aiAgentInset}` }}
-          >
-            <div
-              className={`editor-content-slot relative h-full min-h-0 overflow-hidden transition-[box-shadow] duration-150 ease-out ${
-                editorTabDropTargetActive ? "ring-2 ring-(--accent)/30 ring-inset" : ""
-              }`}
-              data-document-search-open={documentSearchOpen && documentSearchAvailable ? "true" : undefined}
-              data-document-tab-editor-drop-target="true"
-              data-document-tab-drop-target={editorTabDropTargetActive ? "true" : undefined}
-              onDragLeave={handleEditorContentDragLeave}
-              onDragOver={handleEditorContentDragOver}
-              onDrop={handleEditorContentDrop}
-            >
+        <WorkspaceLayout
+          aiAgentPanel={aiAgentPanel}
+          documentSearchAvailable={documentSearchAvailable}
+          documentSearchOpen={documentSearchOpen}
+          editorAgentLayoutClassName={editorAgentLayoutClassName}
+          editorAgentLayoutStyle={{ gridTemplateColumns: `minmax(0,1fr) ${aiAgentInset}` }}
+          editorDropTargetActive={editorTabDropTargetActive}
+          fileTree={{
+            activeOutlineIndex: activeDocumentOutlineIndex,
+            autoRevealActiveFile: editorPreferences.preferences.autoRevealActiveFile,
+            currentPath: currentFileTreePath,
+            customTemplates: markdownTemplates,
+            documentLinksOpen,
+            documentLinksVisible,
+            fileTreeAssetsVisible,
+            fileTreeSort,
+            files: fileTreeFiles,
+            folderOpen: Boolean(fileTree.sourcePath),
+            language: appLanguage.language,
+            linkIndex: workspaceLinkIndex.index,
+            maxWidth: fileTreeMaxWidth,
+            minWidth: fileTreeMinWidth,
+            open: fileTreeOpen,
+            outlineItems,
+            recentFolders: recentMarkdownFolders,
+            recentFoldersOpen: recentMarkdownFoldersOpen,
+            revealPathRequest: fileTreeRevealPathRequest,
+            rootPath: fileTree.sourcePath,
+            rootName: fileTreeRootName,
+            sidebarLayoutMode: editorPreferences.preferences.sidebarLayoutMode,
+            width: fileTreeWidth,
+            onCreateFile: handleCreateMarkdownTreeFile,
+            onCreateFolder: handleCreateMarkdownTreeFolder,
+            onDeleteFile: handleDeleteMarkdownTreeFile,
+            onDocumentLinksOpenChange: handleDocumentLinksOpenChange,
+            onFileTreeAssetsVisibleChange: setFileTreeAssetsVisible,
+            onFileTreeSortChange: setFileTreeSort,
+            onInsertImageAsset: handleInsertFileTreeImageAsset,
+            onMoveFile: handleMoveMarkdownTreeFile,
+            onOpenContainingFolder: handleOpenContainingFolder,
+            onOpenFile: handleOpenTreeFile,
+            onOpenFileToSide: editorPreferences.preferences.showDocumentTabs
+              ? handleOpenTreeFileToSide
+              : undefined,
+            onOpenFolder: handleOpenMarkdownFolder,
+            onOpenRecentFolder: handleOpenRecentMarkdownFolder,
+            onOpenSettings: handleOpenSettings,
+            onRecentFoldersOpenChange: setRecentMarkdownFoldersOpen,
+            onRemoveRecentFolder: removeRecentFolder,
+            onRenameFile: handleRenameMarkdownTreeFile,
+            onResize: resizeFileTree,
+            onResizeEnd: endFileTreeResize,
+            onResizeStart: startFileTreeResize,
+            onSaveFileAsTemplate: handleSaveMarkdownFileAsTemplate,
+            onSelectOutlineItem: editor.selectOutlineItem,
+            onToggleMarkdownFiles: handleFileTreeToggle
+          }}
+          windowsSelfDrawnChrome={windowsSelfDrawnChromeEnabled}
+          workspaceLayoutClassName={workspaceLayoutClassName}
+          workspaceLayoutStyle={workspaceLayoutStyle}
+          onEditorContentDragLeave={handleEditorContentDragLeave}
+          onEditorContentDragOver={handleEditorContentDragOver}
+          onEditorContentDrop={handleEditorContentDrop}
+        >
               {globalSearchOpen ? (
                 <GlobalSearchPanel
                   caseSensitive={globalSearchCaseSensitive}
@@ -3509,7 +3721,7 @@ function WorkspaceApp() {
               ) : null}
               {quickOpenOpen ? (
                 <QuickOpenPanel
-                  currentPath={activeImageFile?.path ?? (hasOpenDocument ? document.path : null)}
+                  currentPath={currentFileTreePath}
                   files={fileTreeFiles}
                   language={appLanguage.language}
                   openFilePaths={quickOpenFilePaths}
@@ -3554,7 +3766,11 @@ function WorkspaceApp() {
                   ref={sideDocumentOpen ? sideDocumentSurfaceRef : undefined}
                   style={sideDocumentOpen ? sideDocumentSurfaceStyle : undefined}
                 >
-                  <div className="relative h-full min-h-0 overflow-hidden" onFocusCapture={handleMainDocumentPaneFocus}>
+                  <div
+                    className="relative h-full min-h-0 overflow-hidden"
+                    ref={mainDocumentPaneRef}
+                    onFocusCapture={handleMainDocumentPaneFocus}
+                  >
                     {splitMode ? (
                     <div
                       className="editor-split-surface grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] divide-y divide-(--border-default) min-[900px]:grid-cols-[minmax(0,var(--split-visual-pane))_8px_minmax(0,var(--split-source-pane))] min-[900px]:grid-rows-[minmax(0,1fr)] min-[900px]:divide-y-0"
@@ -3562,45 +3778,7 @@ function WorkspaceApp() {
                       style={splitSurfaceStyle}
                     >
                       <div className="min-h-0 overflow-hidden" onFocusCapture={handleVisualPaneFocus}>
-                        {largeMarkdownVisualBlocked ? (
-                          <LargeMarkdownNotice
-                            language={appLanguage.language}
-                            onOpenSourceMode={handleEditorModeToggle}
-                          />
-                        ) : (
-                          <MarkdownPaper
-                            autoFocus={activeEditorSurface === "visual"}
-                            bottomOverlayInset={aiCommandVisible && activeEditorSurface === "visual" ? aiCommandOverlayInset : 0}
-                            bodyFontSize={editorPreferences.preferences.bodyFontSize}
-                            contentWidth={activeEditorContentWidth}
-                            contentWidthPx={activeEditorContentWidthPx}
-                            documentKey={activeTabId}
-                            documentPath={document.path}
-                            editorTheme={appTheme.editorTheme}
-                            extendedSyntax={editorPreferences.preferences.extendedSyntax}
-                            initialContent={document.content}
-                            language={appLanguage.language}
-                            lineHeight={editorPreferences.preferences.lineHeight}
-                            markdownShortcuts={editorPreferences.preferences.markdownShortcuts}
-                            onEditorReady={handleVisualEditorReady}
-                            onMarkdownChange={(content) => handleVisualMarkdownChange(content, {
-                              documentRevision: document.revision
-                            })}
-                            onContentWidthChange={handleEditorContentWidthChange}
-                            onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
-                            onSaveClipboardImage={handleSaveClipboardImage}
-                            onSaveRemoteClipboardImage={handleSaveRemoteClipboardImage}
-                            openExternalUrl={handleOpenEditorLink}
-                            readOnly={readOnlyMode}
-                            onTextSelectionChange={handleTextSelectionChange}
-                            resolveImageSrc={resolveImageSrc}
-                            revision={document.revision}
-                            onScroll={handleVisualPaneScroll}
-                            scrollRef={visualScrollRef}
-                            topInset="titlebar"
-                            workspaceFiles={fileTreeFiles}
-                          />
-                        )}
+                        {mainVisualEditors}
                       </div>
                       <div
                         className="group/split-resizer relative z-20 hidden cursor-col-resize touch-none outline-none min-[900px]:block"
@@ -3614,15 +3792,20 @@ function WorkspaceApp() {
                         onKeyDown={handleSplitPaneResizeKeyDown}
                         onPointerDown={handleSplitPaneResizePointerDown}
                       >
-                        <span className="pointer-events-none absolute inset-y-5 left-1/2 w-px -translate-x-1/2 bg-(--border-default) transition-colors duration-150 ease-out group-hover/split-resizer:bg-(--accent) group-focus/split-resizer:bg-(--accent)" />
+                        <span className="pointer-events-none absolute top-10 bottom-5 left-1/2 w-px -translate-x-1/2 bg-(--border-default) transition-colors duration-150 ease-out group-hover/split-resizer:bg-(--accent) group-focus/split-resizer:bg-(--accent)" />
                       </div>
                       <div className="min-h-0 overflow-hidden" onFocusCapture={handleSourcePaneFocus}>
-                        <MarkdownSourceEditor
+                        <LazyMarkdownSourceEditor
                           autoFocus={activeEditorSurface === "source"}
+                          bottomOverlayInset={editorBottomOverlayInset(
+                            aiCommandVisible && activeEditorSurface === "source",
+                            aiCommandOverlayInset
+                          )}
                           bodyFontSize={editorPreferences.preferences.bodyFontSize}
                           content={document.content}
                           contentWidth={activeEditorContentWidth}
                           contentWidthPx={activeEditorContentWidthPx}
+                          editorFontFamily={editorPreferences.preferences.editorFontFamily}
                           extendedSyntax={editorPreferences.preferences.extendedSyntax}
                           language={appLanguage.language}
                           lineHeight={editorPreferences.preferences.lineHeight}
@@ -3632,6 +3815,7 @@ function WorkspaceApp() {
                           onContentWidthChange={handleEditorContentWidthChange}
                           onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
                           onScroll={handleSourcePaneScroll}
+                          onSelectionTextChange={updateSelectedWordCount}
                           readOnly={readOnlyMode}
                           searchActiveIndex={normalizedDocumentSearchActiveIndex}
                           searchMatches={visibleSourceDocumentSearchMatches}
@@ -3640,74 +3824,43 @@ function WorkspaceApp() {
                         />
                       </div>
                     </div>
-                  ) : sourceMode ? (
-                    <MarkdownSourceEditor
-                      autoFocus
-                      bodyFontSize={editorPreferences.preferences.bodyFontSize}
-                      content={document.content}
-                      contentWidth={activeEditorContentWidth}
-                      contentWidthPx={activeEditorContentWidthPx}
-                      extendedSyntax={editorPreferences.preferences.extendedSyntax}
-                      language={appLanguage.language}
-                      lineHeight={editorPreferences.preferences.lineHeight}
-                      onChange={(content) => handleSourceMarkdownChange(content, {
-                        documentRevision: document.revision
-                      })}
-                      onContentWidthChange={handleEditorContentWidthChange}
-                      onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
-                      onScroll={handleSourcePaneScroll}
-                      readOnly={readOnlyMode}
-                      searchActiveIndex={normalizedDocumentSearchActiveIndex}
-                      searchMatches={visibleSourceDocumentSearchMatches}
-                      scrollRef={sourceScrollRef}
-                      topInset="titlebar"
-                    />
                   ) : (
-                    largeMarkdownVisualBlocked ? (
-                      <LargeMarkdownNotice
-                        language={appLanguage.language}
-                        onOpenSourceMode={handleEditorModeToggle}
-                      />
-                    ) : (
-                      <MarkdownPaper
-                        autoFocus={shouldFocusEditorOnReady(document.content)}
-                        bottomOverlayInset={aiCommandVisible ? aiCommandOverlayInset : 0}
-                        bodyFontSize={editorPreferences.preferences.bodyFontSize}
-                        contentWidth={activeEditorContentWidth}
-                        contentWidthPx={activeEditorContentWidthPx}
-                        documentKey={activeTabId}
-                        documentPath={document.path}
-                        editorTheme={appTheme.editorTheme}
-                        extendedSyntax={editorPreferences.preferences.extendedSyntax}
-                        initialContent={document.content}
-                        language={appLanguage.language}
-                        lineHeight={editorPreferences.preferences.lineHeight}
-                        markdownShortcuts={editorPreferences.preferences.markdownShortcuts}
-                        onEditorReady={handleVisualEditorReady}
-                        onMarkdownChange={(content) => handleVisualMarkdownChange(content, {
-                          documentRevision: document.revision
-                        })}
-                        onContentWidthChange={handleEditorContentWidthChange}
-                        onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
-                        onSaveClipboardImage={handleSaveClipboardImage}
-                        onSaveRemoteClipboardImage={handleSaveRemoteClipboardImage}
-                        openExternalUrl={handleOpenEditorLink}
-                        readOnly={readOnlyMode}
-                        onTextSelectionChange={handleTextSelectionChange}
-                        resolveImageSrc={resolveImageSrc}
-                        revision={document.revision}
-                        onScroll={handleVisualPaneScroll}
-                        scrollRef={visualScrollRef}
-                        topInset="titlebar"
-                        workspaceFiles={fileTreeFiles}
-                      />
-                    )
+                    <div className="relative h-full min-h-0">
+                      {mainVisualEditors}
+                      {sourceMode ? (
+                        <LazyMarkdownSourceEditor
+                          autoFocus
+                          bottomOverlayInset={editorBottomOverlayInset(aiCommandVisible, aiCommandOverlayInset)}
+                          bodyFontSize={editorPreferences.preferences.bodyFontSize}
+                          content={document.content}
+                          contentWidth={activeEditorContentWidth}
+                          contentWidthPx={activeEditorContentWidthPx}
+                          editorFontFamily={editorPreferences.preferences.editorFontFamily}
+                          extendedSyntax={editorPreferences.preferences.extendedSyntax}
+                          language={appLanguage.language}
+                          lineHeight={editorPreferences.preferences.lineHeight}
+                          onChange={(content) => handleSourceMarkdownChange(content, {
+                            documentRevision: document.revision
+                          })}
+                          onContentWidthChange={handleEditorContentWidthChange}
+                          onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
+                          onScroll={handleSourcePaneScroll}
+                          onSelectionTextChange={updateSelectedWordCount}
+                          readOnly={readOnlyMode}
+                          searchActiveIndex={normalizedDocumentSearchActiveIndex}
+                          searchMatches={visibleSourceDocumentSearchMatches}
+                          scrollRef={sourceScrollRef}
+                          topInset="titlebar"
+                        />
+                      ) : null}
+                    </div>
                   )}
                   <QuietStatus
                     backupLabel={backupStatusLabel}
                     dirty={document.dirty}
                     language={appLanguage.language}
                     readOnly={readOnlyMode}
+                    selectedWordCount={selectedWordCount}
                     showWordCount={editorPreferences.preferences.showWordCount}
                     syncLabel={syncStatusLabel}
                     wordCount={wordCount}
@@ -3727,7 +3880,7 @@ function WorkspaceApp() {
                         onKeyDown={handleSideDocumentPaneResizeKeyDown}
                         onPointerDown={handleSideDocumentPaneResizePointerDown}
                       >
-                        <span className="pointer-events-none absolute inset-y-5 left-1/2 w-px -translate-x-1/2 bg-(--border-default) transition-colors duration-150 ease-out group-hover/side-resizer:bg-(--accent) group-focus/side-resizer:bg-(--accent)" />
+                        <span className="pointer-events-none absolute top-10 bottom-5 left-1/2 w-px -translate-x-1/2 bg-(--border-default) transition-colors duration-150 ease-out group-hover/side-resizer:bg-(--accent) group-focus/side-resizer:bg-(--accent)" />
                       </div>
                       <SideDocumentPane
                         bodyFontSize={editorPreferences.preferences.bodyFontSize}
@@ -3736,6 +3889,7 @@ function WorkspaceApp() {
                         contentWidthPx={activeEditorContentWidthPx}
                         documentKey={sideDocumentTab.id}
                         documentPath={sideDocumentTab.path}
+                        editorFontFamily={editorPreferences.preferences.editorFontFamily}
                         editorTheme={appTheme.editorTheme}
                         extendedSyntax={editorPreferences.preferences.extendedSyntax}
                         language={appLanguage.language}
@@ -3747,69 +3901,22 @@ function WorkspaceApp() {
                         resolveImageSrc={resolveSideDocumentImageSrc}
                         revision={sideDocumentTab.revision}
                         sizeBytes={sideDocumentTab.sizeBytes}
+                        spellcheckEnabled={spellcheckFeatureEnabled && editorPreferences.preferences.spellcheckEnabled}
+                        spellcheckIgnoredWords={editorPreferences.preferences.spellcheckIgnoredWords}
+                        spellchecker={appSpellchecker}
+                        onAddSpellcheckIgnoredWord={handleAddSpellcheckIgnoredWord}
                         workspaceFiles={fileTreeFiles}
                         onChange={handleSideDocumentChange}
                         onContentWidthChange={handleEditorContentWidthChange}
                         onContentWidthResizeEnd={handleEditorContentWidthResizeEnd}
                         onFocus={handleSideDocumentPaneFocus}
+                        wrapCodeBlocks={editorPreferences.preferences.wrapCodeBlocks}
                       />
                     </>
                   ) : null}
                 </div>
               ) : null}
-            </div>
-            <div className="ai-agent-panel-slot relative z-20 min-h-0 overflow-hidden">
-              {aiFeatureEnabled ? (
-                <AiAgentPanel
-                activeSessionId={activeAiAgentSessionId}
-                availableModels={aiSettings.availableTextModels}
-                context={aiAgentContext}
-                documentAvailable={hasOpenDocument && !activeImageFile}
-                draft={aiAgent.draft}
-                language={appLanguage.language}
-                messages={aiAgent.messages}
-                modelName={aiAgentModelName}
-                open={aiAgentOpen}
-                providerName={aiAgentProviderName}
-                sessions={aiAgentSessions.sessions}
-                selectedModelId={aiSettings.agentModelId}
-                selectedProviderId={aiSettings.agentProviderId}
-                status={aiAgent.status}
-                thinkingEnabled={aiAgent.thinkingEnabled}
-                webSearchAvailable={webSearchAvailable}
-                webSearchEnabled={aiAgent.webSearchEnabled}
-                maxWidth={aiAgentPanelMaxWidth}
-                minWidth={aiAgentPanelMinWidth}
-                width={aiAgentPanelWidth}
-                onArchiveSession={(sessionId, archived) => {
-                  handleArchiveAiAgentSession(sessionId, archived).catch(() => {});
-                }}
-                onClose={closeAiAgentPanel}
-                onCreateSession={handleCreateAiAgentSession}
-                onDeleteSession={(sessionId) => {
-                  handleDeleteAiAgentSession(sessionId).catch(() => {});
-                }}
-                onDisableThinking={() => aiAgent.setSessionThinkingEnabled(false)}
-                onDraftChange={aiAgent.setDraft}
-                onInterrupt={aiAgent.interrupt}
-                onRenameSession={(sessionId, title) => {
-                  handleRenameAiAgentSession(sessionId, title).catch(() => {});
-                }}
-                onResize={setAiAgentPanelWidth}
-                onResizeEnd={() => setAiAgentPanelResizing(false)}
-                onResizeStart={() => setAiAgentPanelResizing(true)}
-                onRetryMessage={aiAgent.retryMessage}
-                onSelectSession={handleSelectAiAgentSession}
-                onSelectModel={aiSettings.selectAgentModel}
-                onSubmit={aiAgent.submit}
-                onSubmitEditedMessage={aiAgent.submitEditedMessage}
-                onToggleThinking={() => aiAgent.setThinkingEnabled((enabled) => !enabled)}
-                onToggleWebSearch={() => aiAgent.setWebSearchEnabled((enabled) => !enabled)}
-              />
-              ) : null}
-            </div>
-          </div>
-        </div>
+        </WorkspaceLayout>
 
         {aiFeatureEnabled ? (
           <AiSelectionToolbar
@@ -3822,6 +3929,7 @@ function WorkspaceApp() {
             open={aiSelectionToolbarVisible}
             quickActionPrompts={editorPreferences.preferences.aiQuickActionPrompts}
             onCopySelection={handleAiSelectionToolbarCopySelection}
+            onDismiss={handleAiSelectionToolbarDismiss}
             onInsertLink={handleAiSelectionToolbarInsertLink}
             onOpenCommand={handleAiSelectionToolbarOpenCommand}
             onRunFormattingAction={handleAiSelectionToolbarFormattingAction}

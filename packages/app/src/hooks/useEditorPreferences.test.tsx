@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { defaultAiQuickActionPrompts } from "../lib/ai-actions";
-import { getStoredEditorPreferences } from "../lib/settings/app-settings";
+import { defaultEditorPreferences, getStoredEditorPreferences } from "../lib/settings/app-settings";
 import { listenAppEditorPreferencesChanged } from "../lib/settings/settings-events";
 import { useEditorPreferences } from "./useEditorPreferences";
 
@@ -13,12 +13,20 @@ vi.mock("../lib/settings/app-settings", () => ({
       summarize: "",
       translate: ""
     },
+    autoSaveEnabled: true,
+    autoSaveIntervalMinutes: 10,
     autoUpdateEnabled: true,
     bodyFontSize: 16,
     clipboardImageFolder: "assets",
     closeAiCommandOnAgentPanelOpen: false,
     contentWidth: "default",
     contentWidthPx: null,
+    documentLinksOpen: true,
+    documentLinksVisible: false,
+    editorFontFamily: {
+      family: null,
+      source: "theme"
+    },
     extendedSyntax: {
       githubAlerts: true,
       highlight: true
@@ -77,7 +85,11 @@ vi.mock("../lib/settings/app-settings", () => ({
     showAiSelectionToolbarOnSelection: false,
     showDocumentTabs: true,
     splitVisualPanePercent: 50,
-    showWordCount: true
+    spellcheckEnabled: false,
+    spellcheckIgnoredWords: [],
+    spellcheckLanguage: "en",
+    showWordCount: true,
+    wrapCodeBlocks: true
   },
   getStoredEditorPreferences: vi.fn()
 }));
@@ -100,12 +112,21 @@ describe("useEditorPreferences", () => {
     let onPreferencesChanged: Parameters<typeof listenAppEditorPreferencesChanged>[0] | null = null;
     mockedGetStoredEditorPreferences.mockResolvedValue({
       aiQuickActionPrompts: defaultAiQuickActionPrompts,
+      autoRevealActiveFile: true,
+      autoSaveEnabled: true,
+      autoSaveIntervalMinutes: 10,
       autoUpdateEnabled: true,
       bodyFontSize: 16,
       clipboardImageFolder: "assets",
       closeAiCommandOnAgentPanelOpen: false,
       contentWidth: "default",
       contentWidthPx: null,
+      documentLinksOpen: true,
+      documentLinksVisible: false,
+      editorFontFamily: {
+        family: null,
+        source: "theme"
+      },
       extendedSyntax: {
         githubAlerts: true,
         highlight: true
@@ -147,6 +168,7 @@ describe("useEditorPreferences", () => {
         italic: "Mod+I",
         link: "Mod+K",
         openQuickOpen: "Mod+P",
+        openSpellcheckSuggestions: "Mod+.",
         orderedList: "Mod+Shift+7",
         paragraph: "Mod+Alt+0",
         quote: "Mod+Shift+B",
@@ -168,13 +190,17 @@ describe("useEditorPreferences", () => {
       suggestAiPanelForComplexInlinePrompts: true,
       showDocumentTabs: true,
       splitVisualPanePercent: 50,
+      spellcheckEnabled: false,
+      spellcheckIgnoredWords: [],
+      spellcheckLanguage: "en",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },
         { id: "save", visible: true },
         { id: "theme", visible: true }
       ],
-      showWordCount: true
+      showWordCount: true,
+      wrapCodeBlocks: true
     });
     mockedListenAppEditorPreferencesChanged.mockImplementation(async (listener) => {
       onPreferencesChanged = listener;
@@ -190,12 +216,21 @@ describe("useEditorPreferences", () => {
     act(() => {
       onPreferencesChanged?.({
         aiQuickActionPrompts: defaultAiQuickActionPrompts,
+        autoRevealActiveFile: true,
+        autoSaveEnabled: true,
+        autoSaveIntervalMinutes: 10,
         autoUpdateEnabled: true,
         bodyFontSize: 18,
         clipboardImageFolder: "images",
         closeAiCommandOnAgentPanelOpen: true,
         contentWidth: "wide",
         contentWidthPx: 1120,
+        documentLinksOpen: true,
+        documentLinksVisible: false,
+        editorFontFamily: {
+          family: "Example Serif",
+          source: "system"
+        },
         extendedSyntax: {
           githubAlerts: true,
           highlight: false
@@ -237,6 +272,7 @@ describe("useEditorPreferences", () => {
           italic: "Mod+I",
           link: "Mod+K",
           openQuickOpen: "Mod+P",
+          openSpellcheckSuggestions: "Mod+.",
           orderedList: "Mod+Shift+7",
           paragraph: "Mod+Alt+0",
           quote: "Mod+Shift+B",
@@ -258,13 +294,17 @@ describe("useEditorPreferences", () => {
         suggestAiPanelForComplexInlinePrompts: true,
         showDocumentTabs: false,
         splitVisualPanePercent: 64,
+        spellcheckEnabled: true,
+        spellcheckIgnoredWords: ["exampleterm"],
+        spellcheckLanguage: "en",
         titlebarActions: [
           { id: "theme", visible: true },
           { id: "save", visible: false },
           { id: "sourceMode", visible: true },
           { id: "aiAgent", visible: true }
         ],
-        showWordCount: false
+        showWordCount: false,
+        wrapCodeBlocks: false
       });
     });
 
@@ -273,5 +313,41 @@ describe("useEditorPreferences", () => {
     expect(result.current.preferences.bodyFontSize).toBe(18);
     expect(result.current.preferences.closeAiCommandOnAgentPanelOpen).toBe(true);
     expect(result.current.preferences.contentWidth).toBe("wide");
+  });
+
+  it("keeps a live preference update when the initial stored preferences resolve later", async () => {
+    let onPreferencesChanged: Parameters<typeof listenAppEditorPreferencesChanged>[0] | null = null;
+    let resolveStoredPreferences: (preferences: Awaited<ReturnType<typeof getStoredEditorPreferences>>) => void = () => {};
+    mockedGetStoredEditorPreferences.mockReturnValue(new Promise((resolve) => {
+      resolveStoredPreferences = resolve;
+    }));
+    mockedListenAppEditorPreferencesChanged.mockImplementation(async (listener) => {
+      onPreferencesChanged = listener;
+      return () => {};
+    });
+
+    const { result } = renderHook(() => useEditorPreferences());
+
+    act(() => {
+      onPreferencesChanged?.({
+        ...defaultEditorPreferences,
+        bodyFontSize: 18,
+        showWordCount: false
+      });
+    });
+    expect(result.current.preferences.bodyFontSize).toBe(18);
+    expect(result.current.preferences.showWordCount).toBe(false);
+
+    await act(async () => {
+      resolveStoredPreferences({
+        ...defaultEditorPreferences,
+        bodyFontSize: 16,
+        showWordCount: true
+      });
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.preferences.bodyFontSize).toBe(18);
+    expect(result.current.preferences.showWordCount).toBe(false);
   });
 });

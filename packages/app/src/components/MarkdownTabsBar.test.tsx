@@ -187,6 +187,105 @@ describe("MarkdownTabsBar", () => {
     });
   });
 
+  it("uses the full tab path as the hover tooltip when available", () => {
+    render(
+      <MarkdownTabsBar
+        activeTabId="tab-a"
+        items={[
+          {
+            dirty: false,
+            id: "tab-a",
+            name: "Alpha.md",
+            path: "/synthetic/workspace/docs/Alpha.md"
+          }
+        ]}
+        placement="titlebar"
+        onCloseTab={() => {}}
+        onNewTab={() => {}}
+        onSelectTab={() => {}}
+      />
+    );
+
+    expect(screen.getByRole("tab", { name: /Alpha\.md/ })).toHaveAttribute(
+      "title",
+      "/synthetic/workspace/docs/Alpha.md"
+    );
+  });
+
+  it("uses the focused pane tab as the grouped tab active state", () => {
+    render(
+      <MarkdownTabsBar
+        activeTabId="tab-a"
+        focusedTabId="tab-b"
+        items={[
+          [
+            {
+              dirty: false,
+              id: "tab-a",
+              name: "Alpha.md",
+              path: "/synthetic/alpha.md"
+            },
+            {
+              dirty: false,
+              id: "tab-b",
+              name: "Beta.md",
+              path: "/synthetic/beta.md"
+            }
+          ]
+        ]}
+        onCloseTab={() => {}}
+        onNewTab={() => {}}
+        onSelectTab={() => {}}
+      />
+    );
+
+    const alphaTab = screen.getByRole("tab", { name: /Alpha\.md/ });
+    const betaTab = screen.getByRole("tab", { name: /Beta\.md/ });
+
+    expect(alphaTab).toHaveAttribute("aria-selected", "false");
+    expect(alphaTab).not.toHaveAttribute("data-document-tab-pane-focus");
+    expect(alphaTab.className).toContain("text-(--text-secondary)");
+    expect(betaTab).toHaveAttribute("aria-selected", "true");
+    expect(betaTab).toHaveAttribute("data-document-tab-pane-focus", "true");
+    expect(betaTab.className).toContain("text-(--text-heading)");
+  });
+
+  it("reports the clicked grouped tab as the requested focus target", () => {
+    const onFocusTab = vi.fn();
+    const onSelectTab = vi.fn();
+
+    render(
+      <MarkdownTabsBar
+        activeTabId="tab-a"
+        items={[
+          [
+            {
+              dirty: false,
+              id: "tab-a",
+              name: "Alpha.md",
+              path: "/synthetic/alpha.md"
+            },
+            {
+              dirty: false,
+              id: "tab-b",
+              name: "Beta.md",
+              path: "/synthetic/beta.md"
+            }
+          ]
+        ]}
+        onCloseTab={() => {}}
+        onFocusTab={onFocusTab}
+        onNewTab={() => {}}
+        onSelectTab={onSelectTab}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: /Beta\.md/ }));
+
+    expect(onSelectTab).toHaveBeenCalledWith("tab-a");
+    expect(onFocusTab).toHaveBeenCalledWith("tab-b");
+  });
+
   it("omits titlebar empty drag space when native drag regions are unavailable", () => {
     const { container } = render(
       <MarkdownTabsBar
@@ -547,6 +646,39 @@ describe("MarkdownTabsBar", () => {
     expect(document.querySelector("[data-markra-context-menu]")).not.toBeNull();
   });
 
+  it("reveals a markdown tab in the file tree from the tab actions menu", () => {
+    const onRevealTabInFileTree = vi.fn();
+
+    render(
+      <MarkdownTabsBar
+        activeTabId="tab-a"
+        items={[
+          {
+            dirty: false,
+            id: "tab-a",
+            name: "Alpha.md",
+            path: "/synthetic/alpha.md"
+          },
+          {
+            dirty: false,
+            id: "tab-b",
+            name: "Beta.md",
+            path: "/synthetic/beta.md"
+          }
+        ]}
+        onCloseTab={() => {}}
+        onNewTab={() => {}}
+        onRevealTabInFileTree={onRevealTabInFileTree}
+        onSelectTab={() => {}}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /Beta\.md/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reveal active file" }));
+
+    expect(onRevealTabInFileTree).toHaveBeenCalledWith("/synthetic/beta.md");
+  });
+
   it("opens a markdown tab to the side from the tab actions menu", () => {
     const onOpenTabToSide = vi.fn();
 
@@ -657,6 +789,112 @@ describe("MarkdownTabsBar", () => {
     expect(onOpenTabToSide).toHaveBeenCalledWith("tab-b", "tab-a");
     expect(elementFromPoint).toHaveBeenCalled();
     Reflect.deleteProperty(document, "elementFromPoint");
+  });
+
+  it("shows a side drop insertion position while pointer dragging over a tab", () => {
+    render(
+      <MarkdownTabsBar
+        activeTabId="tab-a"
+        items={[
+          {
+            dirty: false,
+            id: "tab-a",
+            name: "Alpha.md",
+            path: "/synthetic/alpha.md"
+          },
+          {
+            dirty: false,
+            id: "tab-b",
+            name: "Beta.md",
+            path: "/synthetic/beta.md"
+          }
+        ]}
+        onCloseTab={() => {}}
+        onNewTab={() => {}}
+        onOpenTabToSide={() => {}}
+        onSelectTab={() => {}}
+      />
+    );
+
+    const alphaTab = screen.getByRole("tab", { name: /Alpha\.md/ });
+    const betaTab = screen.getByRole("tab", { name: /Beta\.md/ });
+    alphaTab.getBoundingClientRect = vi.fn(() => ({
+      bottom: 32,
+      height: 28,
+      left: 10,
+      right: 110,
+      top: 4,
+      width: 100,
+      x: 10,
+      y: 4,
+      toJSON: () => ({})
+    }));
+    const elementFromPoint = mockElementFromPoint(alphaTab);
+
+    fireEvent.pointerDown(betaTab, { button: 0, clientX: 0, clientY: 12, pointerId: 1 });
+    fireEvent.pointerMove(window, { clientX: 24, clientY: 12, pointerId: 1 });
+
+    expect(alphaTab).toHaveAttribute("data-document-tab-drop-position", "before");
+
+    fireEvent.pointerMove(window, { clientX: 96, clientY: 12, pointerId: 1 });
+
+    expect(alphaTab).toHaveAttribute("data-document-tab-drop-position", "after");
+
+    fireEvent.pointerUp(window, { clientX: 96, clientY: 12, pointerId: 1 });
+    expect(elementFromPoint).toHaveBeenCalled();
+    Reflect.deleteProperty(document, "elementFromPoint");
+  });
+
+  it("uses the tab drop side to choose the side-by-side document order", () => {
+    const onOpenTabToSide = vi.fn();
+
+    render(
+      <MarkdownTabsBar
+        activeTabId="tab-a"
+        items={[
+          {
+            dirty: false,
+            id: "tab-a",
+            name: "Alpha.md",
+            path: "/synthetic/alpha.md"
+          },
+          {
+            dirty: false,
+            id: "tab-b",
+            name: "Beta.md",
+            path: "/synthetic/beta.md"
+          }
+        ]}
+        onCloseTab={() => {}}
+        onNewTab={() => {}}
+        onOpenTabToSide={onOpenTabToSide}
+        onSelectTab={() => {}}
+      />
+    );
+
+    const alphaTab = screen.getByRole("tab", { name: /Alpha\.md/ });
+    const betaTab = screen.getByRole("tab", { name: /Beta\.md/ });
+    alphaTab.getBoundingClientRect = vi.fn(() => ({
+      bottom: 32,
+      height: 28,
+      left: 10,
+      right: 110,
+      top: 4,
+      width: 100,
+      x: 10,
+      y: 4,
+      toJSON: () => ({})
+    }));
+    const elementFromPoint = mockElementFromPoint(alphaTab);
+
+    fireEvent.pointerDown(betaTab, { button: 0, clientX: 0, clientY: 12, pointerId: 1 });
+    fireEvent.pointerMove(window, { clientX: 24, clientY: 12, pointerId: 1 });
+    fireEvent.pointerUp(window, { clientX: 24, clientY: 12, pointerId: 1 });
+
+    expect(onOpenTabToSide).toHaveBeenCalledWith("tab-a", "tab-b");
+
+    Reflect.deleteProperty(document, "elementFromPoint");
+    elementFromPoint.mockClear();
   });
 
   it("uses the pointer drop target tab as the main side-by-side tab", () => {

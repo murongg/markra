@@ -7,25 +7,151 @@ import {
   normalizeStoredAiAgentSessionSummaries,
   normalizeStoredAiAgentSessionSummary,
   type StoredAiAgentSessionSummary,
-  type StoredAiAgentSessionState,
-  type WebSearchProviderId,
-  type WebSearchSettings
+  type StoredAiAgentSessionState
 } from "@markra/ai";
 import { defaultMarkdownShortcuts, normalizeMarkdownShortcuts, type MarkdownShortcutBindings } from "@markra/editor";
 import { createDefaultAiSettings, normalizeAiSettings, type AiProviderSettings } from "@markra/providers";
-import { clampNumber, isAppLanguage, normalizeNullableString, pathNameFromPath, type AppLanguage } from "@markra/shared";
+import { clampNumber, isAppLanguage, normalizeNullableString, type AppLanguage } from "@markra/shared";
 import {
   editorContentWidthOptions,
   normalizeEditorContentWidthPx,
   type EditorContentWidth
 } from "../editor-width";
+import {
+  defaultEditorFontFamily,
+  normalizeEditorFontFamilyPreference,
+  type EditorFontFamilyPreference
+} from "../editor-font";
 import { normalizeMarkdownTemplateEntries, type MarkdownTemplateEntry } from "../templates";
 import {
   defaultAiQuickActionPrompts,
   normalizeAiQuickActionPrompts,
   type AiQuickActionPrompts
 } from "../ai-actions";
+import {
+  defaultSpellcheckLanguage,
+  isSpellcheckLanguage,
+  type SpellcheckLanguage
+} from "../spellcheck-languages";
 import { getAppRuntime } from "../../runtime";
+import {
+  defaultBackupSettings,
+  normalizeBackupSettings,
+  type BackupSettings
+} from "./backup-settings";
+import {
+  defaultExportSettings,
+  normalizeExportSettings,
+  type ExportSettings,
+  type PdfMarginPreset,
+  type PdfPageSize
+} from "./export-settings";
+import {
+  defaultNetworkSettings,
+  normalizeNetworkSettings,
+  type NetworkSettings
+} from "./network-settings";
+import {
+  normalizeRecentMarkdownFiles,
+  normalizeRecentMarkdownFolders,
+  prependRecentMarkdownFile,
+  prependRecentMarkdownFolder,
+  type RecentMarkdownFile,
+  type RecentMarkdownFolder
+} from "./recent-markdown";
+import {
+  defaultSyncSettings,
+  normalizeSyncSettings,
+  type SyncProvider,
+  type SyncSettings,
+  type WebDavSyncSettings
+} from "./sync-settings";
+import {
+  defaultWebSearchSettings,
+  normalizeWebSearchSettings,
+  type WebSearchProviderId,
+  type WebSearchSettings
+} from "./web-search-settings";
+import {
+  defaultWorkspaceState,
+  normalizeFileTreeSortByWorkspace,
+  normalizeStoredFileTreeSort,
+  normalizeWorkspaceState,
+  type StoredFileTreeSort,
+  type StoredFileTreeSortByWorkspace,
+  type StoredWorkspaceDraftTab,
+  type StoredWorkspaceSideBySideGroup,
+  type StoredWorkspaceState,
+  type StoredWorkspaceWindowState,
+  type StoredWorkspaceWindow
+} from "./workspace-state";
+
+export {
+  defaultBackupSettings,
+  normalizeBackupSettings
+} from "./backup-settings";
+export {
+  defaultExportSettings,
+  normalizeExportSettings
+} from "./export-settings";
+export {
+  defaultNetworkSettings,
+  normalizeNetworkSettings
+} from "./network-settings";
+export {
+  normalizeRecentMarkdownFiles,
+  normalizeRecentMarkdownFolders,
+  prependRecentMarkdownFile,
+  prependRecentMarkdownFolder
+} from "./recent-markdown";
+export {
+  defaultSyncSettings,
+  normalizeSyncSettings
+} from "./sync-settings";
+export {
+  defaultWebSearchSettings,
+  normalizeWebSearchSettings
+} from "./web-search-settings";
+export {
+  defaultStoredFileTreeSort,
+  defaultWorkspaceState,
+  normalizeFileTreeSortByWorkspace,
+  normalizeStoredFileTreeSort,
+  normalizeWorkspaceState
+} from "./workspace-state";
+export type {
+  BackupSettings
+} from "./backup-settings";
+export type {
+  ExportSettings,
+  PdfMarginPreset,
+  PdfPageSize
+} from "./export-settings";
+export type {
+  NetworkSettings
+} from "./network-settings";
+export type {
+  RecentMarkdownFile,
+  RecentMarkdownFolder
+} from "./recent-markdown";
+export type {
+  SyncProvider,
+  SyncSettings,
+  WebDavSyncSettings
+} from "./sync-settings";
+export type {
+  WebSearchProviderId,
+  WebSearchSettings
+} from "./web-search-settings";
+export type {
+  StoredFileTreeSort,
+  StoredFileTreeSortByWorkspace,
+  StoredWorkspaceDraftTab,
+  StoredWorkspaceSideBySideGroup,
+  StoredWorkspaceState,
+  StoredWorkspaceWindowState,
+  StoredWorkspaceWindow
+} from "./workspace-state";
 
 const settingsStorePath = "settings.json";
 const aiAgentSessionIndexStorePath = "ai-agent-sessions/index.json";
@@ -34,20 +160,49 @@ const aiAgentSessionMetaKey = "meta";
 const aiAgentSessionIndexKey = "entries";
 const welcomeDocumentSeenKey = "welcomeDocumentSeen";
 const themeKey = "theme";
+const appearanceModeKey = "appearanceMode";
+const lightThemeKey = "lightTheme";
+const darkThemeKey = "darkTheme";
 const customThemeCssKey = "customThemeCss";
+const lightCustomThemeCssKey = "lightCustomThemeCss";
+const darkCustomThemeCssKey = "darkCustomThemeCss";
 const languageKey = "language";
 const aiProvidersKey = "aiProviders";
 const aiAgentPreferencesKey = "aiAgentPreferences";
 const editorPreferencesKey = "editorPreferences";
 const exportSettingsKey = "exportSettings";
 const webSearchKey = "webSearch";
+const networkKey = "network";
 const backupSettingsKey = "backupSettings";
 const syncSettingsKey = "syncSettings";
+const fileTreeSortByWorkspaceKey = "fileTreeSortByWorkspace";
 const workspaceKey = "workspace";
 const recentMarkdownFilesKey = "recentMarkdownFiles";
 const recentMarkdownFoldersKey = "recentMarkdownFolders";
+const mainWorkspaceWindowLabel = "main";
+const settingsWorkspaceWindowLabel = "markra-settings";
+const maxFileTreeSortWorkspaceEntries = 50;
+const storedAppSettingsFileFormat = "markra-settings";
+const storedAppSettingsFileVersion = 1;
+const invalidStoredAppSettingsFileMessage = "Invalid Markra settings file.";
+
+type StoredWorkspaceStateOptions = {
+  windowLabel?: string | null;
+};
+
+type StoredWorkspaceStore = {
+  legacyState: StoredWorkspaceState;
+  openWindows: StoredWorkspaceWindow[];
+  windowStates: Record<string, StoredWorkspaceWindowState>;
+};
+
+type StoredWorkspaceStoreValue = Partial<StoredWorkspaceState> & {
+  windowStates?: unknown;
+};
 
 export type ResolvedAppTheme = "light" | "dark";
+export const appAppearanceModeOptions = ["system", "light", "dark"] as const;
+export type AppAppearanceMode = typeof appAppearanceModeOptions[number];
 export type AiSelectionDisplayMode = "command" | "toolbar";
 export type SidebarLayoutMode = "stacked" | "tabs";
 type LegacyEditorPreferences = {
@@ -80,9 +235,45 @@ export const editorThemeOptions = [
 export type EditorTheme = typeof editorThemeOptions[number];
 export const appThemeOptions = ["system", ...editorThemeOptions] as const;
 export type AppTheme = typeof appThemeOptions[number];
-export type PdfMarginPreset = "custom" | "default" | "narrow" | "none" | "normal" | "wide";
-export type PdfPageSize = "a4" | "custom" | "default" | "letter";
-export type TitlebarActionId = "aiAgent" | "sourceMode" | "splitMode" | "history" | "save" | "theme";
+export const lightEditorThemeOptions = [
+  "light",
+  "github",
+  "one-light",
+  "gothic",
+  "newsprint",
+  "pixyll",
+  "whitey",
+  "sepia",
+  "solarized-light",
+  "catppuccin-latte",
+  "academic",
+  "minimal",
+  "custom"
+] as const;
+export type LightEditorTheme = typeof lightEditorThemeOptions[number];
+export const darkEditorThemeOptions = [
+  "dark",
+  "github-dark",
+  "one-dark",
+  "one-dark-pro",
+  "night",
+  "solarized-dark",
+  "nord",
+  "catppuccin-mocha",
+  "custom"
+] as const;
+export type DarkEditorTheme = typeof darkEditorThemeOptions[number];
+export type AppThemePreferences = {
+  appearanceMode: AppAppearanceMode;
+  darkTheme: DarkEditorTheme;
+  lightTheme: LightEditorTheme;
+};
+export const defaultAppThemePreferences: AppThemePreferences = {
+  appearanceMode: "system",
+  darkTheme: "dark",
+  lightTheme: "light"
+};
+export type TitlebarActionId = "aiAgent" | "sourceMode" | "history" | "save" | "theme";
 export type TitlebarActionPreference = {
   id: TitlebarActionId;
   visible: boolean;
@@ -119,18 +310,45 @@ export type AiAgentPreferences = {
   thinkingEnabled: boolean;
   webSearchEnabled: boolean;
 };
+export type PortableStoredAppSettings = {
+  aiAgentPreferences: AiAgentPreferences;
+  aiProviders: AiProviderSettings;
+  appearanceMode: AppAppearanceMode;
+  backupSettings: BackupSettings;
+  customThemeCss: CustomThemeCssValues;
+  darkTheme: DarkEditorTheme;
+  editorPreferences: EditorPreferences;
+  exportSettings: ExportSettings;
+  language: AppLanguage;
+  lightTheme: LightEditorTheme;
+  network: NetworkSettings;
+  syncSettings: SyncSettings;
+  webSearch: WebSearchSettings;
+};
+export type StoredAppSettingsFile = {
+  exportedAt: string;
+  format: typeof storedAppSettingsFileFormat;
+  settings: PortableStoredAppSettings;
+  version: typeof storedAppSettingsFileVersion;
+};
 export type ExtendedSyntaxPreferences = {
   githubAlerts: boolean;
   highlight: boolean;
 };
 export type EditorPreferences = {
   aiQuickActionPrompts: AiQuickActionPrompts;
+  autoRevealActiveFile: boolean;
+  autoSaveEnabled: boolean;
+  autoSaveIntervalMinutes: number;
   autoUpdateEnabled: boolean;
   bodyFontSize: number;
   clipboardImageFolder: string;
   closeAiCommandOnAgentPanelOpen: boolean;
   contentWidth: EditorContentWidth;
   contentWidthPx: number | null;
+  documentLinksOpen: boolean;
+  documentLinksVisible: boolean;
+  editorFontFamily: EditorFontFamilyPreference;
   extendedSyntax: ExtendedSyntaxPreferences;
   imageUpload: ImageUploadSettings;
   lineHeight: number;
@@ -143,81 +361,16 @@ export type EditorPreferences = {
   suggestAiPanelForComplexInlinePrompts: boolean;
   showDocumentTabs: boolean;
   splitVisualPanePercent: number;
+  spellcheckEnabled: boolean;
+  spellcheckIgnoredWords: string[];
+  spellcheckLanguage: SpellcheckLanguage;
   titlebarActions: TitlebarActionPreference[];
   showWordCount: boolean;
-};
-export type ExportSettings = {
-  pandocArgs: string;
-  pandocPath: string;
-  pdfAuthor: string;
-  pdfFooter: string;
-  pdfHeader: string;
-  pdfHeightMm: number;
-  pdfMarginMm: number;
-  pdfMarginPreset: PdfMarginPreset;
-  pdfPageBreakOnH1: boolean;
-  pdfPageSize: PdfPageSize;
-  pdfWidthMm: number;
-};
-export type BackupSettings = {
-  backupOnExit: boolean;
-  intervalMinutes: number;
-  lastBackupAt: number | null;
-  targetPath: string;
-};
-export type SyncProvider = "webdav";
-export type WebDavSyncSettings = {
-  password: string;
-  remotePath: string;
-  serverUrl: string;
-  username: string;
-};
-export type SyncSettings = {
-  autoSyncOnSave: boolean;
-  enabled: boolean;
-  intervalMinutes: number;
-  lastSyncAt: number | null;
-  provider: SyncProvider;
-  remotePath: string;
-};
-export type StoredWorkspaceState = {
-  activeDraftId?: string | null;
-  aiAgentSessionId: string | null;
-  draftTabs?: StoredWorkspaceDraftTab[];
-  filePath: string | null;
-  fileTreeOpen: boolean;
-  folderName: string | null;
-  folderPath: string | null;
-  openFilePaths: string[];
-  openWindows?: StoredWorkspaceWindow[];
-  sideBySideGroup?: StoredWorkspaceSideBySideGroup | null;
-};
-export type StoredWorkspaceDraftTab = {
-  content: string;
-  id: string;
-  name: string;
-  path: string | null;
-};
-export type StoredWorkspaceWindow = {
-  filePath: string | null;
-  label: string;
-  openFilePaths: string[];
-};
-export type StoredWorkspaceSideBySideGroup = {
-  primaryFilePath: string;
-  sideFilePath: string;
-};
-export type RecentMarkdownFolder = {
-  name: string;
-  path: string;
-};
-export type RecentMarkdownFile = {
-  name: string;
-  path: string;
+  wrapCodeBlocks: boolean;
 };
 export type { AppLanguage };
 export type { EditorContentWidth };
-export type { WebSearchProviderId, WebSearchSettings };
+export type { EditorFontFamilyPreference };
 
 export const customThemeCssMaxLength = 50000;
 export const defaultCustomThemeCss = `:root[data-theme="custom"] {
@@ -249,11 +402,18 @@ export const defaultCustomThemeCss = `:root[data-theme="custom"] {
   --editor-code-bg: var(--bg-code);
   --editor-code-line-bg: var(--bg-secondary);
 }`;
+export type CustomThemeCssValues = {
+  dark: string;
+  light: string;
+};
+export const defaultCustomThemeCssValues: CustomThemeCssValues = {
+  dark: defaultCustomThemeCss,
+  light: defaultCustomThemeCss
+};
 
 export const defaultTitlebarActions: readonly TitlebarActionPreference[] = [
   { id: "aiAgent", visible: true },
   { id: "sourceMode", visible: true },
-  { id: "splitMode", visible: true },
   { id: "history", visible: true },
   { id: "save", visible: true },
   { id: "theme", visible: true }
@@ -261,6 +421,9 @@ export const defaultTitlebarActions: readonly TitlebarActionPreference[] = [
 export const splitVisualPanePercentMin = 25;
 export const splitVisualPanePercentMax = 75;
 export const defaultSplitVisualPanePercent = 50;
+export const autoSaveIntervalMinutesMin = 1;
+export const autoSaveIntervalMinutesMax = 120;
+export const defaultAutoSaveIntervalMinutes = 10;
 
 export const defaultImageUploadSettings: ImageUploadSettings = {
   fileNamePattern: "pasted-image-{timestamp}",
@@ -294,12 +457,18 @@ export const defaultExtendedSyntaxPreferences: ExtendedSyntaxPreferences = {
 
 export const defaultEditorPreferences: EditorPreferences = {
   aiQuickActionPrompts: { ...defaultAiQuickActionPrompts },
+  autoRevealActiveFile: false,
+  autoSaveEnabled: true,
+  autoSaveIntervalMinutes: defaultAutoSaveIntervalMinutes,
   autoUpdateEnabled: true,
   bodyFontSize: 16,
   clipboardImageFolder: "assets",
   closeAiCommandOnAgentPanelOpen: false,
   contentWidth: "default",
   contentWidthPx: null,
+  documentLinksOpen: true,
+  documentLinksVisible: false,
+  editorFontFamily: { ...defaultEditorFontFamily },
   extendedSyntax: { ...defaultExtendedSyntaxPreferences },
   imageUpload: defaultImageUploadSettings,
   lineHeight: 1.65,
@@ -312,22 +481,12 @@ export const defaultEditorPreferences: EditorPreferences = {
   suggestAiPanelForComplexInlinePrompts: false,
   showDocumentTabs: true,
   splitVisualPanePercent: defaultSplitVisualPanePercent,
+  spellcheckEnabled: false,
+  spellcheckIgnoredWords: [],
+  spellcheckLanguage: defaultSpellcheckLanguage,
   titlebarActions: [...defaultTitlebarActions],
-  showWordCount: true
-};
-
-export const defaultExportSettings: ExportSettings = {
-  pandocArgs: "",
-  pandocPath: "",
-  pdfAuthor: "",
-  pdfFooter: "",
-  pdfHeader: "",
-  pdfHeightMm: 297,
-  pdfMarginMm: 18,
-  pdfMarginPreset: "default",
-  pdfPageBreakOnH1: false,
-  pdfPageSize: "default",
-  pdfWidthMm: 210
+  showWordCount: true,
+  wrapCodeBlocks: true
 };
 
 export const defaultAiAgentPreferences: AiAgentPreferences = {
@@ -335,61 +494,9 @@ export const defaultAiAgentPreferences: AiAgentPreferences = {
   webSearchEnabled: false
 };
 
-export const defaultWebSearchSettings: WebSearchSettings = {
-  contentMaxChars: 12_000,
-  enabled: true,
-  maxResults: 5,
-  providerId: "local-bing",
-  searxngApiHost: ""
-};
-export const defaultBackupSettings: BackupSettings = {
-  backupOnExit: false,
-  intervalMinutes: 0,
-  lastBackupAt: null,
-  targetPath: ""
-};
-export const defaultSyncSettings: SyncSettings = {
-  autoSyncOnSave: false,
-  enabled: false,
-  intervalMinutes: 0,
-  lastSyncAt: null,
-  provider: "webdav",
-  remotePath: ""
-};
-export const recentMarkdownFilesMaxLength = 10;
-export const recentMarkdownFoldersMaxLength = 5;
-
 const editorBodyFontSizeOptions = [14, 15, 16, 17, 18, 20] as const;
 const editorLineHeightOptions = [1.5, 1.65, 1.8] as const;
-const backupIntervalMinutesMin = 0;
-const backupIntervalMinutesMax = 24 * 60;
-const syncIntervalMinutesMin = 0;
-const syncIntervalMinutesMax = 24 * 60;
 const sidebarLayoutModeOptions: readonly SidebarLayoutMode[] = ["stacked", "tabs"];
-const exportPageSizeOptions: PdfPageSize[] = ["default", "a4", "letter", "custom"];
-const exportMarginPresetOptions: PdfMarginPreset[] = ["default", "none", "narrow", "normal", "wide", "custom"];
-const exportPageSizeDimensions: Record<Exclude<PdfPageSize, "custom">, { heightMm: number; widthMm: number }> = {
-  a4: { heightMm: 297, widthMm: 210 },
-  default: { heightMm: 297, widthMm: 210 },
-  letter: { heightMm: 279, widthMm: 216 }
-};
-const exportMarginPresetMm: Record<Exclude<PdfMarginPreset, "custom">, number> = {
-  default: 18,
-  narrow: 10,
-  none: 0,
-  normal: 18,
-  wide: 25
-};
-
-export const defaultWorkspaceState: StoredWorkspaceState = {
-  aiAgentSessionId: null,
-  filePath: null,
-  fileTreeOpen: false,
-  folderName: null,
-  folderPath: null,
-  openFilePaths: [],
-  openWindows: []
-};
 
 function loadSettingsStore() {
   return getAppRuntime().settings.loadStore(settingsStorePath, { autoSave: false, defaults: {} });
@@ -401,6 +508,132 @@ function loadAiAgentSessionStore(sessionId: string | null) {
 
 function loadAiAgentSessionIndexStore() {
   return getAppRuntime().settings.loadStore(aiAgentSessionIndexStorePath, { autoSave: false, defaults: {} });
+}
+
+function isSettingsRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invalidStoredAppSettingsFile(): Error {
+  return new Error(invalidStoredAppSettingsFileMessage);
+}
+
+function parseStoredAppSettingsFile(contents: string): PortableStoredAppSettings {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    throw invalidStoredAppSettingsFile();
+  }
+
+  if (!isSettingsRecord(parsed)) throw invalidStoredAppSettingsFile();
+  if (parsed.format !== storedAppSettingsFileFormat) throw invalidStoredAppSettingsFile();
+  if (parsed.version !== storedAppSettingsFileVersion) throw invalidStoredAppSettingsFile();
+  if (!isSettingsRecord(parsed.settings)) throw invalidStoredAppSettingsFile();
+
+  return normalizePortableStoredAppSettings(parsed.settings);
+}
+
+function normalizePortableStoredAppSettings(value: Record<string, unknown>): PortableStoredAppSettings {
+  const themePreferences = normalizeAppThemePreferences(value);
+
+  return {
+    aiAgentPreferences: normalizeAiAgentPreferences(value.aiAgentPreferences),
+    aiProviders: normalizeAiSettings(value.aiProviders),
+    appearanceMode: themePreferences.appearanceMode,
+    backupSettings: normalizeBackupSettings(value.backupSettings),
+    customThemeCss: normalizeCustomThemeCssValues(value.customThemeCss),
+    darkTheme: themePreferences.darkTheme,
+    editorPreferences: normalizeEditorPreferences(value.editorPreferences),
+    exportSettings: normalizeExportSettings(value.exportSettings),
+    language: isAppLanguage(value.language) ? value.language : "en",
+    lightTheme: themePreferences.lightTheme,
+    network: normalizeNetworkSettings(value.network),
+    syncSettings: normalizeSyncSettings(value.syncSettings),
+    webSearch: normalizeWebSearchSettings(value.webSearch)
+  };
+}
+
+async function readPortableStoredAppSettings(): Promise<PortableStoredAppSettings> {
+  const store = await loadSettingsStore();
+  const legacyTheme = await store.get<AppTheme>(themeKey);
+  const legacyPreferences = isAppTheme(legacyTheme)
+    ? createThemePreferencesFromLegacyTheme(legacyTheme)
+    : defaultAppThemePreferences;
+  const themePreferences = normalizeAppThemePreferences({
+    appearanceMode: await store.get<AppAppearanceMode>(appearanceModeKey),
+    darkTheme: await store.get<DarkEditorTheme>(darkThemeKey),
+    lightTheme: await store.get<LightEditorTheme>(lightThemeKey)
+  }, legacyPreferences);
+  const legacyCustomThemeCss = normalizeCustomThemeCss(await store.get<string>(customThemeCssKey));
+  const customThemeCss = normalizeCustomThemeCssValues({
+    dark: await store.get<string>(darkCustomThemeCssKey) ?? legacyCustomThemeCss,
+    light: await store.get<string>(lightCustomThemeCssKey) ?? legacyCustomThemeCss
+  });
+  const language = await store.get<AppLanguage>(languageKey);
+  const aiProviders = await store.get<AiProviderSettings>(aiProvidersKey);
+  const aiAgentPreferences = await store.get<Partial<AiAgentPreferences>>(aiAgentPreferencesKey);
+  const editorPreferences = await store.get<Partial<EditorPreferences>>(editorPreferencesKey);
+  const exportSettings = await store.get<Partial<ExportSettings>>(exportSettingsKey);
+  const webSearch = await store.get<Partial<WebSearchSettings>>(webSearchKey);
+  const network = await store.get<Partial<NetworkSettings>>(networkKey);
+  const backupSettings = await store.get<Partial<BackupSettings>>(backupSettingsKey);
+  const syncSettings = await store.get<Partial<SyncSettings>>(syncSettingsKey);
+
+  return {
+    aiAgentPreferences: normalizeAiAgentPreferences(aiAgentPreferences),
+    aiProviders: aiProviders ? normalizeAiSettings(aiProviders) : createDefaultAiSettings(),
+    appearanceMode: themePreferences.appearanceMode,
+    backupSettings: normalizeBackupSettings(backupSettings),
+    customThemeCss,
+    darkTheme: themePreferences.darkTheme,
+    editorPreferences: normalizeEditorPreferences(editorPreferences),
+    exportSettings: normalizeExportSettings(exportSettings),
+    language: isAppLanguage(language) ? language : "en",
+    lightTheme: themePreferences.lightTheme,
+    network: normalizeNetworkSettings(network),
+    syncSettings: normalizeSyncSettings(syncSettings),
+    webSearch: normalizeWebSearchSettings(webSearch)
+  };
+}
+
+async function writePortableStoredAppSettings(settings: PortableStoredAppSettings) {
+  const store = await loadSettingsStore();
+
+  await store.set(aiAgentPreferencesKey, settings.aiAgentPreferences);
+  await store.set(aiProvidersKey, settings.aiProviders);
+  await store.set(appearanceModeKey, settings.appearanceMode);
+  await store.set(backupSettingsKey, settings.backupSettings);
+  await store.set(darkCustomThemeCssKey, settings.customThemeCss.dark);
+  await store.set(darkThemeKey, settings.darkTheme);
+  await store.set(editorPreferencesKey, settings.editorPreferences);
+  await store.set(exportSettingsKey, settings.exportSettings);
+  await store.set(languageKey, settings.language);
+  await store.set(lightCustomThemeCssKey, settings.customThemeCss.light);
+  await store.set(lightThemeKey, settings.lightTheme);
+  await store.set(networkKey, settings.network);
+  await store.set(syncSettingsKey, settings.syncSettings);
+  await store.set(webSearchKey, settings.webSearch);
+  await store.save();
+}
+
+export async function exportStoredAppSettings(exportedAt: Date = new Date()) {
+  const settingsFile: StoredAppSettingsFile = {
+    exportedAt: exportedAt.toISOString(),
+    format: storedAppSettingsFileFormat,
+    settings: await readPortableStoredAppSettings(),
+    version: storedAppSettingsFileVersion
+  };
+
+  return JSON.stringify(settingsFile, null, 2);
+}
+
+export async function importStoredAppSettings(contents: string) {
+  const settings = parseStoredAppSettingsFile(contents);
+
+  await writePortableStoredAppSettings(settings);
+
+  return settings;
 }
 
 export function createAiAgentSessionId() {
@@ -417,24 +650,62 @@ export function isEditorTheme(value: unknown): value is EditorTheme {
   return editorThemeOptions.includes(value as EditorTheme);
 }
 
+export function isAppAppearanceMode(value: unknown): value is AppAppearanceMode {
+  return appAppearanceModeOptions.includes(value as AppAppearanceMode);
+}
+
+export function isLightEditorTheme(value: unknown): value is LightEditorTheme {
+  return lightEditorThemeOptions.includes(value as LightEditorTheme);
+}
+
+export function isDarkEditorTheme(value: unknown): value is DarkEditorTheme {
+  return darkEditorThemeOptions.includes(value as DarkEditorTheme);
+}
+
 export function normalizeCustomThemeCss(value: unknown) {
   if (typeof value !== "string") return defaultCustomThemeCss;
 
   return value.slice(0, customThemeCssMaxLength);
 }
 
+export function normalizeCustomThemeCssValues(value: unknown): CustomThemeCssValues {
+  if (typeof value !== "object" || value === null) {
+    const css = normalizeCustomThemeCss(value);
+
+    return {
+      dark: css,
+      light: css
+    };
+  }
+
+  const css = value as Partial<Record<keyof CustomThemeCssValues, unknown>>;
+
+  return {
+    dark: normalizeCustomThemeCss(css.dark),
+    light: normalizeCustomThemeCss(css.light)
+  };
+}
+
+export function normalizeAppThemePreferences(
+  value: unknown,
+  fallback: AppThemePreferences = defaultAppThemePreferences
+): AppThemePreferences {
+  if (typeof value !== "object" || value === null) return fallback;
+
+  const preferences = value as Partial<Record<keyof AppThemePreferences, unknown>>;
+
+  return {
+    appearanceMode: isAppAppearanceMode(preferences.appearanceMode)
+      ? preferences.appearanceMode
+      : fallback.appearanceMode,
+    darkTheme: isDarkEditorTheme(preferences.darkTheme) ? preferences.darkTheme : fallback.darkTheme,
+    lightTheme: isLightEditorTheme(preferences.lightTheme) ? preferences.lightTheme : fallback.lightTheme
+  };
+}
+
 export function resolveAppAppearanceTheme(theme: AppTheme, systemTheme: ResolvedAppTheme): ResolvedAppTheme {
   if (theme === "system") return systemTheme;
-  if (
-    theme === "dark" ||
-    theme === "github-dark" ||
-    theme === "night" ||
-    theme === "one-dark" ||
-    theme === "one-dark-pro" ||
-    theme === "solarized-dark" ||
-    theme === "nord" ||
-    theme === "catppuccin-mocha"
-  ) return "dark";
+  if (isDarkEditorTheme(theme) && theme !== "custom") return "dark";
 
   return "light";
 }
@@ -443,6 +714,42 @@ export function resolveAppEditorTheme(theme: AppTheme, systemTheme: ResolvedAppT
   if (theme === "system") return systemTheme;
 
   return theme;
+}
+
+export function createThemePreferencesFromLegacyTheme(theme: AppTheme): AppThemePreferences {
+  if (theme === "system") return defaultAppThemePreferences;
+  if (isDarkEditorTheme(theme) && theme !== "custom") {
+    return {
+      ...defaultAppThemePreferences,
+      appearanceMode: "dark",
+      darkTheme: theme
+    };
+  }
+  if (isLightEditorTheme(theme)) {
+    return {
+      ...defaultAppThemePreferences,
+      appearanceMode: "light",
+      lightTheme: theme
+    };
+  }
+
+  return defaultAppThemePreferences;
+}
+
+export function resolveAppThemePreferencesAppearance(
+  preferences: AppThemePreferences,
+  systemTheme: ResolvedAppTheme
+): ResolvedAppTheme {
+  return preferences.appearanceMode === "system" ? systemTheme : preferences.appearanceMode;
+}
+
+export function resolveAppThemePreferencesEditorTheme(
+  preferences: AppThemePreferences,
+  systemTheme: ResolvedAppTheme
+): EditorTheme {
+  return resolveAppThemePreferencesAppearance(preferences, systemTheme) === "dark"
+    ? preferences.darkTheme
+    : preferences.lightTheme;
 }
 
 export async function consumeWelcomeDocumentState() {
@@ -471,17 +778,52 @@ export async function saveStoredTheme(theme: AppTheme) {
   await store.save();
 }
 
-export async function getStoredCustomThemeCss() {
+export async function getStoredThemePreferences(): Promise<AppThemePreferences> {
   const store = await loadSettingsStore();
-  const css = await store.get<string>(customThemeCssKey);
+  const appearanceMode = await store.get<AppAppearanceMode>(appearanceModeKey);
+  const lightTheme = await store.get<LightEditorTheme>(lightThemeKey);
+  const darkTheme = await store.get<DarkEditorTheme>(darkThemeKey);
+  const legacyTheme = await store.get<AppTheme>(themeKey);
+  const legacyPreferences = isAppTheme(legacyTheme)
+    ? createThemePreferencesFromLegacyTheme(legacyTheme)
+    : defaultAppThemePreferences;
 
-  return normalizeCustomThemeCss(css);
+  return {
+    appearanceMode: isAppAppearanceMode(appearanceMode) ? appearanceMode : legacyPreferences.appearanceMode,
+    darkTheme: isDarkEditorTheme(darkTheme) ? darkTheme : legacyPreferences.darkTheme,
+    lightTheme: isLightEditorTheme(lightTheme) ? lightTheme : legacyPreferences.lightTheme
+  };
 }
 
-export async function saveStoredCustomThemeCss(css: string) {
+export async function saveStoredThemePreferences(preferences: AppThemePreferences) {
   const store = await loadSettingsStore();
+  const normalizedPreferences = normalizeAppThemePreferences(preferences);
 
-  await store.set(customThemeCssKey, normalizeCustomThemeCss(css));
+  await store.set(appearanceModeKey, normalizedPreferences.appearanceMode);
+  await store.set(lightThemeKey, normalizedPreferences.lightTheme);
+  await store.set(darkThemeKey, normalizedPreferences.darkTheme);
+  await store.save();
+}
+
+export async function getStoredCustomThemeCss() {
+  const store = await loadSettingsStore();
+  const lightCss = await store.get<string>(lightCustomThemeCssKey);
+  const darkCss = await store.get<string>(darkCustomThemeCssKey);
+  const legacyCss = await store.get<string>(customThemeCssKey);
+  const fallbackCss = normalizeCustomThemeCss(legacyCss);
+
+  return {
+    dark: typeof darkCss === "string" ? normalizeCustomThemeCss(darkCss) : fallbackCss,
+    light: typeof lightCss === "string" ? normalizeCustomThemeCss(lightCss) : fallbackCss
+  };
+}
+
+export async function saveStoredCustomThemeCss(css: CustomThemeCssValues) {
+  const store = await loadSettingsStore();
+  const normalizedCss = normalizeCustomThemeCssValues(css);
+
+  await store.set(lightCustomThemeCssKey, normalizedCss.light);
+  await store.set(darkCustomThemeCssKey, normalizedCss.dark);
   await store.save();
 }
 
@@ -743,6 +1085,20 @@ export async function saveStoredWebSearchSettings(settings: WebSearchSettings) {
   await store.save();
 }
 
+export async function getStoredNetworkSettings(): Promise<NetworkSettings> {
+  const store = await loadSettingsStore();
+  const settings = await store.get<Partial<NetworkSettings>>(networkKey);
+
+  return normalizeNetworkSettings(settings);
+}
+
+export async function saveStoredNetworkSettings(settings: NetworkSettings) {
+  const store = await loadSettingsStore();
+
+  await store.set(networkKey, normalizeNetworkSettings(settings));
+  await store.save();
+}
+
 export async function getStoredBackupSettings(): Promise<BackupSettings> {
   const store = await loadSettingsStore();
   const settings = await store.get<Partial<BackupSettings>>(backupSettingsKey);
@@ -771,19 +1127,178 @@ export async function saveStoredSyncSettings(settings: SyncSettings) {
   await store.save();
 }
 
-export async function getStoredWorkspaceState(): Promise<StoredWorkspaceState> {
+export async function getStoredFileTreeSortByWorkspace(): Promise<StoredFileTreeSortByWorkspace> {
   const store = await loadSettingsStore();
-  const workspace = await store.get<StoredWorkspaceState>(workspaceKey);
+  const sortByWorkspace = await store.get<StoredFileTreeSortByWorkspace>(fileTreeSortByWorkspaceKey);
 
-  return normalizeWorkspaceState(workspace);
+  return normalizeFileTreeSortByWorkspace(sortByWorkspace);
 }
 
-export async function saveStoredWorkspaceState(patch: Partial<StoredWorkspaceState>) {
-  const store = await loadSettingsStore();
-  const current = normalizeWorkspaceState(await store.get<StoredWorkspaceState>(workspaceKey));
-  const workspace = normalizeWorkspaceState({ ...current, ...patch });
+export async function saveStoredFileTreeSortForWorkspace(
+  workspacePath: string | null | undefined,
+  sort: StoredFileTreeSort
+) {
+  const normalizedWorkspacePath = normalizeNullableString(workspacePath);
+  if (!normalizedWorkspacePath) return;
 
-  await store.set(workspaceKey, workspace);
+  const store = await loadSettingsStore();
+  const current = normalizeFileTreeSortByWorkspace(
+    await store.get<StoredFileTreeSortByWorkspace>(fileTreeSortByWorkspaceKey)
+  );
+  const nextSortByWorkspaceEntries = [
+    [normalizedWorkspacePath, normalizeStoredFileTreeSort(sort)] as const,
+    ...Object.entries(current).filter(([path]) => path !== normalizedWorkspacePath)
+  ].slice(0, maxFileTreeSortWorkspaceEntries);
+
+  await store.set(fileTreeSortByWorkspaceKey, Object.fromEntries(nextSortByWorkspaceEntries));
+  await store.save();
+}
+
+function normalizeWorkspaceWindowLabel(label: string | null | undefined) {
+  const trimmedLabel = label?.trim();
+  return trimmedLabel ? trimmedLabel : mainWorkspaceWindowLabel;
+}
+
+function workspaceWindowStateFromWorkspaceState(state: StoredWorkspaceState): StoredWorkspaceWindowState {
+  const { openWindows: _openWindows, ...windowState } = state;
+  return windowState;
+}
+
+function workspaceWindowStateIsEmpty(state: StoredWorkspaceWindowState) {
+  return (
+    !state.activeDraftId &&
+    !state.draftTabs?.length &&
+    !state.aiAgentSessionId &&
+    state.fileTreeAssetsVisible !== false &&
+    !state.filePath &&
+    !state.fileTreeOpen &&
+    !state.folderName &&
+    !state.folderPath &&
+    state.openFilePaths.length === 0 &&
+    state.recentFoldersOpen !== false &&
+    !state.sideBySideGroup
+  );
+}
+
+function normalizeWorkspaceWindowStates(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+
+  const states: Record<string, StoredWorkspaceWindowState> = {};
+
+  Object.entries(value as Record<string, unknown>).forEach(([label, state]) => {
+    states[normalizeWorkspaceWindowLabel(label)] = workspaceWindowStateFromWorkspaceState(normalizeWorkspaceState(state));
+  });
+
+  return states;
+}
+
+function normalizeWorkspaceStore(value: unknown): StoredWorkspaceStore {
+  const legacyState = normalizeWorkspaceState(value);
+  const candidate = typeof value === "object" && value !== null
+    ? value as StoredWorkspaceStoreValue
+    : {};
+  const legacyWindowState = workspaceWindowStateFromWorkspaceState(legacyState);
+  const legacyWindowStates: Record<string, StoredWorkspaceWindowState> = {};
+
+  if (!workspaceWindowStateIsEmpty(legacyWindowState)) {
+    legacyWindowStates[mainWorkspaceWindowLabel] = legacyWindowState;
+  }
+
+  return {
+    legacyState,
+    openWindows: legacyState.openWindows ?? [],
+    windowStates: {
+      ...legacyWindowStates,
+      ...normalizeWorkspaceWindowStates(candidate.windowStates)
+    }
+  };
+}
+
+async function resolveStoredWorkspaceWindowLabel(options: StoredWorkspaceStateOptions = {}) {
+  if ("windowLabel" in options) {
+    return normalizeWorkspaceWindowLabel(options.windowLabel);
+  }
+
+  try {
+    return normalizeWorkspaceWindowLabel(await getAppRuntime().window.getCurrentWindowLabel());
+  } catch {
+    return mainWorkspaceWindowLabel;
+  }
+}
+
+function workspaceStateForWindowLabel(store: StoredWorkspaceStore, label: string): StoredWorkspaceState {
+  const targetLabel = label === settingsWorkspaceWindowLabel ? mainWorkspaceWindowLabel : label;
+  const windowState =
+    store.windowStates[targetLabel] ??
+    (targetLabel === mainWorkspaceWindowLabel
+      ? workspaceWindowStateFromWorkspaceState(store.legacyState)
+      : workspaceWindowStateFromWorkspaceState(defaultWorkspaceState));
+
+  return {
+    ...windowState,
+    openWindows: store.openWindows
+  };
+}
+
+function workspaceWindowPatchFromStatePatch(patch: Partial<StoredWorkspaceState>) {
+  const { openWindows: _openWindows, ...windowPatch } = patch;
+  return windowPatch;
+}
+
+function workspacePatchHasWindowState(patch: Partial<StoredWorkspaceState>) {
+  return Object.keys(patch).some((key) => key !== "openWindows");
+}
+
+function serializedWorkspaceStore(store: StoredWorkspaceStore) {
+  return {
+    openWindows: store.openWindows,
+    windowStates: store.windowStates
+  };
+}
+
+export async function getStoredWorkspaceState(options: StoredWorkspaceStateOptions = {}): Promise<StoredWorkspaceState> {
+  const store = await loadSettingsStore();
+  const workspace = normalizeWorkspaceStore(await store.get<StoredWorkspaceStoreValue>(workspaceKey));
+  const windowLabel = await resolveStoredWorkspaceWindowLabel(options);
+
+  return workspaceStateForWindowLabel(workspace, windowLabel);
+}
+
+export async function saveStoredWorkspaceState(
+  patch: Partial<StoredWorkspaceState>,
+  options: StoredWorkspaceStateOptions = {}
+) {
+  const store = await loadSettingsStore();
+  const current = normalizeWorkspaceStore(await store.get<StoredWorkspaceStoreValue>(workspaceKey));
+
+  if (patch.openWindows !== undefined) {
+    current.openWindows = normalizeWorkspaceState({ openWindows: patch.openWindows }).openWindows ?? [];
+  }
+
+  if (workspacePatchHasWindowState(patch)) {
+    current.openWindows = [];
+
+    const windowLabel = await resolveStoredWorkspaceWindowLabel(options);
+    const targetLabel = windowLabel === settingsWorkspaceWindowLabel ? mainWorkspaceWindowLabel : windowLabel;
+    const currentWindowState = workspaceStateForWindowLabel(current, targetLabel);
+    const nextWindowState = workspaceWindowStateFromWorkspaceState(
+      normalizeWorkspaceState({
+        ...currentWindowState,
+        ...workspaceWindowPatchFromStatePatch(patch),
+        openWindows: []
+      })
+    );
+
+    if (workspaceWindowStateIsEmpty(nextWindowState)) {
+      delete current.windowStates[targetLabel];
+    } else {
+      current.windowStates[targetLabel] = nextWindowState;
+    }
+  }
+
+  await store.set(workspaceKey, serializedWorkspaceStore(current));
   await store.save();
 }
 
@@ -926,10 +1441,18 @@ function normalizeSidebarLayoutMode(value: unknown): SidebarLayoutMode {
     : defaultEditorPreferences.sidebarLayoutMode;
 }
 
+function normalizeAutoSaveIntervalMinutes(value: unknown) {
+  const clamped = clampNumber(value, autoSaveIntervalMinutesMin, autoSaveIntervalMinutesMax);
+  if (clamped === null) return defaultAutoSaveIntervalMinutes;
+
+  return Math.round(clamped);
+}
+
 export function normalizeEditorPreferences(value: unknown): EditorPreferences {
   if (typeof value !== "object" || value === null) {
     return {
       ...defaultEditorPreferences,
+      editorFontFamily: { ...defaultEditorFontFamily },
       extendedSyntax: { ...defaultExtendedSyntaxPreferences },
       titlebarActions: [...defaultTitlebarActions]
     };
@@ -939,6 +1462,15 @@ export function normalizeEditorPreferences(value: unknown): EditorPreferences {
 
   return {
     aiQuickActionPrompts: normalizeAiQuickActionPrompts(preferences.aiQuickActionPrompts),
+    autoRevealActiveFile:
+      typeof preferences.autoRevealActiveFile === "boolean"
+        ? preferences.autoRevealActiveFile
+        : defaultEditorPreferences.autoRevealActiveFile,
+    autoSaveEnabled:
+      typeof preferences.autoSaveEnabled === "boolean"
+        ? preferences.autoSaveEnabled
+        : defaultEditorPreferences.autoSaveEnabled,
+    autoSaveIntervalMinutes: normalizeAutoSaveIntervalMinutes(preferences.autoSaveIntervalMinutes),
     autoUpdateEnabled:
       typeof preferences.autoUpdateEnabled === "boolean"
         ? preferences.autoUpdateEnabled
@@ -955,6 +1487,15 @@ export function normalizeEditorPreferences(value: unknown): EditorPreferences {
       ? (preferences.contentWidth as EditorContentWidth)
       : defaultEditorPreferences.contentWidth,
     contentWidthPx: normalizeEditorContentWidthPx(preferences.contentWidthPx),
+    documentLinksOpen:
+      typeof preferences.documentLinksOpen === "boolean"
+        ? preferences.documentLinksOpen
+        : defaultEditorPreferences.documentLinksOpen,
+    documentLinksVisible:
+      typeof preferences.documentLinksVisible === "boolean"
+        ? preferences.documentLinksVisible
+        : defaultEditorPreferences.documentLinksVisible,
+    editorFontFamily: normalizeEditorFontFamilyPreference(preferences.editorFontFamily),
     extendedSyntax: normalizeExtendedSyntaxPreferences(preferences.extendedSyntax),
     imageUpload: normalizeImageUploadSettings(preferences.imageUpload),
     lineHeight: editorLineHeightOptions.includes(preferences.lineHeight as typeof editorLineHeightOptions[number])
@@ -978,10 +1519,38 @@ export function normalizeEditorPreferences(value: unknown): EditorPreferences {
         ? preferences.showDocumentTabs
         : defaultEditorPreferences.showDocumentTabs,
     splitVisualPanePercent: normalizeSplitVisualPanePercent(preferences.splitVisualPanePercent),
+    spellcheckEnabled:
+      typeof preferences.spellcheckEnabled === "boolean"
+        ? preferences.spellcheckEnabled
+        : defaultEditorPreferences.spellcheckEnabled,
+    spellcheckLanguage: isSpellcheckLanguage(preferences.spellcheckLanguage)
+      ? preferences.spellcheckLanguage
+      : defaultEditorPreferences.spellcheckLanguage,
+    spellcheckIgnoredWords: normalizeSpellcheckIgnoredWords(preferences.spellcheckIgnoredWords),
     titlebarActions: normalizeTitlebarActions(preferences.titlebarActions),
     showWordCount:
-      typeof preferences.showWordCount === "boolean" ? preferences.showWordCount : defaultEditorPreferences.showWordCount
+      typeof preferences.showWordCount === "boolean" ? preferences.showWordCount : defaultEditorPreferences.showWordCount,
+    wrapCodeBlocks:
+      typeof preferences.wrapCodeBlocks === "boolean" ? preferences.wrapCodeBlocks : defaultEditorPreferences.wrapCodeBlocks
   };
+}
+
+export function normalizeSpellcheckIgnoredWords(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const ignoredWords: string[] = [];
+  const seenWords = new Set<string>();
+
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const word = item.trim().toLocaleLowerCase();
+    if (!word || seenWords.has(word)) continue;
+
+    seenWords.add(word);
+    ignoredWords.push(word);
+  }
+
+  return ignoredWords;
 }
 
 function normalizeExtendedSyntaxPreferences(value: unknown): ExtendedSyntaxPreferences {
@@ -1008,70 +1577,6 @@ export function normalizeSplitVisualPanePercent(value: unknown) {
   if (percent === null) return defaultSplitVisualPanePercent;
 
   return Math.round(percent);
-}
-
-export function normalizeRecentMarkdownFiles(value: unknown): RecentMarkdownFile[] {
-  if (!Array.isArray(value)) return [];
-
-  const seenPaths = new Set<string>();
-  const files: RecentMarkdownFile[] = [];
-
-  value.forEach((item) => {
-    if (files.length >= recentMarkdownFilesMaxLength) return;
-    if (typeof item !== "object" || item === null) return;
-
-    const candidate = item as Partial<RecentMarkdownFile>;
-    const path = typeof candidate.path === "string" ? candidate.path.trim() : "";
-    if (!path || seenPaths.has(path)) return;
-
-    const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
-    seenPaths.add(path);
-    files.push({
-      name: name || pathNameFromPath(path),
-      path
-    });
-  });
-
-  return files;
-}
-
-export function prependRecentMarkdownFile(
-  files: readonly RecentMarkdownFile[],
-  file: RecentMarkdownFile
-) {
-  return normalizeRecentMarkdownFiles([file, ...files]);
-}
-
-export function normalizeRecentMarkdownFolders(value: unknown): RecentMarkdownFolder[] {
-  if (!Array.isArray(value)) return [];
-
-  const seenPaths = new Set<string>();
-  const folders: RecentMarkdownFolder[] = [];
-
-  value.forEach((item) => {
-    if (folders.length >= recentMarkdownFoldersMaxLength) return;
-    if (typeof item !== "object" || item === null) return;
-
-    const candidate = item as Partial<RecentMarkdownFolder>;
-    const path = typeof candidate.path === "string" ? candidate.path.trim() : "";
-    if (!path || seenPaths.has(path)) return;
-
-    const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
-    seenPaths.add(path);
-    folders.push({
-      name: name || pathNameFromPath(path),
-      path
-    });
-  });
-
-  return folders;
-}
-
-export function prependRecentMarkdownFolder(
-  folders: readonly RecentMarkdownFolder[],
-  folder: RecentMarkdownFolder
-) {
-  return normalizeRecentMarkdownFolders([folder, ...folders]);
 }
 
 export function normalizeTitlebarActions(value: unknown): TitlebarActionPreference[] {
@@ -1191,37 +1696,6 @@ export function normalizeWebDavImageUploadSettings(value: unknown): WebDavImageU
   };
 }
 
-export function normalizeExportSettings(value: unknown): ExportSettings {
-  if (typeof value !== "object" || value === null) return defaultExportSettings;
-
-  const settings = value as Partial<ExportSettings>;
-  const pdfPageSize = exportPageSizeOptions.includes(settings.pdfPageSize as PdfPageSize)
-    ? (settings.pdfPageSize as PdfPageSize)
-    : defaultExportSettings.pdfPageSize;
-  const pdfMarginMm = normalizeExportMarginMm(settings.pdfMarginMm);
-  const pdfMarginPreset = normalizeExportMarginPreset(settings.pdfMarginPreset, pdfMarginMm);
-  const dimensions = pdfPageSize === "custom"
-    ? {
-        heightMm: normalizeExportPageDimension(settings.pdfHeightMm, defaultExportSettings.pdfHeightMm),
-        widthMm: normalizeExportPageDimension(settings.pdfWidthMm, defaultExportSettings.pdfWidthMm)
-      }
-    : exportPageSizeDimensions[pdfPageSize];
-
-  return {
-    pandocArgs: normalizeExportText(settings.pandocArgs, 1000),
-    pandocPath: normalizeExportText(settings.pandocPath, 500),
-    pdfAuthor: normalizeExportText(settings.pdfAuthor),
-    pdfFooter: normalizeExportText(settings.pdfFooter),
-    pdfHeader: normalizeExportText(settings.pdfHeader),
-    pdfHeightMm: dimensions.heightMm,
-    pdfMarginMm: pdfMarginPreset === "custom" ? pdfMarginMm : exportMarginPresetMm[pdfMarginPreset],
-    pdfMarginPreset,
-    pdfPageBreakOnH1: typeof settings.pdfPageBreakOnH1 === "boolean" ? settings.pdfPageBreakOnH1 : false,
-    pdfPageSize,
-    pdfWidthMm: dimensions.widthMm
-  };
-}
-
 export function normalizeClipboardImageFolder(value: unknown) {
   if (typeof value !== "string") return defaultEditorPreferences.clipboardImageFolder;
 
@@ -1286,276 +1760,6 @@ function normalizeS3Bucket(value: unknown) {
   if (!bucket || bucket.includes("/") || bucket.includes("\\") || bucket === "." || bucket === "..") return "";
 
   return bucket;
-}
-
-function normalizeExportMarginMm(value: unknown) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return defaultExportSettings.pdfMarginMm;
-
-  return Math.min(Math.max(Math.round(value), 0), 60);
-}
-
-function normalizeExportMarginPreset(value: unknown, marginMm: number): PdfMarginPreset {
-  if (exportMarginPresetOptions.includes(value as PdfMarginPreset)) {
-    return value as PdfMarginPreset;
-  }
-
-  return marginMm === defaultExportSettings.pdfMarginMm ? "default" : "custom";
-}
-
-function normalizeExportPageDimension(value: unknown, fallback: number) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-
-  return Math.min(Math.max(Math.round(value), 50), 2000);
-}
-
-function normalizeExportText(value: unknown, maxLength = 200) {
-  if (typeof value !== "string") return "";
-
-  return value.trim().slice(0, maxLength);
-}
-
-export function normalizeWebSearchSettings(value: unknown): WebSearchSettings {
-  if (typeof value !== "object" || value === null) return defaultWebSearchSettings;
-
-  const settings = value as Partial<WebSearchSettings>;
-
-  return {
-    contentMaxChars: normalizeWebSearchInteger(settings.contentMaxChars, {
-      defaultValue: defaultWebSearchSettings.contentMaxChars,
-      max: 40_000,
-      min: 2_000
-    }),
-    enabled:
-      typeof settings.enabled === "boolean"
-        ? settings.enabled
-        : defaultWebSearchSettings.enabled,
-    maxResults: normalizeWebSearchInteger(settings.maxResults, {
-      defaultValue: defaultWebSearchSettings.maxResults,
-      max: 20,
-      min: 1
-    }),
-    providerId: settings.providerId === "searxng" ? "searxng" : defaultWebSearchSettings.providerId,
-    searxngApiHost: normalizeWebSearchApiHost(settings.searxngApiHost)
-  };
-}
-
-export function normalizeBackupSettings(value: unknown): BackupSettings {
-  if (typeof value !== "object" || value === null) return { ...defaultBackupSettings };
-
-  const settings = value as Partial<BackupSettings>;
-  const intervalMinutes = clampNumber(
-    settings.intervalMinutes,
-    backupIntervalMinutesMin,
-    backupIntervalMinutesMax
-  );
-  const lastBackupAt = clampNumber(settings.lastBackupAt, 0, Number.MAX_SAFE_INTEGER);
-
-  return {
-    backupOnExit:
-      typeof settings.backupOnExit === "boolean"
-        ? settings.backupOnExit
-        : defaultBackupSettings.backupOnExit,
-    intervalMinutes: intervalMinutes === null
-      ? defaultBackupSettings.intervalMinutes
-      : Math.round(intervalMinutes),
-    lastBackupAt: lastBackupAt === null ? null : Math.round(lastBackupAt),
-    targetPath: normalizeNullableString(settings.targetPath)?.trim() ?? defaultBackupSettings.targetPath
-  };
-}
-
-export function normalizeSyncSettings(value: unknown): SyncSettings {
-  if (typeof value !== "object" || value === null) return { ...defaultSyncSettings };
-
-  const settings = value as Partial<SyncSettings> & { webdav?: Partial<WebDavSyncSettings> };
-  const legacyWebDav = typeof settings.webdav === "object" && settings.webdav !== null
-    ? settings.webdav
-    : {};
-  const intervalMinutes = clampNumber(
-    settings.intervalMinutes,
-    syncIntervalMinutesMin,
-    syncIntervalMinutesMax
-  );
-  const lastSyncAt = clampNumber(settings.lastSyncAt, 0, Number.MAX_SAFE_INTEGER);
-
-  return {
-    autoSyncOnSave:
-      typeof settings.autoSyncOnSave === "boolean"
-        ? settings.autoSyncOnSave
-        : defaultSyncSettings.autoSyncOnSave,
-    enabled:
-      typeof settings.enabled === "boolean"
-        ? settings.enabled
-        : defaultSyncSettings.enabled,
-    intervalMinutes: intervalMinutes === null
-      ? defaultSyncSettings.intervalMinutes
-      : Math.round(intervalMinutes),
-    lastSyncAt: lastSyncAt === null ? null : Math.round(lastSyncAt),
-    provider: settings.provider === "webdav" ? "webdav" : defaultSyncSettings.provider,
-    remotePath:
-      normalizeNullableString(settings.remotePath)?.trim()
-      ?? normalizeNullableString(legacyWebDav.remotePath)?.trim()
-      ?? defaultSyncSettings.remotePath
-  };
-}
-
-function normalizeWebSearchInteger(
-  value: unknown,
-  limits: {
-    defaultValue: number;
-    max: number;
-    min: number;
-  }
-) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return limits.defaultValue;
-
-  return Math.min(Math.max(Math.round(value), limits.min), limits.max);
-}
-
-function normalizeWebSearchApiHost(value: unknown) {
-  if (typeof value !== "string") return "";
-
-  const trimmed = value.trim().replace(/\/+$/u, "");
-  if (!trimmed) return "";
-
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
-
-    url.pathname = url.pathname.replace(/\/+$/u, "");
-    url.search = "";
-    url.hash = "";
-
-    return url.toString().replace(/\/+$/u, "");
-  } catch {
-    return "";
-  }
-}
-
-export function normalizeWorkspaceState(value: unknown): StoredWorkspaceState {
-  if (typeof value !== "object" || value === null) return defaultWorkspaceState;
-
-  const workspace = value as Partial<StoredWorkspaceState>;
-  const openFilePaths = normalizeWorkspaceOpenFilePaths(workspace.openFilePaths);
-  const openFilePathSet = new Set(openFilePaths);
-  const draftTabs = normalizeWorkspaceDraftTabs(workspace.draftTabs);
-  const activeDraftId = normalizeNullableString(workspace.activeDraftId);
-  const persistedActiveDraftId = activeDraftId && draftTabs.some((draft) => draft.id === activeDraftId)
-    ? activeDraftId
-    : null;
-  const sideBySideGroup = normalizeWorkspaceSideBySideGroup(workspace.sideBySideGroup);
-  const persistedSideBySideGroup =
-    sideBySideGroup &&
-    openFilePathSet.has(sideBySideGroup.primaryFilePath) &&
-    openFilePathSet.has(sideBySideGroup.sideFilePath)
-      ? sideBySideGroup
-      : null;
-
-  return {
-    ...(draftTabs.length > 0 ? { activeDraftId: persistedActiveDraftId, draftTabs } : {}),
-    aiAgentSessionId: normalizeNullableString(workspace.aiAgentSessionId),
-    filePath: normalizeNullableString(workspace.filePath),
-    fileTreeOpen: typeof workspace.fileTreeOpen === "boolean" ? workspace.fileTreeOpen : false,
-    folderName: normalizeNullableString(workspace.folderName),
-    folderPath: normalizeNullableString(workspace.folderPath),
-    openFilePaths,
-    openWindows: normalizeWorkspaceWindows(workspace.openWindows),
-    ...(persistedSideBySideGroup ? { sideBySideGroup: persistedSideBySideGroup } : {})
-  };
-}
-
-function normalizeWorkspaceDraftTabs(value: unknown): StoredWorkspaceDraftTab[] {
-  if (!Array.isArray(value)) return [];
-
-  const seenIds = new Set<string>();
-  const draftTabs: StoredWorkspaceDraftTab[] = [];
-  const normalizeDraftString = (item: unknown) => {
-    if (typeof item !== "string") return null;
-
-    const trimmed = item.trim();
-    return trimmed ? trimmed : null;
-  };
-
-  value.forEach((item) => {
-    if (typeof item !== "object" || item === null) return;
-
-    const candidate = item as Partial<StoredWorkspaceDraftTab>;
-    const id = normalizeDraftString(candidate.id);
-    if (!id || seenIds.has(id) || typeof candidate.content !== "string") return;
-
-    const path = normalizeDraftString(candidate.path);
-    if (!path && candidate.content.trim().length === 0) return;
-
-    const name = normalizeDraftString(candidate.name) ?? (path ? pathNameFromPath(path) : "Untitled.md");
-    seenIds.add(id);
-    draftTabs.push({
-      content: candidate.content,
-      id,
-      name,
-      path
-    });
-  });
-
-  return draftTabs;
-}
-
-function normalizeWorkspaceOpenFilePaths(value: unknown) {
-  if (!Array.isArray(value)) return [];
-
-  const seenPaths = new Set<string>();
-  const paths: string[] = [];
-
-  value.forEach((item) => {
-    const path = normalizeNullableString(item);
-    if (!path || seenPaths.has(path)) return;
-
-    seenPaths.add(path);
-    paths.push(path);
-  });
-
-  return paths;
-}
-
-function normalizeWorkspaceWindows(value: unknown): StoredWorkspaceWindow[] {
-  if (!Array.isArray(value)) return [];
-
-  const seenLabels = new Set<string>();
-  const windows: StoredWorkspaceWindow[] = [];
-
-  value.forEach((item) => {
-    if (typeof item !== "object" || item === null) return;
-
-    const candidate = item as Partial<StoredWorkspaceWindow>;
-    const label = normalizeNullableString(candidate.label);
-    if (!label || seenLabels.has(label)) return;
-
-    const filePath = normalizeNullableString(candidate.filePath);
-    const openFilePaths = normalizeWorkspaceOpenFilePaths(candidate.openFilePaths);
-    if (filePath && !openFilePaths.includes(filePath)) openFilePaths.push(filePath);
-    if (!filePath && openFilePaths.length === 0) return;
-
-    seenLabels.add(label);
-    windows.push({
-      filePath,
-      label,
-      openFilePaths
-    });
-  });
-
-  return windows;
-}
-
-function normalizeWorkspaceSideBySideGroup(value: unknown): StoredWorkspaceSideBySideGroup | null {
-  if (typeof value !== "object" || value === null) return null;
-
-  const group = value as Partial<StoredWorkspaceSideBySideGroup>;
-  const primaryFilePath = normalizeNullableString(group.primaryFilePath);
-  const sideFilePath = normalizeNullableString(group.sideFilePath);
-  if (!primaryFilePath || !sideFilePath || primaryFilePath === sideFilePath) return null;
-
-  return {
-    primaryFilePath,
-    sideFilePath
-  };
 }
 
 function aiAgentSessionStorePath(sessionId: string | null) {

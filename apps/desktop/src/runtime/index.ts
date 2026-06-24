@@ -1,12 +1,15 @@
 import { emit, listen } from "@tauri-apps/api/event";
-import { platform as tauriPlatform, type Platform as TauriPlatform } from "@tauri-apps/plugin-os";
+import { platform as tauriPlatform, version as tauriVersion, type Platform as TauriPlatform } from "@tauri-apps/plugin-os";
 import { load } from "@tauri-apps/plugin-store";
 import { hasTauriRuntime } from "@markra/shared";
 import type { AppRuntime } from "@markra/app/runtime";
 import * as ai from "./tauri/native-ai";
 import * as dialog from "./tauri/dialog";
 import * as files from "./tauri/file";
+import * as fonts from "./tauri/fonts";
 import * as menu from "./tauri/menu";
+import * as shellCommand from "./tauri/shell-command";
+import * as spellcheck from "./tauri/spellcheck";
 import * as updater from "./tauri/updater";
 import * as webResource from "./tauri/web-resource";
 import * as windowRuntime from "./tauri/window";
@@ -29,6 +32,14 @@ function resolveDesktopPlatform() {
   }
 }
 
+function resolveDesktopOsVersion() {
+  try {
+    return tauriVersion() || null;
+  } catch {
+    return null;
+  }
+}
+
 export const desktopRuntime = {
   ai: {
     requestAiJson: ai.requestNativeAiJson,
@@ -37,6 +48,7 @@ export const desktopRuntime = {
   },
   dialog: {
     confirmAiAgentSessionDelete: dialog.confirmNativeAiAgentSessionDelete,
+    showAppAbout: dialog.showNativeAppAbout,
     showPandocSetup: dialog.showNativePandocSetup
   },
   events: {
@@ -48,8 +60,10 @@ export const desktopRuntime = {
     ai: true,
     export: true,
     nativeWindowChrome: true,
+    networkProxy: true,
     pandoc: true,
     s3ImageUpload: true,
+    spellcheck: true,
     updater: true
   },
   files: {
@@ -67,11 +81,15 @@ export const desktopRuntime = {
     listMarkdownFileHistory: files.listNativeMarkdownFileHistory,
     listMarkdownFilesForPath: files.listNativeMarkdownFilesForPath,
     moveMarkdownTreeFile: files.moveNativeMarkdownTreeFile,
+    openContainingFolder: files.openNativeContainingFolder,
+    openLocalImages: files.openNativeLocalImages,
     openMarkdownFile: files.openNativeMarkdownFile,
     openMarkdownFileInNewWindow: files.openNativeMarkdownFileInNewWindow,
     openMarkdownFolder: files.openNativeMarkdownFolder,
     openMarkdownFolderInNewWindow: files.openNativeMarkdownFolderInNewWindow,
     openMarkdownPath: files.openNativeMarkdownPath,
+    openSettingsFile: files.openNativeSettingsFile,
+    readLocalImageFile: files.readNativeLocalImageFile,
     readMarkdownFile: files.readNativeMarkdownFile,
     readMarkdownFileHistory: files.readNativeMarkdownFileHistory,
     readMarkdownImageFile: files.readNativeMarkdownImageFile,
@@ -83,6 +101,7 @@ export const desktopRuntime = {
     saveMarkdownFile: files.saveNativeMarkdownFile,
     savePandocFile: files.saveNativePandocFile,
     savePdfFile: files.saveNativePdfFile,
+    saveSettingsFile: files.saveNativeSettingsFile,
     searchMarkdownFiles: files.searchNativeMarkdownFilesForPath,
     syncMarkdownFolder: files.syncNativeMarkdownFolder,
     takeOpenedMarkdownPaths: files.takeNativeOpenedMarkdownPaths,
@@ -99,13 +118,28 @@ export const desktopRuntime = {
     installApplicationMenu: menu.installNativeApplicationMenu,
     installEditorContextMenu: menu.installNativeEditorContextMenu,
     listenApplicationMenuCommands: menu.listenNativeApplicationMenuCommands,
+    readClipboardText: menu.readNativeClipboardText,
     showMarkdownFileTreeContextMenu: menu.showNativeMarkdownFileTreeContextMenu
   },
   platform: {
+    resolveDesktopOsVersion,
     resolveDesktopPlatform
   },
   settings: {
     loadStore: load
+  },
+  shellCommand: {
+    getShellCommandStatus: shellCommand.getNativeShellCommandStatus,
+    installShellCommand: shellCommand.installNativeShellCommand,
+    uninstallShellCommand: shellCommand.uninstallNativeShellCommand
+  },
+  spellcheck: {
+    deleteSpellcheckDictionary: spellcheck.deleteNativeSpellcheckDictionary,
+    getSpellcheckDictionaryStatus: spellcheck.getNativeSpellcheckDictionaryStatus,
+    loadSpellcheckDictionary: spellcheck.loadNativeSpellcheckDictionary
+  },
+  systemFonts: {
+    listFontFamilies: fonts.listNativeSystemFontFamilies
   },
   updater: {
     checkAppUpdate: updater.checkNativeAppUpdate
@@ -116,6 +150,7 @@ export const desktopRuntime = {
   window: {
     closeWindow: windowRuntime.closeNativeWindow,
     exitApp: windowRuntime.exitNativeApp,
+    getCurrentWindowLabel: windowRuntime.getCurrentNativeWindowLabel,
     listEditorWindowRestoreStates: windowRuntime.listNativeEditorWindowRestoreStates,
     listenAppExitRequested: windowRuntime.listenNativeAppExitRequested,
     listenSettingsWindowTarget: windowRuntime.listenNativeSettingsWindowTarget,
@@ -125,6 +160,8 @@ export const desktopRuntime = {
     openSettingsWindow: windowRuntime.openSettingsWindow,
     setEditorWindowRestoreState: windowRuntime.setNativeEditorWindowRestoreState,
     setWindowTitle: windowRuntime.setNativeWindowTitle,
+    showWindow: windowRuntime.showNativeWindow,
+    toggleWindowFullscreen: windowRuntime.toggleNativeWindowFullscreen,
     toggleWindowMaximized: windowRuntime.toggleNativeWindowMaximized
   }
 } satisfies AppRuntime;

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
+import { getStoredNetworkSettings } from "@markra/app/settings";
 import {
   confirmNativeMarkdownFileDelete,
   confirmNativeUnsavedMarkdownDocumentDiscard,
@@ -16,12 +17,15 @@ import {
   listNativeMarkdownFileHistory,
   listNativeMarkdownFilesForPath,
   moveNativeMarkdownTreeFile,
+  openNativeLocalImages,
   takeNativeOpenedMarkdownPaths,
+  openNativeContainingFolder,
   openNativeMarkdownFolder,
   openNativeMarkdownFile,
   openNativeMarkdownFolderInNewWindow,
   openNativeMarkdownFileInNewWindow,
   openNativeMarkdownPath,
+  openNativeSettingsFile,
   readNativeMarkdownImageFile,
   readNativeMarkdownFileHistory,
   readNativeMarkdownFile,
@@ -34,6 +38,7 @@ import {
   saveNativePandocFile,
   saveNativePdfFile,
   renameNativeMarkdownTreeFile,
+  saveNativeSettingsFile,
   saveNativeMarkdownFile,
   writeNativeMarkdownTemplateFile,
   uploadNativePicGoImage,
@@ -61,12 +66,17 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   save: vi.fn()
 }));
 
+vi.mock("@markra/app/settings", () => ({
+  getStoredNetworkSettings: vi.fn()
+}));
+
 const mockedInvoke = vi.mocked(invoke);
 const mockedListen = vi.mocked(listen);
 const mockedGetCurrentWindow = vi.mocked(getCurrentWindow);
 const mockedConfirm = vi.mocked(confirm);
 const mockedOpen = vi.mocked(open);
 const mockedSave = vi.mocked(save);
+const mockedGetStoredNetworkSettings = vi.mocked(getStoredNetworkSettings);
 
 const mockReadmePath = "/mock-files/readme.md";
 const mockDraftPath = "/mock-files/draft.md";
@@ -83,6 +93,12 @@ describe("native file access", () => {
     mockedConfirm.mockReset();
     mockedOpen.mockReset();
     mockedSave.mockReset();
+    mockedGetStoredNetworkSettings.mockReset();
+    mockedGetStoredNetworkSettings.mockResolvedValue({
+      bypassLocalAddresses: true,
+      proxyEnabled: false,
+      proxyUrl: ""
+    });
     onDragDropEvent.mockReset();
     mockedGetCurrentWindow.mockReturnValue({
       onDragDropEvent
@@ -175,6 +191,82 @@ describe("native file access", () => {
     mockedOpen.mockResolvedValue(null);
 
     await expect(openNativeMarkdownFile()).resolves.toBeNull();
+
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+
+  it("opens a Markra settings JSON file through the native dialog", async () => {
+    mockedOpen.mockResolvedValue("/mock-files/markra-settings.json");
+    mockedInvoke.mockResolvedValue({
+      path: "/mock-files/markra-settings.json",
+      contents: "{\"format\":\"markra-settings\"}"
+    });
+
+    await expect(openNativeSettingsFile({ title: "Import Markra settings" })).resolves.toEqual({
+      path: "/mock-files/markra-settings.json",
+      name: "markra-settings.json",
+      content: "{\"format\":\"markra-settings\"}"
+    });
+
+    expect(mockedOpen).toHaveBeenCalledWith({
+      multiple: false,
+      fileAccessMode: "scoped",
+      filters: [{ name: "Markra settings", extensions: ["json"] }],
+      title: "Import Markra settings"
+    });
+    expect(mockedInvoke).toHaveBeenCalledWith("read_text_file", {
+      path: "/mock-files/markra-settings.json"
+    });
+  });
+
+  it("opens local images through the native picker and reads them as files", async () => {
+    mockedOpen.mockResolvedValue([
+      "/mock-files/Local Diagram.png",
+      "/mock-files/chart.svg"
+    ]);
+    mockedInvoke
+      .mockResolvedValueOnce({
+        bytes: [1, 2, 3],
+        mimeType: "image/png",
+        path: "/mock-files/Local Diagram.png"
+      })
+      .mockResolvedValueOnce({
+        bytes: [60, 115, 118, 103, 62],
+        mimeType: "image/svg+xml",
+        path: "/mock-files/chart.svg"
+      });
+
+    const images = await openNativeLocalImages({ title: "Import local images" });
+
+    expect(images).toHaveLength(2);
+    expect(images[0]).toMatchObject({
+      name: "Local Diagram.png",
+      type: "image/png"
+    });
+    expect(images[1]).toMatchObject({
+      name: "chart.svg",
+      type: "image/svg+xml"
+    });
+    await expect(images[0]?.arrayBuffer()).resolves.toEqual(new Uint8Array([1, 2, 3]).buffer);
+
+    expect(mockedOpen).toHaveBeenCalledWith({
+      multiple: true,
+      fileAccessMode: "scoped",
+      filters: [{ name: "Images", extensions: ["avif", "bmp", "gif", "jpeg", "jpg", "png", "svg", "webp"] }],
+      title: "Import local images"
+    });
+    expect(mockedInvoke).toHaveBeenNthCalledWith(1, "read_local_image_file", {
+      path: "/mock-files/Local Diagram.png"
+    });
+    expect(mockedInvoke).toHaveBeenNthCalledWith(2, "read_local_image_file", {
+      path: "/mock-files/chart.svg"
+    });
+  });
+
+  it("returns an empty image list when local image import is canceled", async () => {
+    mockedOpen.mockResolvedValue(null);
+
+    await expect(openNativeLocalImages()).resolves.toEqual([]);
 
     expect(mockedInvoke).not.toHaveBeenCalled();
   });
@@ -587,6 +679,32 @@ describe("native file access", () => {
     });
   });
 
+  it("starts the native save dialog in the open markdown folder for an untitled document", async () => {
+    mockedSave.mockResolvedValue("/mock-files/vault/Untitled.md");
+    mockedInvoke.mockResolvedValue(undefined);
+
+    await expect(
+      saveNativeMarkdownFile({
+        defaultDirectory: "/mock-files/vault",
+        path: null,
+        suggestedName: "Untitled.md",
+        contents: "# Untitled"
+      })
+    ).resolves.toEqual({
+      path: "/mock-files/vault/Untitled.md",
+      name: "Untitled.md"
+    });
+
+    expect(mockedSave).toHaveBeenCalledWith({
+      defaultPath: "/mock-files/vault/Untitled.md",
+      filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }]
+    });
+    expect(mockedInvoke).toHaveBeenCalledWith("write_markdown_file", {
+      path: "/mock-files/vault/Untitled.md",
+      contents: "# Untitled"
+    });
+  });
+
   it("exports rendered HTML through the native save dialog", async () => {
     mockedSave.mockResolvedValue("/mock-files/draft.html");
     mockedInvoke.mockResolvedValue(undefined);
@@ -622,6 +740,30 @@ describe("native file access", () => {
     ).resolves.toBeNull();
 
     expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+
+  it("saves a Markra settings JSON file through the native save dialog", async () => {
+    mockedSave.mockResolvedValue("/mock-files/markra-settings.json");
+    mockedInvoke.mockResolvedValue(undefined);
+
+    await expect(
+      saveNativeSettingsFile({
+        suggestedName: "markra-settings.json",
+        contents: "{\"format\":\"markra-settings\"}"
+      })
+    ).resolves.toEqual({
+      path: "/mock-files/markra-settings.json",
+      name: "markra-settings.json"
+    });
+
+    expect(mockedSave).toHaveBeenCalledWith({
+      defaultPath: "markra-settings.json",
+      filters: [{ name: "Markra settings", extensions: ["json"] }]
+    });
+    expect(mockedInvoke).toHaveBeenCalledWith("write_text_file", {
+      path: "/mock-files/markra-settings.json",
+      contents: "{\"format\":\"markra-settings\"}"
+    });
   });
 
   it("exports rendered PDF HTML through the native save dialog", async () => {
@@ -838,6 +980,32 @@ describe("native file access", () => {
     });
   });
 
+  it("passes app network proxy settings to native web image downloads", async () => {
+    mockedGetStoredNetworkSettings.mockResolvedValueOnce({
+      bypassLocalAddresses: true,
+      proxyEnabled: true,
+      proxyUrl: "socks5://127.0.0.1:1080"
+    });
+    mockedInvoke.mockResolvedValue({
+      bytes: [1, 2, 3],
+      fileName: "kitten.png",
+      mimeType: "image/png"
+    });
+
+    await downloadNativeWebImage({ src: "https://images.example.com/kitten.png" });
+
+    expect(mockedInvoke).toHaveBeenCalledWith("download_web_image", {
+      request: {
+        network: {
+          bypassLocalAddresses: true,
+          proxyEnabled: true,
+          proxyUrl: "socks5://127.0.0.1:1080"
+        },
+        url: "https://images.example.com/kitten.png"
+      }
+    });
+  });
+
   it("uploads a clipboard image to WebDAV through Tauri", async () => {
     const image = new File([new Uint8Array([4, 5, 6])], "Diagram.png", { type: "image/png" });
     mockedInvoke.mockResolvedValue({
@@ -1016,6 +1184,49 @@ describe("native file access", () => {
     });
   });
 
+  it("passes app network proxy settings to native WebDAV sync", async () => {
+    mockedGetStoredNetworkSettings.mockResolvedValueOnce({
+      bypassLocalAddresses: true,
+      proxyEnabled: true,
+      proxyUrl: "http://127.0.0.1:7890"
+    });
+    mockedInvoke.mockResolvedValue({
+      bytesDownloaded: 0,
+      bytesUploaded: 0,
+      conflictFiles: 0,
+      downloadedFiles: 0,
+      scannedFiles: 0,
+      skippedFiles: 0,
+      uploadedFiles: 0
+    });
+
+    await syncNativeMarkdownFolder({
+      provider: "webdav",
+      sourcePath: mockFolderPath,
+      webdav: {
+        password: "secret",
+        remotePath: "notes",
+        serverUrl: "https://dav.example.test/remote.php/dav/files/ada/",
+        username: "ada"
+      }
+    });
+
+    expect(mockedInvoke).toHaveBeenCalledWith("sync_webdav_markdown_folder", {
+      request: {
+        network: {
+          bypassLocalAddresses: true,
+          proxyEnabled: true,
+          proxyUrl: "http://127.0.0.1:7890"
+        },
+        password: "secret",
+        remotePath: "notes",
+        serverUrl: "https://dav.example.test/remote.php/dav/files/ada/",
+        sourcePath: mockFolderPath,
+        username: "ada"
+      }
+    });
+  });
+
   it("starts and stops a native watcher for the selected markdown path and tree", async () => {
     const unlistenFile: () => unknown = vi.fn();
     const unlistenTree: () => unknown = vi.fn();
@@ -1116,7 +1327,7 @@ describe("native file access", () => {
     const cleanup = await installNativeMarkdownFileDrop(onDrop);
 
     emitDragDrop({ payload: { type: "enter", paths: [mockReadmePath] } });
-    emitDragDrop({ payload: { type: "drop", paths: ["/mock-files/image.png", mockReadmePath] } });
+    emitDragDrop({ payload: { type: "drop", paths: ["/mock-files/archive.zip", mockReadmePath] } });
     emitDragDrop({ payload: { type: "drop", paths: [mockFolderPath] } });
 
     await vi.waitFor(() => expect(onDrop).toHaveBeenCalledTimes(2));
@@ -1136,6 +1347,42 @@ describe("native file access", () => {
     expect(unlisten).toHaveBeenCalledTimes(1);
   });
 
+  it("routes dropped image files with their native drop position", async () => {
+    const unlisten = vi.fn();
+    const onDrop = vi.fn();
+    let emitDragDrop: (event: unknown) => unknown = () => {};
+    onDragDropEvent.mockImplementation(async (handler) => {
+      emitDragDrop = handler;
+      return unlisten;
+    });
+    mockedInvoke.mockRejectedValueOnce(new Error("Unsupported path"));
+
+    const cleanup = await installNativeMarkdownFileDrop(onDrop);
+
+    emitDragDrop({
+      payload: {
+        type: "drop",
+        paths: ["/mock-files/Diagram.png"],
+        position: { x: 340, y: 160 }
+      }
+    });
+
+    await vi.waitFor(() => expect(onDrop).toHaveBeenCalledTimes(1));
+    expect(onDrop).toHaveBeenCalledWith({
+      kind: "image",
+      name: "Diagram.png",
+      path: "/mock-files/Diagram.png",
+      point: {
+        left: 340,
+        top: 160
+      }
+    });
+
+    cleanup();
+
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
   it("opens markdown file and folder paths in a new native window", async () => {
     mockedInvoke.mockResolvedValue(undefined);
 
@@ -1147,6 +1394,16 @@ describe("native file access", () => {
     });
     expect(mockedInvoke).toHaveBeenCalledWith("open_markdown_folder_in_new_window", {
       path: mockFolderPath
+    });
+  });
+
+  it("opens the native containing folder for a path", async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+
+    await openNativeContainingFolder(mockReadmePath);
+
+    expect(mockedInvoke).toHaveBeenCalledWith("open_containing_folder", {
+      path: mockReadmePath
     });
   });
 });

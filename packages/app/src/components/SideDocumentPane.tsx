@@ -1,12 +1,13 @@
 import { t, type AppLanguage } from "@markra/shared";
-import type { MarkdownShortcutMap } from "@markra/editor";
+import type { MarkdownShortcutMap, Spellchecker } from "@markra/editor";
 import type { EditorContentWidth } from "../lib/editor-width";
+import type { EditorFontFamilyPreference } from "../lib/editor-font";
 import type { EditorTheme, ExtendedSyntaxPreferences } from "../lib/settings/app-settings";
 import type { MarkdownDocumentLinkFile } from "../lib/document-links";
 import { shouldBlockLargeMarkdownVisual } from "../lib/large-markdown";
+import { LazyMarkdownSourceEditor } from "./LazyMarkdownSourceEditor";
 import { LargeMarkdownNotice } from "./LargeMarkdownNotice";
 import { MarkdownPaper } from "./MarkdownPaper";
-import { MarkdownSourceEditor } from "./MarkdownSourceEditor";
 
 type SideDocumentPaneProps = {
   bodyFontSize: number;
@@ -15,6 +16,7 @@ type SideDocumentPaneProps = {
   contentWidthPx: number | null;
   documentKey?: string | null;
   documentPath?: string | null;
+  editorFontFamily: EditorFontFamilyPreference;
   editorTheme: EditorTheme;
   extendedSyntax?: ExtendedSyntaxPreferences;
   language?: AppLanguage;
@@ -26,7 +28,12 @@ type SideDocumentPaneProps = {
   resolveImageSrc?: (src: string) => string;
   revision: number;
   sizeBytes?: number;
+  spellcheckEnabled?: boolean;
+  spellcheckIgnoredWords?: readonly string[];
+  spellchecker?: Spellchecker;
+  onAddSpellcheckIgnoredWord?: (word: string) => unknown;
   workspaceFiles?: MarkdownDocumentLinkFile[];
+  wrapCodeBlocks?: boolean;
   onChange: (content: string) => unknown;
   onContentWidthChange?: (width: number) => unknown;
   onContentWidthResizeEnd?: () => unknown;
@@ -44,6 +51,7 @@ export function SideDocumentPane({
   contentWidthPx,
   documentKey,
   documentPath,
+  editorFontFamily,
   editorTheme,
   extendedSyntax,
   language = "en",
@@ -55,7 +63,12 @@ export function SideDocumentPane({
   resolveImageSrc,
   revision,
   sizeBytes,
+  spellcheckEnabled = false,
+  spellcheckIgnoredWords,
+  spellchecker,
+  onAddSpellcheckIgnoredWord,
   workspaceFiles,
+  wrapCodeBlocks = true,
   onChange,
   onContentWidthChange,
   onContentWidthResizeEnd,
@@ -71,11 +84,12 @@ export function SideDocumentPane({
       onFocusCapture={onFocus}
     >
       {mode === "source" ? (
-        <MarkdownSourceEditor
+        <LazyMarkdownSourceEditor
           bodyFontSize={bodyFontSize}
           content={content}
           contentWidth={contentWidth}
           contentWidthPx={contentWidthPx}
+          editorFontFamily={editorFontFamily}
           extendedSyntax={extendedSyntax}
           language={language}
           lineHeight={lineHeight}
@@ -95,6 +109,7 @@ export function SideDocumentPane({
           contentWidthPx={contentWidthPx}
           documentKey={documentKey}
           documentPath={documentPath}
+          editorFontFamily={editorFontFamily}
           editorTheme={editorTheme}
           extendedSyntax={extendedSyntax}
           initialContent={content}
@@ -109,8 +124,13 @@ export function SideDocumentPane({
           readOnly={readOnly}
           resolveImageSrc={resolveImageSrc}
           revision={revision}
+          spellcheckEnabled={spellcheckEnabled}
+          spellcheckIgnoredWords={spellcheckIgnoredWords}
+          spellchecker={spellchecker}
+          onAddSpellcheckIgnoredWord={onAddSpellcheckIgnoredWord}
           topInset="titlebar"
           workspaceFiles={workspaceFiles}
+          wrapCodeBlocks={wrapCodeBlocks}
         />
       )}
     </section>

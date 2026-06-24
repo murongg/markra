@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   createEditorContextMenuEntries,
   createEditorContextMenuEntriesFromOptions,
@@ -31,18 +32,31 @@ export type NativeMarkdownFileTreeContextMenuHandlers = {
   }>;
   createFolder?: () => unknown | Promise<unknown>;
   deleteFile?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
+  openContainingFolder?: (file?: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   openFileToSide?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
+  multiSelect?: boolean;
   renameFile?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
   saveFileAsTemplate?: (file: NativeMarkdownFolderFile) => unknown | Promise<unknown>;
 };
 
+export type NativeClipboardTextReader = () => string | null | undefined | Promise<string | null | undefined>;
+
 export type NativeEditorContextMenuOptions = {
   getAiCommandsAvailable?: () => boolean;
   markdownShortcuts?: MarkdownShortcutMap;
+  readClipboardText?: NativeClipboardTextReader;
+};
+
+export type NativeEditorContextMenuEntryOptions = {
+  aiCommandsAvailable?: boolean;
+  markdownShortcuts?: MarkdownShortcutMap;
+  readClipboardText?: NativeClipboardTextReader;
 };
 
 export type NativeStaticMenuCommand =
   | "checkForUpdates"
+  | "editUndo"
+  | "editRedo"
   | "openDocument"
   | "openFolder"
   | "openQuickOpen"
@@ -68,12 +82,14 @@ export type NativeStaticMenuCommand =
   | "formatCodeBlock"
   | "insertLink"
   | "insertImage"
+  | "importLocalImages"
   | "insertTable"
   | "aiPolish"
   | "aiRewrite"
   | "aiContinueWriting"
   | "aiSummarize"
   | "aiTranslate"
+  | "toggleFullscreen"
   | "toggleMarkdownFiles"
   | "toggleDocumentHistory"
   | "toggleAiAgent"
@@ -89,9 +105,27 @@ export type NativeMenuCommand =
 type NativeMenuCommandPayload = {
   command: NativeMenuCommand;
   recentFile?: RecentMarkdownFile;
+  targetWindowLabel?: string;
 };
 
+function currentNativeWindowLabel() {
+  try {
+    return getCurrentWindow().label;
+  } catch {
+    return null;
+  }
+}
+
+function shouldRunNativeMenuAction(payload: NativeMenuCommandPayload) {
+  const targetWindowLabel = payload.targetWindowLabel?.trim();
+  if (!targetWindowLabel) return true;
+
+  return currentNativeWindowLabel() === targetWindowLabel;
+}
+
 function runNativeMenuAction(payload: NativeMenuCommandPayload, handlers: NativeMenuHandlers) {
+  if (!shouldRunNativeMenuAction(payload)) return;
+
   if (payload.command === "openRecentFile") {
     if (!payload.recentFile) return;
 
@@ -144,12 +178,29 @@ function normalizeRecentFilesForNativeMenu(files: readonly RecentMarkdownFile[])
   });
 }
 
+export async function readNativeClipboardText() {
+  try {
+    const text = await invoke<string | null>("read_clipboard_text");
+
+    return typeof text === "string" ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+function withNativeClipboardText<TOptions extends { readClipboardText?: NativeClipboardTextReader }>(options: TOptions) {
+  return {
+    ...options,
+    readClipboardText: options.readClipboardText ?? readNativeClipboardText
+  };
+}
+
 export function createNativeEditorContextMenuItems(
   handlers: NativeMenuHandlers,
   language: AppLanguage = "en",
-  options: { aiCommandsAvailable?: boolean; markdownShortcuts?: MarkdownShortcutMap } = {}
+  options: NativeEditorContextMenuEntryOptions = {}
 ): ContextMenuEntry[] {
-  return createEditorContextMenuEntries(handlers, language, options, desktopContextMenuIdPrefixes);
+  return createEditorContextMenuEntries(handlers, language, withNativeClipboardText(options), desktopContextMenuIdPrefixes);
 }
 
 export async function installNativeEditorContextMenu(
@@ -172,7 +223,7 @@ export async function installNativeEditorContextMenu(
       entries: createEditorContextMenuEntriesFromOptions(
         handlers,
         language,
-        options,
+        withNativeClipboardText(options),
         desktopContextMenuIdPrefixes
       ),
       position: contextMenuPositionFromEvent(mouseEvent)
