@@ -332,13 +332,15 @@ async function writeBrowserClipboardText(input: EditableTextInput, text: string)
   }
 }
 
-function runTextInputDocumentCommand(input: EditableTextInput, command: string) {
+function runTextInputDocumentCommand(input: EditableTextInput, command: string, value?: string) {
   const documentTarget = input.ownerDocument;
   const execCommand = (documentTarget as unknown as Record<string, unknown>)["execCommand"];
   if (typeof execCommand !== "function") return false;
 
   try {
     input.focus({ preventScroll: true });
+    if (value !== undefined) return Boolean(execCommand.call(documentTarget, command, false, value));
+
     return Boolean(execCommand.call(documentTarget, command));
   } catch {
     return false;
@@ -360,6 +362,18 @@ function fileNameSelectionEndBeforeExtension(fileName: string) {
   return extensionSeparatorIndex > 0 && extensionSeparatorIndex < fileName.length - 1
     ? extensionSeparatorIndex
     : fileName.length;
+}
+
+function closestElementFromNode(node: Node | null) {
+  if (node instanceof Element) return node;
+
+  return node?.parentElement ?? null;
+}
+
+function isSelfDrawnContextMenuTarget(node: Node | null) {
+  return Boolean(
+    closestElementFromNode(node)?.closest("[data-markra-context-menu-root], [data-markra-context-menu]")
+  );
 }
 
 function replaceTextInputSelection(
@@ -389,6 +403,7 @@ async function cutTextInputSelection(input: EditableTextInput, setValue: TextInp
   if (input.readOnly || input.disabled) return false;
   const selectedText = selectedTextInputText(input);
   if (!selectedText) return false;
+  if (runTextInputDocumentCommand(input, "cut")) return true;
 
   const copied = await copyTextInputSelection(input);
   if (!copied) return false;
@@ -402,6 +417,8 @@ async function pasteTextInputSelection(input: EditableTextInput, setValue: TextI
 
   const clipboardText = await readNativeClipboardText();
   if (!clipboardText) return false;
+
+  if (runTextInputDocumentCommand(input, "insertText", clipboardText)) return true;
 
   replaceTextInputSelection(input, setValue, clipboardText);
   return true;
@@ -841,7 +858,7 @@ export function MarkdownFileTreeDrawer({
           ? eventTarget.parentElement
           : null;
       if (!target) return;
-      if (target.closest("[data-file-tree-path], [data-markra-context-menu-root], [data-markra-context-menu]")) return;
+      if (target.closest("[data-file-tree-path]") || isSelfDrawnContextMenuTarget(target)) return;
 
       clearFileTreeMultiSelection();
     };
@@ -1226,6 +1243,7 @@ export function MarkdownFileTreeDrawer({
 
       const fileTreeRoot = fileTreeBodyRef.current?.closest(".markdown-file-tree");
       if (fileTreeRoot?.contains(target)) return;
+      if (isSelfDrawnContextMenuTarget(target)) return;
 
       const renamingFile = renamingFileRef.current;
       if (!renamingFile) return;
@@ -1249,6 +1267,7 @@ export function MarkdownFileTreeDrawer({
 
       const fileTreeRoot = fileTreeBodyRef.current?.closest(".markdown-file-tree");
       if (fileTreeRoot?.contains(target)) return;
+      if (isSelfDrawnContextMenuTarget(target)) return;
 
       cancelFileTreeInputs();
     };
