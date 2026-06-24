@@ -155,6 +155,7 @@ describe("Markra AI workspace", () => {
       spellcheckLanguage: "en",
       showWordCount: true,
       suggestAiPanelForComplexInlinePrompts: true,
+      tableColumnWidthMode: "even",
       wrapCodeBlocks: true,
       titlebarActions: [
         { id: "aiAgent", visible: true },
@@ -245,6 +246,7 @@ describe("Markra AI workspace", () => {
       spellcheckLanguage: "en",
       showWordCount: true,
       suggestAiPanelForComplexInlinePrompts: false,
+      tableColumnWidthMode: "even",
       wrapCodeBlocks: true,
       titlebarActions: [
         { id: "aiAgent", visible: true },

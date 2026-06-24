@@ -312,6 +312,7 @@ function createStoredEditorPreferences(
     spellcheckEnabled: overrides.spellcheckEnabled ?? false,
     spellcheckIgnoredWords: overrides.spellcheckIgnoredWords ?? [],
     spellcheckLanguage: overrides.spellcheckLanguage ?? "en",
+    tableColumnWidthMode: overrides.tableColumnWidthMode ?? "even",
     titlebarActions: [
       { id: "aiAgent", visible: true },
       { id: "sourceMode", visible: true },
@@ -811,6 +812,7 @@ describe("Markra workspace", () => {
       spellcheckEnabled: false,
       spellcheckIgnoredWords: [],
       spellcheckLanguage: "en" as const,
+      tableColumnWidthMode: "even",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },
@@ -866,6 +868,7 @@ describe("Markra workspace", () => {
         spellcheckEnabled: false,
         spellcheckIgnoredWords: [],
         spellcheckLanguage: "en",
+        tableColumnWidthMode: "even",
         titlebarActions: [
           { id: "sourceMode", visible: true },
           { id: "save", visible: true },
@@ -909,6 +912,7 @@ describe("Markra workspace", () => {
         spellcheckEnabled: false,
         spellcheckIgnoredWords: [],
         spellcheckLanguage: "en",
+        tableColumnWidthMode: "even",
         titlebarActions: [
           { id: "sourceMode", visible: true },
           { id: "save", visible: true },
@@ -1568,6 +1572,7 @@ describe("Markra workspace", () => {
       spellcheckEnabled: false,
       spellcheckIgnoredWords: [],
       spellcheckLanguage: "en" as const,
+      tableColumnWidthMode: "even" as const,
       titlebarActions: [
         { id: "aiAgent" as const, visible: true },
         { id: "sourceMode" as const, visible: true },
@@ -1698,6 +1703,7 @@ describe("Markra workspace", () => {
       spellcheckEnabled: false,
       spellcheckIgnoredWords: [],
       spellcheckLanguage: "en",
+      tableColumnWidthMode: "even",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },
@@ -4373,6 +4379,7 @@ describe("Markra workspace", () => {
       spellcheckEnabled: false,
       spellcheckIgnoredWords: [],
       spellcheckLanguage: "en",
+      tableColumnWidthMode: "even",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },
@@ -4516,6 +4523,7 @@ describe("Markra workspace", () => {
       spellcheckEnabled: false,
       spellcheckIgnoredWords: [],
       spellcheckLanguage: "en",
+      tableColumnWidthMode: "even",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },

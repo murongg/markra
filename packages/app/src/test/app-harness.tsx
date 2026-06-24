@@ -302,6 +302,7 @@ vi.mock("../lib/settings/app-settings", () => ({
     spellcheckEnabled: false,
     spellcheckIgnoredWords: [],
     spellcheckLanguage: "en",
+    tableColumnWidthMode: "even",
     titlebarActions: [
       { id: "aiAgent", visible: true },
       { id: "sourceMode", visible: true },
@@ -1273,6 +1274,7 @@ export function installAppTestHarness() {
       spellcheckEnabled: false,
       spellcheckIgnoredWords: [],
       spellcheckLanguage: "en",
+      tableColumnWidthMode: "even",
       titlebarActions: [
         { id: "aiAgent", visible: true },
         { id: "sourceMode", visible: true },

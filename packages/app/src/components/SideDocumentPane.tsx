@@ -2,7 +2,7 @@ import { t, type AppLanguage } from "@markra/shared";
 import type { MarkdownShortcutMap, Spellchecker } from "@markra/editor";
 import type { EditorContentWidth } from "../lib/editor-width";
 import type { EditorFontFamilyPreference } from "../lib/editor-font";
-import type { EditorTheme, ExtendedSyntaxPreferences } from "../lib/settings/app-settings";
+import type { EditorTheme, ExtendedSyntaxPreferences, TableColumnWidthModePreference } from "../lib/settings/app-settings";
 import type { MarkdownDocumentLinkFile } from "../lib/document-links";
 import { shouldBlockLargeMarkdownVisual } from "../lib/large-markdown";
 import { LazyMarkdownSourceEditor } from "./LazyMarkdownSourceEditor";
@@ -31,6 +31,7 @@ type SideDocumentPaneProps = {
   spellcheckEnabled?: boolean;
   spellcheckIgnoredWords?: readonly string[];
   spellchecker?: Spellchecker;
+  tableColumnWidthMode?: TableColumnWidthModePreference;
   onAddSpellcheckIgnoredWord?: (word: string) => unknown;
   workspaceFiles?: MarkdownDocumentLinkFile[];
   wrapCodeBlocks?: boolean;
@@ -66,6 +67,7 @@ export function SideDocumentPane({
   spellcheckEnabled = false,
   spellcheckIgnoredWords,
   spellchecker,
+  tableColumnWidthMode = "even",
   onAddSpellcheckIgnoredWord,
   workspaceFiles,
   wrapCodeBlocks = true,
@@ -127,6 +129,7 @@ export function SideDocumentPane({
           spellcheckEnabled={spellcheckEnabled}
           spellcheckIgnoredWords={spellcheckIgnoredWords}
           spellchecker={spellchecker}
+          tableColumnWidthMode={tableColumnWidthMode}
           onAddSpellcheckIgnoredWord={onAddSpellcheckIgnoredWord}
           topInset="titlebar"
           workspaceFiles={workspaceFiles}
