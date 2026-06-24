@@ -2162,13 +2162,101 @@ describe("MarkdownFileTreeDrawer", () => {
     expect(screen.getByRole("menuitem", { name: /Paste/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /Select All/ })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("menuitem", { name: /Paste/ }));
+    const pasteItem = screen.getByRole("menuitem", { name: /Paste/ });
+    fireEvent.pointerDown(pasteItem);
+
+    expect(screen.getByRole("textbox", { name: "New file name" })).toBeInTheDocument();
+
+    fireEvent.click(pasteItem);
 
     await waitFor(() => expect(newFileInput).toHaveValue("Pasted note"));
 
     fireEvent.keyDown(newFileInput, { key: "Enter" });
 
     expect(createFile).toHaveBeenCalledWith("Pasted note");
+  });
+
+  it("uses native text insertion for right-click paste so input undo remains available", async () => {
+    const originalExecCommand = document.execCommand;
+    const execCommand = vi.fn(() => true);
+    mockedReadNativeClipboardText.mockResolvedValue("Undoable note");
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand
+    });
+
+    try {
+      render(
+        <MarkdownFileTreeDrawer
+          currentPath="/vault/Untitled.md"
+          files={markdownFiles}
+          open
+          outlineItems={[]}
+          rootName="Obsidian Vault"
+          onCreateFile={vi.fn()}
+          onOpenFile={() => {}}
+          onSelectOutlineItem={() => {}}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "New" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "New file" }));
+
+      const newFileInput = screen.getByRole("textbox", { name: "New file name" }) as HTMLInputElement;
+      fireEvent.contextMenu(newFileInput, { clientX: 24, clientY: 36 });
+      fireEvent.click(screen.getByRole("menuitem", { name: /Paste/ }));
+
+      await waitFor(() => {
+        expect(execCommand).toHaveBeenCalledWith("insertText", false, "Undoable note");
+      });
+    } finally {
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        value: originalExecCommand
+      });
+    }
+  });
+
+  it("uses native cut for right-click cut so input undo remains available", async () => {
+    const originalExecCommand = document.execCommand;
+    const execCommand = vi.fn((command: string) => command === "cut");
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand
+    });
+
+    try {
+      render(
+        <MarkdownFileTreeDrawer
+          currentPath="/vault/Untitled.md"
+          files={markdownFiles}
+          open
+          outlineItems={[]}
+          rootName="Obsidian Vault"
+          onCreateFile={vi.fn()}
+          onOpenFile={() => {}}
+          onSelectOutlineItem={() => {}}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "New" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "New file" }));
+
+      const newFileInput = screen.getByRole("textbox", { name: "New file name" }) as HTMLInputElement;
+      fireEvent.change(newFileInput, { target: { value: "Draft note" } });
+      newFileInput.setSelectionRange(0, "Draft".length);
+      fireEvent.contextMenu(newFileInput, { clientX: 24, clientY: 36 });
+      fireEvent.click(screen.getByRole("menuitem", { name: /Cut/ }));
+
+      await waitFor(() => {
+        expect(execCommand).toHaveBeenCalledWith("cut");
+      });
+    } finally {
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        value: originalExecCommand
+      });
+    }
   });
 
   it("keeps the rename input visible until an async rename finishes", async () => {
