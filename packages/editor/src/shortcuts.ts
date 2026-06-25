@@ -81,6 +81,22 @@ function selectionIsInsideNodeType(
   });
 }
 
+function selectionIsInsideNodeName(selection: Selection, nodeName: string) {
+  const positions = [selection.$from, selection.$to];
+
+  return positions.every(($pos) => {
+    for (let depth = $pos.depth; depth > 0; depth -= 1) {
+      if ($pos.node(depth).type.name === nodeName) return true;
+    }
+
+    return false;
+  });
+}
+
+function selectionIsInsideTableCell(selection: Selection) {
+  return selectionIsInsideNodeName(selection, "table_cell") || selectionIsInsideNodeName(selection, "table_header");
+}
+
 function nodeIsList(node: ProseNode) {
   return node.type.name === "bullet_list" || node.type.name === "ordered_list";
 }
@@ -633,6 +649,23 @@ function insertPlainTextIndentation(view: EditorView) {
   return true;
 }
 
+function insertRenderedHardbreak(view: EditorView) {
+  if (!(view.state.selection instanceof TextSelection)) return false;
+
+  const hardbreak = view.state.schema.nodes.hardbreak;
+  if (!hardbreak) return false;
+
+  view.dispatch(
+    view.state.tr
+      // Milkdown filters built-in hardbreak transactions inside tables; Markra table breaks are deliberate.
+      .replaceSelectionWith(hardbreak.create({ renderLineBreak: true }))
+      .scrollIntoView()
+  );
+  view.focus();
+
+  return true;
+}
+
 export const markraMarkdownShortcuts = (configuredShortcuts: MarkdownShortcutMap = {}) => $prose((ctx) => {
   const strong = strongSchema.type(ctx);
   const emphasis = emphasisSchema.type(ctx);
@@ -698,6 +731,19 @@ export const markraMarkdownShortcuts = (configuredShortcuts: MarkdownShortcutMap
             event.preventDefault();
             return true;
           }
+        } else if (
+          event.key === "Enter" &&
+          event.shiftKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          selectionIsInsideTableCell(view.state.selection)
+        ) {
+          const handled = insertRenderedHardbreak(view);
+          if (!handled) return false;
+
+          event.preventDefault();
+          return true;
         } else if (
           (event.key === "Backspace" || event.key === "Delete") &&
           !hasModifier &&

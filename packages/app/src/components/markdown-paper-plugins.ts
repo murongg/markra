@@ -97,6 +97,11 @@ function hardbreakDomAttrs(attrs: Record<string, unknown>) {
   };
 }
 
+function serializerHasOpenNode(state: unknown, type: string) {
+  const elements = (state as { elements?: Array<{ type?: unknown }> }).elements;
+  return Array.isArray(elements) && elements.some((element) => element.type === type);
+}
+
 const markraHardbreakSchema = hardbreakSchema.extendSchema((previous) => (ctx) => {
   const baseSchema = previous(ctx);
 
@@ -133,6 +138,17 @@ const markraHardbreakSchema = hardbreakSchema.extendSchema((previous) => (ctx) =
 
       const attrs = hardbreakDomAttrs(ctx.get(hardbreakAttr.key)(node));
       return ["span", attrs, ["br"]];
+    },
+    toMarkdown: {
+      ...baseSchema.toMarkdown,
+      runner: (state, node) => {
+        if (node.attrs.renderLineBreak === true && serializerHasOpenNode(state, "tableCell")) {
+          state.addNode("html", undefined, "<br>");
+          return;
+        }
+
+        baseSchema.toMarkdown.runner(state, node);
+      }
     }
   };
 });

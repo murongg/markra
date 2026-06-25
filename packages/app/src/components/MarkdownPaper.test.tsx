@@ -8097,6 +8097,31 @@ describe("MarkdownPaper editing", () => {
     expect(table).toHaveTextContent("Editor");
   });
 
+  it("inserts a cell line break with Shift+Enter inside tables", async () => {
+    const { container, editor, view } = await renderEditor("| Name | Notes |\n| --- | --- |\n| Example | First line |");
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+    moveCursor(view, findTextPosition(view, "First line", "First line".length));
+
+    expect(pressShortcut(view, "Enter", { shiftKey: true })).toBe(true);
+
+    typeText(view, "Second line");
+
+    const cellHardbreak = view.state.doc.resolve(findTextPosition(view, "Second line")).parent.child(1);
+    expect(cellHardbreak.type.name).toBe("hardbreak");
+    expect(cellHardbreak.attrs.renderLineBreak).toBe(true);
+
+    const notesCell = container.querySelector<HTMLElement>(".ProseMirror tbody td:nth-child(2)");
+    const hardbreak = notesCell?.querySelector<HTMLElement>(
+      'br[data-type="hardbreak"], span.markra-hardbreak[data-type="hardbreak"] br'
+    );
+    expect(hardbreak).toBeInTheDocument();
+
+    expect(notesCell).toHaveTextContent("First lineSecond line");
+    expect(serializeMarkdown(view.state.doc)).toContain("| Example | First line<br>Second line |");
+    await settleMarkdownListener();
+  });
+
   it("keeps a preceding table when pressing Backspace from an empty paragraph below it", async () => {
     const tableMarkdown = ["| Name | Role |", "| --- | --- |", "| Markra | Editor |"].join("\n");
     const { container, editor, view } = await renderEditor([tableMarkdown, "", "![Screenshot](assets/pasted-image.png)"].join("\n"));
