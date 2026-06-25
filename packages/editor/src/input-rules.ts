@@ -81,6 +81,7 @@ const liveMarkdownVisibleMarkSelector = [
 ].join("");
 const formattedInlineElementSelector = "strong, em, del, code";
 const visibleFormattedEdgeThreshold = 6;
+const maxVisibleFormattedEdgeThreshold = 14;
 type FormattedEdge = "left" | "right";
 type FormattedEdgePlacement = "inside" | "outside";
 
@@ -593,6 +594,14 @@ function rectContainsY(rect: DOMRect, y: number) {
   return rect.width > 0 && rect.height > 0 && y >= rect.top && y <= rect.bottom;
 }
 
+function visibleFormattedEdgeHitThreshold(target: HTMLElement, rect: DOMRect) {
+  const textLength = Array.from(target.textContent ?? "").length;
+  if (textLength === 0) return visibleFormattedEdgeThreshold;
+
+  const averageGlyphWidth = rect.width / textLength;
+  return Math.max(visibleFormattedEdgeThreshold, Math.min(maxVisibleFormattedEdgeThreshold, averageGlyphWidth * 0.75));
+}
+
 function formattedEdgePlacementFromCoordinates(rect: DOMRect, edge: FormattedEdge, x: number): FormattedEdgePlacement {
   if (edge === "left") return x > rect.left ? "inside" : "outside";
   return x < rect.right ? "inside" : "outside";
@@ -685,7 +694,7 @@ function visibleFormattedEdgeCandidate(
   const rightDistance = Math.abs(event.clientX - rect.right);
   const edge = leftDistance <= rightDistance ? "left" : "right";
   const distance = Math.min(leftDistance, rightDistance);
-  if (distance > visibleFormattedEdgeThreshold) return null;
+  if (distance > visibleFormattedEdgeHitThreshold(target, rect)) return null;
 
   const placement = formattedEdgePlacementFromCoordinates(rect, edge, event.clientX);
   const position = edgePositionFromVisibleFormattedTarget(view, target, edge, placement);

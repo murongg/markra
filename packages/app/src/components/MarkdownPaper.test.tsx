@@ -7564,7 +7564,7 @@ describe("MarkdownPaper editing", () => {
     );
 
     moveCursor(view, findLastTextBlockEndCursor(view));
-    fireEvent.mouseDown(paragraph!, { button: 0, clientX: 158, clientY: 30 });
+    fireEvent.mouseDown(paragraph!, { button: 0, clientX: 150, clientY: 30 });
     typeText(view, "X");
 
     expect(container.querySelector(".ProseMirror .markra-live-mark-strong")).toHaveTextContent("ABCX");
@@ -7654,7 +7654,7 @@ describe("MarkdownPaper editing", () => {
     });
 
     moveCursor(view, findLastTextBlockEndCursor(view));
-    fireEvent.mouseDown(paragraph!, { button: 0, clientX: 158, clientY: 30 });
+    fireEvent.mouseDown(paragraph!, { button: 0, clientX: 150, clientY: 30 });
     typeText(view, "X");
 
     expect(container.querySelector(".ProseMirror strong")).toHaveTextContent("ABCX");
