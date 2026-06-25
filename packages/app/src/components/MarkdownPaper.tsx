@@ -13,6 +13,7 @@ import {
 import type { EditorTheme } from "../lib/settings/app-settings";
 import type { TableColumnWidthModePreference } from "../lib/settings/app-settings";
 import { EditorWidthResizer } from "./EditorWidthResizer";
+import { MarkdownCodeMirrorPaperSurface } from "./MarkdownCodeMirrorPaperSurface";
 import type { MarkdownPaperSurfaceProps } from "./MarkdownPaperSurface";
 
 const MarkdownPaperSurface = lazy(async () => {
@@ -31,6 +32,7 @@ type MarkdownPaperProps = {
   contentWidthPx?: number | null;
   documentKey?: string | null;
   documentPath?: MarkdownPaperSurfaceProps["documentPath"];
+  editorEngine?: MarkdownPaperEditorEngine;
   editorFontFamily?: EditorFontFamilyPreference;
   editorTheme?: EditorTheme;
   extendedSyntax?: MarkdownPaperSurfaceProps["extendedSyntax"];
@@ -65,6 +67,8 @@ type MarkdownPaperProps = {
   wrapCodeBlocks?: boolean;
 };
 
+type MarkdownPaperEditorEngine = "codemirror" | "milkdown";
+
 type MarkdownPaperStyle = CSSProperties & {
   "--editor-font-family"?: string;
   "--editor-heading-font-family"?: string;
@@ -96,6 +100,7 @@ export function MarkdownPaper({
   contentWidthPx = null,
   documentKey,
   documentPath,
+  editorEngine,
   editorFontFamily = { family: null, source: "theme" },
   editorTheme = "light",
   extendedSyntax,
@@ -129,6 +134,9 @@ export function MarkdownPaper({
   workspaceFiles,
   wrapCodeBlocks = true
 }: MarkdownPaperProps) {
+  const resolvedEditorEngine = editorEngine ?? (
+    import.meta.env.VITE_MARKRA_VISUAL_MILKDOWN_LEGACY === "true" ? "milkdown" : "codemirror"
+  );
   const resolvedContentWidth = contentWidthPx ?? editorContentWidthPixels[contentWidth];
   const editorFontFamilyCss = editorFontFamilyCssValue(editorFontFamily);
   const paperStyle = {
@@ -158,7 +166,7 @@ export function MarkdownPaper({
         className={`markdown-paper relative mx-auto min-h-screen w-full max-w-215 px-18 ${topInsetClassName} text-[16px] leading-[1.65] text-(--text-primary) caret-(--accent) outline-none focus:outline-none max-[900px]:px-5.25`}
         style={paperStyle}
         aria-label={t(language, "app.markdownEditor")}
-        data-editor-engine="milkdown"
+        data-editor-engine={resolvedEditorEngine}
         data-editor-theme={editorTheme}
         data-code-block-wrap={wrapCodeBlocks ? "true" : "false"}
       >
@@ -171,33 +179,43 @@ export function MarkdownPaper({
           onResizeEnd={onContentWidthResizeEnd}
           onResizeStart={onContentWidthResizeStart}
         />
-        <Suspense fallback={<MarkdownPaperSurfaceFallback />}>
-          <MarkdownPaperSurface
+        {resolvedEditorEngine === "codemirror" ? (
+          <MarkdownCodeMirrorPaperSurface
             autoFocus={autoFocus}
-            documentPath={documentPath}
-            extendedSyntax={extendedSyntax}
             initialContent={initialContent}
             language={language}
-            markdownShortcuts={markdownShortcuts}
-            onActiveOutlineIndexChange={onActiveOutlineIndexChange}
-            onEditorReady={onEditorReady}
             onMarkdownChange={onMarkdownChange}
-            onSaveClipboardAttachment={onSaveClipboardAttachment}
-            onSaveClipboardImage={onSaveClipboardImage}
-            onSaveRemoteClipboardImage={onSaveRemoteClipboardImage}
-            onAddSpellcheckIgnoredWord={onAddSpellcheckIgnoredWord}
-            openLocalAttachment={openLocalAttachment}
-            openExternalUrl={openExternalUrl}
             readOnly={readOnly}
-            onTextSelectionChange={onTextSelectionChange}
-            resolveImageSrc={resolveImageSrc}
-            spellcheckEnabled={spellcheckEnabled}
-            spellcheckIgnoredWords={spellcheckIgnoredWords}
-            spellchecker={spellchecker}
-            tableColumnWidthMode={tableColumnWidthMode}
-            workspaceFiles={workspaceFiles}
           />
-        </Suspense>
+        ) : (
+          <Suspense fallback={<MarkdownPaperSurfaceFallback />}>
+            <MarkdownPaperSurface
+              autoFocus={autoFocus}
+              documentPath={documentPath}
+              extendedSyntax={extendedSyntax}
+              initialContent={initialContent}
+              language={language}
+              markdownShortcuts={markdownShortcuts}
+              onActiveOutlineIndexChange={onActiveOutlineIndexChange}
+              onEditorReady={onEditorReady}
+              onMarkdownChange={onMarkdownChange}
+              onSaveClipboardAttachment={onSaveClipboardAttachment}
+              onSaveClipboardImage={onSaveClipboardImage}
+              onSaveRemoteClipboardImage={onSaveRemoteClipboardImage}
+              onAddSpellcheckIgnoredWord={onAddSpellcheckIgnoredWord}
+              openLocalAttachment={openLocalAttachment}
+              openExternalUrl={openExternalUrl}
+              readOnly={readOnly}
+              onTextSelectionChange={onTextSelectionChange}
+              resolveImageSrc={resolveImageSrc}
+              spellcheckEnabled={spellcheckEnabled}
+              spellcheckIgnoredWords={spellcheckIgnoredWords}
+              spellchecker={spellchecker}
+              tableColumnWidthMode={tableColumnWidthMode}
+              workspaceFiles={workspaceFiles}
+            />
+          </Suspense>
+        )}
       </article>
     </section>
   );

@@ -346,6 +346,8 @@ function WorkspaceApp() {
   const sourceMode = editorMode === "source";
   const splitMode = editorMode === "split";
   const sourceSurfaceActive = sourceMode || (splitMode && activeEditorSurface === "source");
+  const visualEditorEngine = import.meta.env.VITE_MARKRA_VISUAL_MILKDOWN_LEGACY === "true" ? "milkdown" : "codemirror";
+  const codeMirrorVisualActive = visualEditorEngine === "codemirror";
   const aiResultsRef = useRef<AiDiffResult[]>([]);
   const appliedAiPreviewKeysRef = useRef(new Set<string>());
   const activeAiSelectionRef = useRef<AiSelectionContext | null>(null);
@@ -470,20 +472,20 @@ function WorkspaceApp() {
     setAiSelectionToolbarHeadingLevel(formattingState.headingLevel);
   }, [getEditorSelectionFormattingState]);
   const readCurrentMarkdownForDocument = useCallback((fallbackContent: string) => {
-    if (sourceSurfaceActive || largeMarkdownVisualBlockedRef.current) return fallbackContent;
+    if (sourceSurfaceActive || largeMarkdownVisualBlockedRef.current || codeMirrorVisualActive) return fallbackContent;
 
     return getEditorCurrentMarkdown(fallbackContent);
-  }, [getEditorCurrentMarkdown, sourceSurfaceActive]);
+  }, [codeMirrorVisualActive, getEditorCurrentMarkdown, sourceSurfaceActive]);
   const isCurrentMarkdownEquivalentForDocument = useCallback((markdown: string) => {
-    if (sourceSurfaceActive || largeMarkdownVisualBlockedRef.current) return undefined;
+    if (sourceSurfaceActive || largeMarkdownVisualBlockedRef.current || codeMirrorVisualActive) return undefined;
 
     return isEditorCurrentMarkdownEquivalent(markdown);
-  }, [isEditorCurrentMarkdownEquivalent, sourceSurfaceActive]);
+  }, [codeMirrorVisualActive, isEditorCurrentMarkdownEquivalent, sourceSurfaceActive]);
   const isDocumentEditorReady = useCallback(() => {
-    if (sourceSurfaceActive || largeMarkdownVisualBlockedRef.current) return true;
+    if (sourceSurfaceActive || largeMarkdownVisualBlockedRef.current || codeMirrorVisualActive) return true;
 
     return visualEditorReadyRevisionRef.current === documentRevisionRef.current;
-  }, [sourceSurfaceActive]);
+  }, [codeMirrorVisualActive, sourceSurfaceActive]);
   const handleVisualEditorReady = useCallback((...args: Parameters<typeof handleMilkdownEditorReady>) => {
     const [readyEditor] = args;
     handleMilkdownEditorReady(...args);
@@ -730,13 +732,14 @@ function WorkspaceApp() {
       !hasOpenDocument ||
       sourceSurfaceActive ||
       largeMarkdownVisualBlocked ||
+      codeMirrorVisualActive ||
       visualEditorReadyRevisionRef.current === documentRevisionRef.current
     );
   useStartupWindowReveal({ ready: startupWindowReady });
   const documentHistoryAvailable = hasOpenDocument && document.path !== null && !activeImageFile && !readOnlyMode;
   const documentSearchAvailable = hasOpenDocument && !activeImageFile;
   const documentSearchSurface: EditorSurface =
-    sourceSurfaceActive || largeMarkdownVisualBlocked ? "source" : "visual";
+    sourceSurfaceActive || largeMarkdownVisualBlocked || codeMirrorVisualActive ? "source" : "visual";
   const {
     activeIndex: normalizedDocumentSearchActiveIndex,
     activeMatch: activeDocumentSearchMatch,
@@ -3715,6 +3718,7 @@ function WorkspaceApp() {
               contentWidthPx={activeEditorContentWidthPx}
               documentKey={tab.id}
               documentPath={tab.path}
+              editorEngine={visualEditorEngine}
               editorFontFamily={editorPreferences.preferences.editorFontFamily}
               editorTheme={appTheme.editorTheme}
               extendedSyntax={editorPreferences.preferences.extendedSyntax}
