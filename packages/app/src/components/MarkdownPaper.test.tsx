@@ -904,6 +904,53 @@ describe("MarkdownPaper editing", () => {
     expect(paper?.style.getPropertyValue("--editor-heading-font-family")).toBe("");
   });
 
+  it("renders a custom caret for focused collapsed ProseMirror selections", async () => {
+    const { view } = await renderEditor("Alpha");
+    const coordsSpy = vi.spyOn(view, "coordsAtPos").mockReturnValue({
+      bottom: 42,
+      left: 24,
+      right: 25,
+      top: 10
+    });
+
+    focusEditor(view);
+    moveCursor(view, findTextPosition(view, "Alpha", 2));
+
+    const caret = view.dom.ownerDocument.querySelector<HTMLElement>(".markra-prosemirror-caret");
+
+    expect(view.dom).toHaveClass("markra-prosemirror-custom-caret");
+    expect(caret).toBeInTheDocument();
+    expect(caret).toHaveAttribute("aria-hidden", "true");
+    expect(caret?.style.display).toBe("block");
+    expect(caret?.style.left).toBe("24px");
+    expect(caret?.style.top).toBe("17px");
+    expect(caret?.style.height).toBe("18px");
+
+    coordsSpy.mockRestore();
+    await settleMarkdownListener();
+  });
+
+  it("hides the custom caret for non-collapsed ProseMirror selections", async () => {
+    const { view } = await renderEditor("Alpha");
+    const coordsSpy = vi.spyOn(view, "coordsAtPos").mockReturnValue({
+      bottom: 42,
+      left: 24,
+      right: 25,
+      top: 10
+    });
+
+    focusEditor(view);
+    moveCursor(view, findTextPosition(view, "Alpha", 2));
+    selectText(view, findTextPosition(view, "Alpha"), findTextPosition(view, "Alpha", 2));
+
+    const caret = view.dom.ownerDocument.querySelector<HTMLElement>(".markra-prosemirror-caret");
+
+    expect(caret?.style.display).toBe("none");
+
+    coordsSpy.mockRestore();
+    await settleMarkdownListener();
+  });
+
   it("renders exact visual search highlights without width normalization", async () => {
     const { container, view } = await renderEditor("alpha, beta，gamma, delta");
 
@@ -7241,6 +7288,30 @@ describe("MarkdownPaper editing", () => {
     await settleMarkdownListener();
   });
 
+  it("keeps text typed at finalized formatting edges outside the mark", async () => {
+    const cases = [
+      { markdown: "*emphasis*", selector: "em", text: "emphasis", expected: "before *emphasis* after" },
+      { markdown: "**strong**", selector: "strong", text: "strong", expected: "before **strong** after" },
+      { markdown: "~~strike~~", selector: "del", text: "strike", expected: "before ~~strike~~ after" }
+    ];
+
+    for (const { markdown, selector, text, expected } of cases) {
+      const { container, editor, view } = await renderEditor(markdown);
+      const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+
+      moveCursor(view, findTextPosition(view, text));
+      typeText(view, "before ");
+      moveCursor(view, findTextPosition(view, text, text.length));
+      typeText(view, " after");
+
+      expect(container.querySelector(`.ProseMirror ${selector}`)).toHaveTextContent(text);
+      expect(container.querySelector(".ProseMirror")?.textContent).toBe(`before ${text} after`);
+      expect(serializeMarkdown(view.state.doc).trimEnd()).toBe(expected);
+    }
+
+    await settleMarkdownListener();
+  });
+
   it("hides folded markdown delimiters after the cursor moves to other text", async () => {
     const { container, view } = await renderEditor();
 
@@ -7311,6 +7382,77 @@ describe("MarkdownPaper editing", () => {
     moveCursor(view, 3);
     expect(pressArrowLeft(view)).toBe(true);
     expect(view.state.selection.from).toBe(1);
+    await settleMarkdownListener();
+  });
+
+  it("places the cursor outside active live markdown delimiters from mouse clicks", async () => {
+    const { container, view } = await renderEditor();
+
+    typeText(view, "**ABC**");
+
+    expectLiveMark(container, "strong", "ABC");
+
+    const sourceStart = findFirstTextBlockCursor(view);
+    const sourceEnd = findLastTextBlockEndCursor(view);
+    const delimiters = Array.from(container.querySelectorAll<HTMLElement>(".ProseMirror .markra-md-delimiter"));
+    expect(delimiters).toHaveLength(2);
+    const [openingDelimiter] = delimiters;
+
+    moveCursor(view, findTextPosition(view, "ABC", 1));
+    openingDelimiter?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, cancelable: true }));
+
+    expect(view.state.selection.from).toBe(sourceStart);
+
+    const nextDelimiters = Array.from(container.querySelectorAll<HTMLElement>(".ProseMirror .markra-md-delimiter"));
+    expect(nextDelimiters).toHaveLength(2);
+    const [, closingDelimiter] = nextDelimiters;
+
+    moveCursor(view, findTextPosition(view, "ABC", 1));
+    closingDelimiter?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, cancelable: true }));
+
+    expect(view.state.selection.from).toBe(sourceEnd);
+    await settleMarkdownListener();
+  });
+
+  it("places the cursor before adjacent punctuation from live closing delimiter clicks", async () => {
+    const { container, view } = await renderEditor();
+
+    typeText(view, "**ABC**:");
+
+    expectLiveMark(container, "strong", "ABC");
+
+    const punctuationPosition = findTextPosition(view, ":");
+
+    moveCursor(view, findTextPosition(view, "ABC", 1));
+
+    const delimiters = Array.from(container.querySelectorAll<HTMLElement>(".ProseMirror .markra-md-delimiter")).filter(
+      (delimiter) => !delimiter.classList.contains("markra-md-virtual-delimiter")
+    );
+    expect(delimiters).toHaveLength(2);
+    const [, closingDelimiter] = delimiters;
+
+    closingDelimiter?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, cancelable: true }));
+
+    expect(view.state.selection.from).toBe(punctuationPosition);
+    await settleMarkdownListener();
+  });
+
+  it("places the cursor before adjacent punctuation from folded closing delimiter clicks", async () => {
+    const { container, view } = await renderEditor("**ABC**:");
+
+    expect(container.querySelector(".ProseMirror strong")).toHaveTextContent("ABC");
+
+    const punctuationPosition = findTextPosition(view, ":");
+
+    moveCursor(view, findTextPosition(view, "ABC", 1));
+
+    const delimiters = Array.from(container.querySelectorAll<HTMLElement>(".ProseMirror .markra-md-virtual-delimiter"));
+    expect(delimiters).toHaveLength(2);
+    const [, closingDelimiter] = delimiters;
+
+    closingDelimiter?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, cancelable: true }));
+
+    expect(view.state.selection.from).toBe(punctuationPosition);
     await settleMarkdownListener();
   });
 

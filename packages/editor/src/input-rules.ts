@@ -71,6 +71,7 @@ type LiveMarkdownPluginState = {
 };
 
 const liveMarkdownKey = new PluginKey("markra-live-markdown");
+const liveMarkdownDelimiterSelector = ".markra-md-delimiter[data-markra-live-delimiter-position]";
 
 function getLiveMarkdownKinds(spec: LiveMarkdownSpec) {
   return spec.kinds ?? spec.marks.map((mark) => mark.kind);
@@ -533,11 +534,54 @@ function getFoldedMarkdownRangeAtCursor(
   return foldedRange;
 }
 
-function createDelimiterWidget(marker: string) {
+function createDelimiterWidget(marker: string, position: number | null = null) {
   const delimiter = document.createElement("span");
   delimiter.className = "markra-md-delimiter markra-md-virtual-delimiter";
   delimiter.textContent = marker;
+  if (position !== null) {
+    delimiter.dataset.markraLiveDelimiterPosition = String(position);
+  }
   return delimiter;
+}
+
+function liveMarkdownDelimiterAttrs(className: string, position: number | null) {
+  if (position === null) return { class: className };
+
+  return {
+    class: className,
+    "data-markra-live-delimiter-position": String(position)
+  };
+}
+
+function liveMarkdownDelimiterTarget(target: EventTarget | null) {
+  const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+  return element?.closest<HTMLElement>(liveMarkdownDelimiterSelector) ?? null;
+}
+
+function liveMarkdownDelimiterPosition(target: HTMLElement) {
+  const value = Number(target.dataset.markraLiveDelimiterPosition);
+  return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function selectLiveMarkdownDelimiterEdge(view: EditorView, event: Event) {
+  if (!(event instanceof MouseEvent)) return false;
+  if (event.button !== 0) return false;
+
+  const target = liveMarkdownDelimiterTarget(event.target);
+  if (!target) return false;
+
+  const position = liveMarkdownDelimiterPosition(target);
+  if (position === null || position > view.state.doc.content.size) return false;
+
+  event.preventDefault();
+  event.stopPropagation();
+  view.dispatch(
+    view.state.tr
+      .setSelection(TextSelection.create(view.state.doc, position))
+      .scrollIntoView()
+  );
+  view.focus();
+  return true;
 }
 
 function buildLiveMarkdownDecorations(
@@ -569,15 +613,12 @@ function buildLiveMarkdownDecorations(
         activeLiveRange?.from === from && activeLiveRange.to === to
           ? "markra-md-delimiter"
           : "markra-md-hidden-delimiter";
+      const rangeIsActive = delimiterClass === "markra-md-delimiter";
 
       // Keep Markdown markers in the document, but reveal them only for the currently active range.
       decorations.push(
-        Decoration.inline(from, contentFrom, {
-          class: delimiterClass
-        }),
-        Decoration.inline(contentTo, to, {
-          class: delimiterClass
-        })
+        Decoration.inline(from, contentFrom, liveMarkdownDelimiterAttrs(delimiterClass, rangeIsActive ? from : null)),
+        Decoration.inline(contentTo, to, liveMarkdownDelimiterAttrs(delimiterClass, rangeIsActive ? to : null))
       );
 
       if (range.contentFrom < range.contentTo) {
@@ -595,8 +636,10 @@ function buildLiveMarkdownDecorations(
   if (foldedRange) {
     // Finalized marks use virtual markers so the user can re-enter an editable Markdown-like state.
     decorations.push(
-      Decoration.widget(foldedRange.from, () => createDelimiterWidget(foldedRange.marker), { side: -1 }),
-      Decoration.widget(foldedRange.to, () => createDelimiterWidget(foldedRange.marker), {
+      Decoration.widget(foldedRange.from, () => createDelimiterWidget(foldedRange.marker, foldedRange.from), {
+        side: -1
+      }),
+      Decoration.widget(foldedRange.to, () => createDelimiterWidget(foldedRange.marker, foldedRange.to), {
         side: exitedFoldedRange ? -1 : 1,
         marks: exitedFoldedRange ? [] : undefined
       }),
@@ -965,6 +1008,9 @@ export const markraLiveMarkdownPlugin = (options: MarkraLiveMarkdownOptions = {}
       }
     },
     props: {
+      handleDOMEvents: {
+        mousedown: selectLiveMarkdownDelimiterEdge
+      },
       decorations: (state) => {
         const pluginState = liveMarkdownKey.getState(state) as LiveMarkdownPluginState | undefined;
         const active = findActiveLiveMarkdownRange(state, specs);

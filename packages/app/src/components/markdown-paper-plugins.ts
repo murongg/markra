@@ -1,5 +1,6 @@
 import {
   commands as commonmarkCommands,
+  emphasisSchema,
   hardbreakAttr,
   hardbreakSchema,
   imageSchema,
@@ -7,7 +8,8 @@ import {
   keymap as commonmarkKeymap,
   plugins as commonmarkPlugins,
   remarkPreserveEmptyLinePlugin,
-  schema as commonmarkSchema
+  schema as commonmarkSchema,
+  strongSchema
 } from "@milkdown/kit/preset/commonmark";
 import {
   commands as gfmCommands,
@@ -15,7 +17,8 @@ import {
   keymap as gfmKeymap,
   pasteRules as gfmPasteRules,
   plugins as gfmPlugins,
-  schema as gfmSchema
+  schema as gfmSchema,
+  strikethroughSchema
 } from "@milkdown/kit/preset/gfm";
 import type { ResolvedPos } from "@milkdown/kit/prose/model";
 import type { Selection } from "@milkdown/kit/prose/state";
@@ -66,6 +69,25 @@ const markraBlockImageSchema = imageSchema.extendSchema((previous) => (ctx) => (
     }
   }
 }));
+
+function keepMarkBoundariesPlainText<T extends Record<string, unknown>>(schema: T) {
+  return {
+    ...schema,
+    inclusive: false
+  };
+}
+
+const markraEmphasisSchema = emphasisSchema.extendSchema((previous) => (ctx) =>
+  keepMarkBoundariesPlainText(previous(ctx))
+);
+
+const markraStrongSchema = strongSchema.extendSchema((previous) => (ctx) =>
+  keepMarkBoundariesPlainText(previous(ctx))
+);
+
+const markraStrikethroughSchema = strikethroughSchema.extendSchema((previous) => (ctx) =>
+  keepMarkBoundariesPlainText(previous(ctx))
+);
 
 function hardbreakDomAttrs(attrs: Record<string, unknown>) {
   const existingClass = typeof attrs.class === "string" && attrs.class.length > 0 ? attrs.class : "";
@@ -302,6 +324,8 @@ export const markraCommonmark = [
   markraBlankParagraphRemarkPlugin,
   markraBlockImageRemarkPlugin,
   commonmarkSchema,
+  markraEmphasisSchema,
+  markraStrongSchema,
   markraBlockImageSchema,
   markraHardbreakSchema,
   commonmarkInputRules,
@@ -315,6 +339,7 @@ export const markraCommonmark = [
 
 export const markraGfm = [
   gfmSchema,
+  markraStrikethroughSchema,
   gfmInputRules,
   gfmPasteRules,
   gfmKeymap,
