@@ -7633,6 +7633,7 @@ describe("MarkdownPaper editing", () => {
 
     const mark = container.querySelector<HTMLElement>(".ProseMirror strong");
     const paragraph = container.querySelector<HTMLElement>(".ProseMirror p");
+    const originalFocus = view.focus.bind(view);
 
     mark!.getBoundingClientRect = vi.fn(
       () =>
@@ -7647,6 +7648,10 @@ describe("MarkdownPaper editing", () => {
           y: 20
         }) as DOMRect
     );
+    view.focus = vi.fn(() => {
+      view.dispatch(view.state.tr.setStoredMarks(null));
+      originalFocus();
+    });
 
     moveCursor(view, findLastTextBlockEndCursor(view));
     fireEvent.mouseDown(paragraph!, { button: 0, clientX: 158, clientY: 30 });

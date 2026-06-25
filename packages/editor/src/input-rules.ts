@@ -718,8 +718,8 @@ function selectVisibleFormattedEdge(view: EditorView, event: MouseEvent) {
   const transaction = view.state.tr
     .setSelection(TextSelection.create(view.state.doc, closestCandidate.position))
     .scrollIntoView();
-  view.dispatch(closestCandidate.marks ? transaction.setStoredMarks(closestCandidate.marks) : transaction);
   view.focus();
+  view.dispatch(closestCandidate.marks ? transaction.setStoredMarks(closestCandidate.marks) : transaction);
   return true;
 }
 
