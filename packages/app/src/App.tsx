@@ -1191,10 +1191,11 @@ function WorkspaceApp() {
   });
   const handleResponsiveEditorContentWidthChange = useCallback((nextWidthPx: number) => {
     handleEditorContentWidthChange(resolveEditorContentWidthBasePx({
+      contentWidth: activeEditorContentWidth,
       editorAreaWidth,
       renderedContentWidthPx: nextWidthPx
     }));
-  }, [editorAreaWidth, handleEditorContentWidthChange]);
+  }, [activeEditorContentWidth, editorAreaWidth, handleEditorContentWidthChange]);
   const editorWidthResizerVisible = shouldShowEditorWidthResizer({
     aiAgentOpen: aiFeatureEnabled && aiAgentOpen,
     editorAreaWidth,

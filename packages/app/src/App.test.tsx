@@ -2287,7 +2287,7 @@ describe("Markra workspace", () => {
       });
       await waitFor(() => expect(mockedSaveStoredEditorPreferences).toHaveBeenCalledWith(expect.objectContaining({
         contentWidth: "default",
-        contentWidthPx: 910
+        contentWidthPx: 930
       })));
     } finally {
       restoreWindowInnerWidth();

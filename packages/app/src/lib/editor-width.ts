@@ -27,6 +27,14 @@ function responsiveEditorContentWidthScale(editorAreaWidth: number) {
   return editorAreaWidth / editorResponsiveContentWidthBaseArea;
 }
 
+function resolveResponsiveEditorContentWidthBasePx(baseWidth: number, editorAreaWidth: number) {
+  const width = normalizeEditorContentWidthPx(Math.round(
+    baseWidth * responsiveEditorContentWidthScale(Math.max(0, editorAreaWidth))
+  ));
+
+  return width ?? baseWidth;
+}
+
 export function resolveResponsiveEditorContentWidthPx({
   contentWidth,
   contentWidthPx,
@@ -36,24 +44,26 @@ export function resolveResponsiveEditorContentWidthPx({
   contentWidthPx: number | null;
   editorAreaWidth: number;
 }) {
-  const baseWidth = contentWidthPx ?? editorContentWidthPixels[contentWidth];
-  const width = normalizeEditorContentWidthPx(Math.round(
-    baseWidth * responsiveEditorContentWidthScale(Math.max(0, editorAreaWidth))
-  ));
+  const presetBaseWidth = editorContentWidthPixels[contentWidth];
+  const presetWidth = resolveResponsiveEditorContentWidthBasePx(presetBaseWidth, editorAreaWidth);
+  if (contentWidthPx === null) return presetWidth;
 
-  return width ?? baseWidth;
+  const customOffset = contentWidthPx - presetBaseWidth;
+  return normalizeEditorContentWidthPx(presetWidth + customOffset) ?? presetWidth;
 }
 
 export function resolveEditorContentWidthBasePx({
+  contentWidth,
   editorAreaWidth,
   renderedContentWidthPx
 }: {
+  contentWidth: EditorContentWidth;
   editorAreaWidth: number;
   renderedContentWidthPx: number;
 }) {
-  const width = normalizeEditorContentWidthPx(Math.round(
-    renderedContentWidthPx / responsiveEditorContentWidthScale(Math.max(0, editorAreaWidth))
-  ));
+  const presetBaseWidth = editorContentWidthPixels[contentWidth];
+  const presetWidth = resolveResponsiveEditorContentWidthBasePx(presetBaseWidth, editorAreaWidth);
+  const width = normalizeEditorContentWidthPx(presetBaseWidth + renderedContentWidthPx - presetWidth);
 
   return width ?? renderedContentWidthPx;
 }
