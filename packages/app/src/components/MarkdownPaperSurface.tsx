@@ -26,6 +26,7 @@ import {
   markraCalloutSerializerPlugin,
   markraClipboardImagePluginWithOptions,
   markraCodeBlockPlugin,
+  markraVisualCaretPlugin,
   markraFrontmatterRemarkPlugin,
   markraFrontmatterSchema,
   markraFootnoteDefinitionInputPlugin,
@@ -483,6 +484,7 @@ function MilkdownEditorSurface({
         .use(markraMathPlugin)
         .use(markraAiSelectionHoldPlugin)
         .use(markraAiEditorPreviewPlugin)
+        .use(markraVisualCaretPlugin)
         .use(markraSearchPlugin())
         .use(markraSpellcheckPlugin({
           enabled: spellcheckEnabledRef.current,

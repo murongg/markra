@@ -17,6 +17,18 @@
   }
 }
 
+@keyframes markra-prosemirror-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
 @keyframes markra-ai-float-in {
   from {
     opacity: 0;
@@ -832,6 +844,25 @@
 
   .markdown-paper .ProseMirror {
     @apply wrap-break-word whitespace-pre-wrap;
+  }
+
+  .markdown-paper .ProseMirror.markra-prosemirror-custom-caret {
+    caret-color: transparent;
+  }
+
+  .markdown-paper .markra-prosemirror-caret {
+    position: fixed;
+    z-index: 70;
+    display: none;
+    width: 1px;
+    background: var(--accent);
+    border-radius: 999px;
+    pointer-events: none;
+    animation: markra-prosemirror-caret-blink 1.05s steps(1, end) infinite;
+  }
+
+  .editor-content-slot[data-document-search-open="true"] .markdown-paper .markra-prosemirror-caret {
+    display: none !important;
   }
 
   .markdown-paper .ProseMirror li[data-item-type="task"] {
