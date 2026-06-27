@@ -1,3 +1,10 @@
+## [0.16.3](https://github.com/markrahq/markra/compare/v0.16.2...v0.16.3) (2026-06-27)
+
+### Bug Fixes
+
+* **editor:** stabilize formatted text edge selection ([#427](https://github.com/markrahq/markra/issues/427)) ([756f72c](https://github.com/markrahq/markra/commit/756f72c9f0afd3e1376058c1156673dccff2f76f))
+* **export:** render table cell br tags in exports ([#428](https://github.com/markrahq/markra/issues/428)) ([c2e9ba1](https://github.com/markrahq/markra/commit/c2e9ba156864b73c148b146de84bfee1111863dd))
+
 ## [0.16.2](https://github.com/markrahq/markra/compare/v0.16.1...v0.16.2) (2026-06-26)
 
 ### Bug Fixes
