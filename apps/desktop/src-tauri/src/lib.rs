@@ -1,3 +1,4 @@
+mod acp;
 mod ai_http;
 mod app_exit;
 mod backup;
@@ -22,6 +23,7 @@ mod windows;
 
 use std::{path::Path, time::Duration};
 
+use acp::{start_acp_agent, stop_acp_agent, write_acp_agent_message, AcpAgentProcessState};
 use ai_http::{request_ai_provider_json, request_native_chat, request_native_chat_stream};
 use app_exit::handle_app_exit_requested;
 use backup::backup_markdown_folder;
@@ -163,7 +165,8 @@ pub fn run() {
         .manage(OpenedMarkdownPathsState::default())
         .manage(NativeApplicationMenuState::default())
         .manage(NativeMenuTargetState::default())
-        .manage(EditorWindowRestoreState::default());
+        .manage(EditorWindowRestoreState::default())
+        .manage(AcpAgentProcessState::default());
 
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
@@ -281,6 +284,9 @@ pub fn run() {
             get_shell_command_status,
             install_shell_command,
             uninstall_shell_command,
+            start_acp_agent,
+            write_acp_agent_message,
+            stop_acp_agent,
             set_editor_window_restore_state,
             list_editor_window_restore_states,
             list_system_font_families,

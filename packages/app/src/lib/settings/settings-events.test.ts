@@ -4,6 +4,7 @@ import { configureAppRuntime, createDefaultAppRuntime, resetAppRuntimeForTests }
 import {
   listenAppCustomThemeCssChanged,
   listenAppBackupSettingsChanged,
+  listenAppAcpAgentSettingsChanged,
   listenAppEditorPreferencesChanged,
   listenAppExportSettingsChanged,
   listenAppLanguageChanged,
@@ -11,13 +12,14 @@ import {
   listenAppSyncSettingsChanged,
   notifyAppCustomThemeCssChanged,
   notifyAppBackupSettingsChanged,
+  notifyAppAcpAgentSettingsChanged,
   notifyAppEditorPreferencesChanged,
   notifyAppExportSettingsChanged,
   notifyAppLanguageChanged,
   notifyAppSyncSettingsChanged,
   notifyAppThemeChanged
 } from "./settings-events";
-import type { BackupSettings, EditorPreferences, SyncSettings } from "./app-settings";
+import type { AcpAgentSettings, BackupSettings, EditorPreferences, SyncSettings } from "./app-settings";
 
 const mockedEmit = vi.fn();
 const mockedListen = vi.fn();
@@ -299,6 +301,33 @@ describe("settings events", () => {
 
     expect(mockedListen).toHaveBeenCalledWith("markra://backup-settings-changed", expect.any(Function));
     expect(mockedEmit).toHaveBeenCalledWith("markra://backup-settings-changed", {
+      settings
+    });
+    expect(onSettingsChanged).toHaveBeenCalledWith(settings);
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits and listens for ACP agent setting changes inside Tauri", async () => {
+    const unlisten = vi.fn();
+    const onSettingsChanged = vi.fn();
+    const settings: AcpAgentSettings = {
+      args: "-lc 'exec npx -y @agentclientprotocol/codex-acp'",
+      command: "/bin/zsh",
+      cwd: "",
+      enabled: true
+    };
+    eventsAvailable = true;
+    mockedListen.mockResolvedValue(unlisten);
+
+    const cleanup = await listenAppAcpAgentSettingsChanged(onSettingsChanged);
+    const listener = mockedListen.mock.calls[0]?.[1];
+
+    await notifyAppAcpAgentSettingsChanged(settings);
+    listener?.({ payload: { settings } } as Parameters<NonNullable<typeof listener>>[0]);
+    cleanup();
+
+    expect(mockedListen).toHaveBeenCalledWith("markra://acp-agent-settings-changed", expect.any(Function));
+    expect(mockedEmit).toHaveBeenCalledWith("markra://acp-agent-settings-changed", {
       settings
     });
     expect(onSettingsChanged).toHaveBeenCalledWith(settings);

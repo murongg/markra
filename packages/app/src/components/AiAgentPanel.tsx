@@ -18,6 +18,7 @@ import {
   Pencil,
   PencilLine,
   RefreshCcw,
+  ShieldQuestion,
   Sparkles,
   X
 } from "lucide-react";
@@ -28,11 +29,16 @@ import { AiAgentProcessList } from "./AiAgentProcessList";
 import { useImeInputGuard } from "../hooks/useImeInputGuard";
 import { clampNumber, t, type AppLanguage, type I18nKey } from "@markra/shared";
 import type { AiModelCapability, AiProviderApiStyle, StoredAiAgentSessionSummary } from "../lib/settings/app-settings";
-import type { AiAgentPanelMessage, WorkspacePlanApplyStatus } from "../hooks/useAiAgentSession";
-import type { WorkspacePlanVisualEvent } from "@markra/ai";
+import type { AcpAgentPermissionPrompt, AiAgentPanelMessage, WorkspacePlanApplyStatus } from "../hooks/useAiAgentSession";
+import type { AcpPermissionRequestOutcome, WorkspacePlanVisualEvent } from "@markra/ai";
 import { IconButton, RoundIconButton, ToggleButton, Tooltip } from "@markra/ui";
 
 type AiAgentModelOption = AiModelPickerOption & { capabilities: AiModelCapability[] };
+type AcpAgentModelOption = {
+  description?: string;
+  id: string;
+  name: string;
+};
 
 export type AiAgentPanelContext = {
   documentName?: string | null;
@@ -46,6 +52,9 @@ export type AiAgentPanelContext = {
 
 type AiAgentPanelProps = {
   activeSessionId?: string | null;
+  acpAgentEnabled?: boolean;
+  acpAgentName?: string | null;
+  acpModels?: AcpAgentModelOption[];
   availableModels?: AiAgentModelOption[];
   context?: AiAgentPanelContext | null;
   documentAvailable?: boolean;
@@ -54,7 +63,9 @@ type AiAgentPanelProps = {
   messages?: AiAgentPanelMessage[];
   modelName?: string | null;
   open: boolean;
+  pendingAcpPermission?: AcpAgentPermissionPrompt | null;
   providerName?: string | null;
+  selectedAcpModelId?: string | null;
   selectedModelId?: string | null;
   selectedProviderId?: string | null;
   status?: "error" | "idle" | "streaming" | "thinking";
@@ -82,6 +93,8 @@ type AiAgentPanelProps = {
   onResizeEnd?: () => unknown;
   onResizeStart?: () => unknown;
   onRetryMessage?: (messageId: number) => unknown;
+  onResolveAcpPermission?: (outcome: AcpPermissionRequestOutcome) => unknown;
+  onSelectAcpModel?: (modelId: string) => unknown;
   onSelectSession?: (sessionId: string) => unknown;
   onSelectModel?: (providerId: string, modelId: string) => unknown;
   onSubmit?: (promptOverride?: string) => unknown;
@@ -96,6 +109,9 @@ const defaultMaxWidth = 760;
 
 export function AiAgentPanel({
   activeSessionId = null,
+  acpAgentEnabled = false,
+  acpAgentName = null,
+  acpModels = [],
   availableModels = [],
   context = null,
   documentAvailable = true,
@@ -104,7 +120,9 @@ export function AiAgentPanel({
   messages = [],
   modelName = null,
   open,
+  pendingAcpPermission = null,
   providerName = null,
+  selectedAcpModelId = null,
   selectedModelId = null,
   selectedProviderId = null,
   status = "idle",
@@ -132,6 +150,8 @@ export function AiAgentPanel({
   onResizeEnd,
   onResizeStart,
   onRetryMessage,
+  onResolveAcpPermission,
+  onSelectAcpModel,
   onSelectSession,
   onSelectModel,
   onSubmit,
@@ -166,14 +186,23 @@ export function AiAgentPanel({
     availableModels.find((model) => getAiModelOptionValue(model.providerId, model.id) === selectedModelValue) ??
     availableModels[0] ??
     null;
-  const supportsThinking = selectedModel?.capabilities.includes("reasoning") ?? false;
-  const supportsWebSearch = webSearchAvailable;
+  const acpModelOptions: AiModelPickerOption[] = acpModels.map((model) => ({
+    id: model.id,
+    name: model.name,
+    providerId: "acp",
+    providerName: label("app.aiAcpMode")
+  }));
+  const acpSelectedModel = acpModels.find((model) => model.id === selectedAcpModelId) ?? acpModels[0] ?? null;
+  const showProviderModeControls = !acpAgentEnabled;
+  const supportsThinking = !acpAgentEnabled && (selectedModel?.capabilities.includes("reasoning") ?? false);
+  const supportsWebSearch = !acpAgentEnabled && webSearchAvailable;
   const providerModelLabel =
     selectedModel
       ? `${selectedModel.providerName} · ${selectedModel.name}`
       : providerName && modelName
         ? `${providerName} · ${modelName}`
         : (providerName ?? modelName ?? label("app.aiModelSelector"));
+  const acpAgentLabel = `${label("app.aiAcpMode")} · ${acpAgentName?.trim() || label("app.aiAcpAgent")}`;
   const suggestions = [
     {
       icon: FileText,
@@ -211,9 +240,11 @@ export function AiAgentPanel({
   ].join(" · ");
 
   useEffect(() => {
+    if (acpAgentEnabled) return;
+
     if (!supportsThinking && thinkingEnabled) onDisableThinking?.();
     if (!supportsWebSearch && webSearchEnabled) onToggleWebSearch?.();
-  }, [onDisableThinking, onToggleWebSearch, supportsThinking, supportsWebSearch, thinkingEnabled, webSearchEnabled]);
+  }, [acpAgentEnabled, onDisableThinking, onToggleWebSearch, supportsThinking, supportsWebSearch, thinkingEnabled, webSearchEnabled]);
 
   useEffect(() => {
     if (workspacePlanApplyStatus === "applied" || dismissedAppliedWorkspacePlanKey === null) return;
@@ -545,7 +576,22 @@ export function AiAgentPanel({
           <h2 className="m-0 truncate text-[14px] leading-5 font-[560] tracking-normal text-(--text-heading)">
             {label("app.aiAgent")}
           </h2>
-          {selectedModel ? (
+          {acpAgentEnabled && acpModelOptions.length > 0 && acpSelectedModel ? (
+            <div className="mt-0.5 flex min-w-0 items-center justify-center">
+              <AiModelPicker
+                ariaLabel={label("app.aiAcpModelSelector")}
+                models={acpModelOptions}
+                selectedModelId={acpSelectedModel.id}
+                selectedProviderId="acp"
+                showProviderBadge={false}
+                variant="subtitle"
+                onSelect={onSelectAcpModel ? (_providerId, modelId) => onSelectAcpModel(modelId) : undefined}
+                translate={(key) => label(key)}
+              />
+            </div>
+          ) : acpAgentEnabled ? (
+            <p className="m-0 truncate text-[10px] leading-3 font-[520] text-(--text-secondary)">{acpAgentLabel}</p>
+          ) : selectedModel ? (
             <div className="mt-0.5 flex min-w-0 items-center justify-center">
               <AiModelPicker
                 ariaLabel={label("app.aiModelSelector")}
@@ -737,6 +783,12 @@ export function AiAgentPanel({
         </div>
 
         <form className="shrink-0 border-t border-(--border-default) p-3" onSubmit={handleSubmit}>
+          {pendingAcpPermission ? (
+            <AcpPermissionPromptBar
+              permission={pendingAcpPermission}
+              onResolve={onResolveAcpPermission}
+            />
+          ) : null}
           {workspacePlanEvents.length > 0 && !workspacePlanConfirmationDismissed ? (
             <WorkspacePlanConfirmationBar
               applyError={workspacePlanApplyError}
@@ -776,26 +828,30 @@ export function AiAgentPanel({
             />
             <div className="mt-2 flex items-center justify-between gap-3 border-t border-(--border-default) pt-2">
               <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5">
-                <ToggleButton
-                  label={label("app.aiDeepThinking")}
-                  tooltip={label("app.aiDeepThinking")}
-                  pressed={thinkingEnabled}
-                  disabled={!supportsThinking}
-                  onClick={onToggleThinking}
-                >
-                  <BrainCircuit aria-hidden="true" size={14} />
-                  <span>{label("app.aiDeepThinking")}</span>
-                </ToggleButton>
-                <ToggleButton
-                  label={label("app.aiWebSearch")}
-                  tooltip={label("app.aiWebSearch")}
-                  pressed={webSearchEnabled}
-                  disabled={!supportsWebSearch}
-                  onClick={onToggleWebSearch}
-                >
-                  <Globe2 aria-hidden="true" size={14} />
-                  <span>{label("app.aiWebSearch")}</span>
-                </ToggleButton>
+                {showProviderModeControls ? (
+                  <>
+                    <ToggleButton
+                      label={label("app.aiDeepThinking")}
+                      tooltip={label("app.aiDeepThinking")}
+                      pressed={thinkingEnabled}
+                      disabled={!supportsThinking}
+                      onClick={onToggleThinking}
+                    >
+                      <BrainCircuit aria-hidden="true" size={14} />
+                      <span>{label("app.aiDeepThinking")}</span>
+                    </ToggleButton>
+                    <ToggleButton
+                      label={label("app.aiWebSearch")}
+                      tooltip={label("app.aiWebSearch")}
+                      pressed={webSearchEnabled}
+                      disabled={!supportsWebSearch}
+                      onClick={onToggleWebSearch}
+                    >
+                      <Globe2 aria-hidden="true" size={14} />
+                      <span>{label("app.aiWebSearch")}</span>
+                    </ToggleButton>
+                  </>
+                ) : null}
               </div>
               <RoundIconButton
                 className="disabled:opacity-40"
@@ -821,6 +877,66 @@ type WorkspacePlanConfirmationBarProps = {
   onApply?: () => unknown;
   onDismiss?: () => unknown;
 };
+
+type AcpPermissionPromptBarProps = {
+  permission: AcpAgentPermissionPrompt;
+  onResolve?: (outcome: AcpPermissionRequestOutcome) => unknown;
+};
+
+function AcpPermissionPromptBar({
+  permission,
+  onResolve
+}: AcpPermissionPromptBarProps) {
+  const detailText = permission.detail ?? "ACP is asking for permission.";
+
+  return (
+    <section
+      aria-label="ACP permission request"
+      className="mb-2 grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-2 rounded-md border border-(--border-default) bg-(--bg-primary) px-2.5 py-2 shadow-(--ai-command-shadow)"
+    >
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-(--accent)">
+        <ShieldQuestion aria-hidden="true" size={13} />
+      </span>
+      <div className="min-w-0">
+        <p className="m-0 truncate text-[12px] leading-4 font-[620] text-(--text-heading)">
+          {permission.title}
+        </p>
+        <Tooltip content={detailText}>
+          <p className="m-0 truncate text-[11px] leading-4 text-(--text-secondary)">
+            {detailText}
+          </p>
+        </Tooltip>
+      </div>
+      <div className="col-span-2 flex min-w-0 flex-wrap justify-end gap-1">
+        {permission.options.map((option) => (
+          <button
+            aria-label={option.name}
+            className={acpPermissionOptionButtonClassName(option.kind)}
+            disabled={!onResolve}
+            key={option.optionId}
+            type="button"
+            onClick={() => onResolve?.({
+              optionId: option.optionId,
+              outcome: "selected"
+            })}
+          >
+            <span className="min-w-0 truncate">{option.name}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function acpPermissionOptionButtonClassName(kind: AcpAgentPermissionPrompt["options"][number]["kind"]) {
+  const baseClassName = "inline-flex h-7 max-w-full cursor-pointer items-center justify-center rounded-md border px-2 text-[11px] leading-4 font-[620] transition-[background-color,border-color,color,opacity] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent) disabled:cursor-default disabled:opacity-55";
+
+  if (kind === "allow_once" || kind === "allow_always") {
+    return `${baseClassName} border-(--accent) bg-(--accent) text-(--bg-primary) hover:border-(--accent-hover) hover:bg-(--accent-hover) disabled:hover:border-(--accent) disabled:hover:bg-(--accent)`;
+  }
+
+  return `${baseClassName} border-(--border-default) bg-(--bg-primary) text-(--text-heading) hover:bg-(--bg-hover) disabled:hover:bg-(--bg-primary)`;
+}
 
 function WorkspacePlanConfirmationBar({
   applyError = null,

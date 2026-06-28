@@ -195,7 +195,8 @@ function formatToolArgs(args: unknown) {
 }
 
 function formatToolResult(event: Extract<AgentEvent, { type: "tool_execution_end" }>) {
-  if (event.isError) return formatToolErrorResult(event.result);
+  if (event.isError) return formatToolErrorResult(event.result) ?? formatAcpToolResultDetail(event.result);
+  if (isAcpToolName(event.toolName)) return formatAcpToolResultDetail(event.result);
   if (event.toolName === "search_workspace" && typeof event.result?.details?.count === "number") {
     return `${event.result.details.count} files`;
   }
@@ -305,15 +306,49 @@ function assistantTextFromMessageContent(content: unknown) {
 }
 
 function toolLabelForToolStart(event: Extract<AgentEvent, { type: "tool_execution_start" }>, translate: Translate) {
+  const acpTitle = acpToolTitle(event.toolName, event.args);
+  if (acpTitle) return acpTitle;
   if (event.toolName === "locate_content") return locateContentLabel((event.args as { targetKind?: unknown } | undefined)?.targetKind, translate);
 
   return toolLabelForName(event.toolName, translate);
 }
 
 function toolLabelForToolEnd(event: Extract<AgentEvent, { type: "tool_execution_end" }>, translate: Translate) {
+  const acpTitle = acpToolTitle(event.toolName, event.result?.details);
+  if (acpTitle) return acpTitle;
   if (event.toolName === "locate_content") return locateContentLabel((event.result?.details as { targetKind?: unknown } | undefined)?.targetKind, translate);
 
   return toolLabelForName(event.toolName, translate);
+}
+
+function isAcpToolName(toolName: string) {
+  return toolName.startsWith("acp.");
+}
+
+function acpToolTitle(toolName: string, value: unknown) {
+  if (!isAcpToolName(toolName) || !value || typeof value !== "object") return undefined;
+
+  const title = (value as { title?: unknown }).title;
+  return typeof title === "string" && title.trim() ? title.trim() : undefined;
+}
+
+function formatAcpToolResultDetail(result: unknown) {
+  if (!result || typeof result !== "object") return undefined;
+
+  const details = (result as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return undefined;
+
+  const path = (details as { path?: unknown }).path;
+  if (typeof path === "string" && path.trim()) return summarizeValue(path);
+
+  const command = (details as { command?: unknown }).command;
+  if (typeof command === "string" && command.trim()) return summarizeValue(command);
+
+  const summary = (details as { summary?: unknown }).summary;
+  if (typeof summary === "string" && summary.trim()) return summarizeValue(summary);
+
+  const status = (details as { status?: unknown }).status;
+  return typeof status === "string" && status.trim() ? summarizeValue(status) : undefined;
 }
 
 function toolLabelForName(toolName: string, translate: Translate) {

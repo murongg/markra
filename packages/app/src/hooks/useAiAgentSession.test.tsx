@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { generateAiAgentSessionTitle, runDocumentAiAgent } from "@markra/ai";
 import {
+  getStoredAcpAgentSettings,
   getStoredAiAgentSession,
   getStoredAiAgentPreferences,
   getStoredAiAgentSessionSummary,
@@ -9,6 +10,7 @@ import {
   saveStoredAiAgentSessionTitle
 } from "../lib/settings/app-settings";
 import type { I18nKey } from "@markra/shared";
+import { configureAppRuntime, createDefaultAppRuntime, resetAppRuntimeForTests } from "../runtime";
 import { useAiAgentSession } from "./useAiAgentSession";
 import { storedAgentSession, testProvider } from "../test/ai-fixtures";
 
@@ -23,6 +25,7 @@ vi.mock("@markra/ai", async (importOriginal) => {
 });
 
 vi.mock("../lib/settings/app-settings", () => ({
+  getStoredAcpAgentSettings: vi.fn(),
   getStoredAiAgentSession: vi.fn(),
   getStoredAiAgentPreferences: vi.fn(),
   getStoredAiAgentSessionSummary: vi.fn(),
@@ -33,6 +36,7 @@ vi.mock("../lib/settings/app-settings", () => ({
 
 const mockedRunDocumentAiAgent = vi.mocked(runDocumentAiAgent);
 const mockedGenerateAiAgentSessionTitle = vi.mocked(generateAiAgentSessionTitle);
+const mockedGetStoredAcpAgentSettings = vi.mocked(getStoredAcpAgentSettings);
 const mockedGetStoredAiAgentSession = vi.mocked(getStoredAiAgentSession);
 const mockedGetStoredAiAgentPreferences = vi.mocked(getStoredAiAgentPreferences);
 const mockedGetStoredAiAgentSessionSummary = vi.mocked(getStoredAiAgentSessionSummary);
@@ -66,6 +70,7 @@ describe("useAiAgentSession", () => {
   beforeEach(() => {
     mockedRunDocumentAiAgent.mockReset();
     mockedGenerateAiAgentSessionTitle.mockReset();
+    mockedGetStoredAcpAgentSettings.mockReset();
     mockedGetStoredAiAgentSession.mockReset();
     mockedGetStoredAiAgentPreferences.mockReset();
     mockedGetStoredAiAgentSessionSummary.mockReset();
@@ -74,6 +79,7 @@ describe("useAiAgentSession", () => {
     mockedSaveStoredAiAgentSessionTitle.mockReset();
     mockedGetStoredAiAgentSession.mockResolvedValue(storedAgentSession());
     mockedGetStoredAiAgentSessionSummary.mockResolvedValue(null);
+    mockedGetStoredAcpAgentSettings.mockResolvedValue({ args: "", command: "", cwd: "", enabled: false });
     mockedGetStoredAiAgentPreferences.mockResolvedValue({ thinkingEnabled: false, webSearchEnabled: false });
     mockedGenerateAiAgentSessionTitle.mockResolvedValue("Polish GOLD and XAU price notes");
     mockedSaveStoredAiAgentPreferences.mockResolvedValue(undefined);
@@ -82,7 +88,713 @@ describe("useAiAgentSession", () => {
   });
 
   afterEach(() => {
+    resetAppRuntimeForTests();
     vi.useRealTimers();
+  });
+
+  it("runs a configured ACP agent without requiring a chat provider", async () => {
+    let agentEventHandler: ((event: { connectionId: string; message: string; type: "exit" | "message" | "stderr" }) => unknown) | null = null;
+    const startAgent = vi.fn(async () => ({ connectionId: "acp-1" }));
+    const stopAgent = vi.fn(async () => undefined);
+    const listenAgentMessages = vi.fn(async (handler) => {
+      agentEventHandler = handler;
+
+      return () => {
+        agentEventHandler = null;
+      };
+    });
+    const writeAgentMessage = vi.fn(async (_connectionId, message) => {
+      if (!("id" in message) || !("method" in message)) return;
+
+      if (message.method === "initialize") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { protocolVersion: 1 } }),
+          type: "message"
+        });
+      }
+
+      if (message.method === "session/new") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { sessionId: "session-acp" } }),
+          type: "message"
+        });
+      }
+
+      if (message.method === "session/prompt") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-acp",
+              update: {
+                sessionUpdate: "session_info_update",
+                title: "Codex is working"
+              }
+            }
+          }),
+          type: "message"
+        });
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-acp",
+              update: {
+                kind: "read",
+                locations: [{ path: "notes/example.md" }],
+                rawInput: { path: "notes/example.md" },
+                sessionUpdate: "tool_call",
+                status: "in_progress",
+                title: "Read file 'notes/example.md'",
+                toolCallId: "acp-read-1"
+              }
+            }
+          }),
+          type: "message"
+        });
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-acp",
+              update: {
+                rawOutput: { formatted_output: "# Draft" },
+                sessionUpdate: "tool_call_update",
+                status: "completed",
+                toolCallId: "acp-read-1"
+              }
+            }
+          }),
+          type: "message"
+        });
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-acp",
+              update: {
+                content: [{ type: "diff", text: "@@ synthetic patch" }],
+                kind: "edit",
+                locations: [{ path: "notes/example.md" }],
+                rawInput: { path: "notes/example.md" },
+                sessionUpdate: "tool_call",
+                status: "completed",
+                title: "Editing files",
+                toolCallId: "acp-edit-1"
+              }
+            }
+          }),
+          type: "message"
+        });
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-acp",
+              update: {
+                content: { text: "ACP summary", type: "text" },
+                messageId: "message-1",
+                sessionUpdate: "agent_message_chunk"
+              }
+            }
+          }),
+          type: "message"
+        });
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { stopReason: "end_turn" } }),
+          type: "message"
+        });
+      }
+    });
+
+    configureAppRuntime({
+      ...createDefaultAppRuntime(),
+      acp: {
+        listenAgentMessages,
+        startAgent,
+        stopAgent,
+        writeAgentMessage
+      }
+    });
+    mockedGetStoredAcpAgentSettings.mockResolvedValue({
+      args: "--experimental-acp",
+      command: "synthetic-agent",
+      cwd: "/mock-vault",
+      enabled: true
+    });
+
+    const { result } = renderAiAgentSession({
+      documentPath: "/mock-vault/note.md",
+      model: null,
+      provider: null,
+      sessionId: "session-a",
+      workspaceKey: "/mock-vault"
+    });
+
+    await act(async () => {
+      await result.current.submit("Summarize through ACP");
+    });
+
+    await waitFor(() => expect(result.current.status).toBe("idle"));
+    expect(startAgent).toHaveBeenCalledWith({
+      args: ["--experimental-acp"],
+      command: "synthetic-agent",
+      cwd: "/mock-vault",
+      env: []
+    });
+    expect(mockedRunDocumentAiAgent).not.toHaveBeenCalled();
+    expect(result.current.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "ACP summary"
+    });
+    expect(result.current.messages.at(-1)?.activities).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "tool:acp-status:session-acp:session_info_update",
+        label: "Codex is working",
+        status: "completed"
+      }),
+      expect.objectContaining({
+        id: "tool:acp-read-1",
+        label: "Read file 'notes/example.md'",
+        status: "completed"
+      }),
+      expect.objectContaining({
+        detail: "notes/example.md",
+        id: "tool:acp-edit-1",
+        label: "Editing files",
+        status: "completed"
+      })
+    ]));
+    expect(stopAgent).toHaveBeenCalledWith("acp-1");
+  });
+
+  it("cancels a running ACP agent when interrupted", async () => {
+    let agentEventHandler: ((event: { connectionId: string; message: string; type: "exit" | "message" | "stderr" }) => unknown) | null = null;
+    const stopAgent = vi.fn(async () => undefined);
+    const writeAgentMessage = vi.fn(async (_connectionId, message) => {
+      if (!("method" in message)) return;
+
+      if ("id" in message && message.method === "initialize") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { protocolVersion: 1 } }),
+          type: "message"
+        });
+      }
+
+      if ("id" in message && message.method === "session/new") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { sessionId: "session-acp" } }),
+          type: "message"
+        });
+      }
+    });
+
+    configureAppRuntime({
+      ...createDefaultAppRuntime(),
+      acp: {
+        listenAgentMessages: vi.fn(async (handler) => {
+          agentEventHandler = handler;
+
+          return () => {
+            agentEventHandler = null;
+          };
+        }),
+        startAgent: vi.fn(async () => ({ connectionId: "acp-1" })),
+        stopAgent,
+        writeAgentMessage
+      }
+    });
+    mockedGetStoredAcpAgentSettings.mockResolvedValue({
+      args: "",
+      command: "synthetic-agent",
+      cwd: "",
+      enabled: true
+    });
+
+    const { result } = renderAiAgentSession({
+      documentPath: "/mock-vault/note.md",
+      model: null,
+      provider: null,
+      sessionId: "session-a",
+      workspaceKey: "/mock-vault"
+    });
+
+    let submitPromise: Promise<unknown> | null = null;
+    await act(async () => {
+      submitPromise = result.current.submit("Keep running through ACP");
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(writeAgentMessage).toHaveBeenCalledWith("acp-1", expect.objectContaining({
+      method: "session/prompt"
+    })));
+
+    act(() => {
+      result.current.interrupt();
+    });
+
+    await waitFor(() => expect(writeAgentMessage).toHaveBeenCalledWith("acp-1", {
+      jsonrpc: "2.0",
+      method: "session/cancel",
+      params: {
+        sessionId: "session-acp"
+      }
+    }));
+    await waitFor(() => expect(stopAgent).toHaveBeenCalledWith("acp-1"));
+    await act(async () => {
+      await submitPromise;
+    });
+    expect(result.current.status).toBe("idle");
+  });
+
+  it("forwards ACP filesystem write previews into the editor preview flow", async () => {
+    let agentEventHandler: ((event: { connectionId: string; message: string; type: "exit" | "message" | "stderr" }) => unknown) | null = null;
+    const onAiPreviewReady = vi.fn();
+    const onAiResult = vi.fn();
+    const writeAgentMessage = vi.fn(async (_connectionId, message) => {
+      if (message && typeof message === "object" && "id" in message && message.id === 91 && "result" in message) {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: 3, jsonrpc: "2.0", result: { stopReason: "end_turn" } }),
+          type: "message"
+        });
+        return;
+      }
+
+      if (!("id" in message) || !("method" in message)) return;
+
+      if (message.method === "initialize") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { protocolVersion: 1 } }),
+          type: "message"
+        });
+      }
+
+      if (message.method === "session/new") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { sessionId: "session-acp" } }),
+          type: "message"
+        });
+      }
+
+      if (message.method === "session/prompt") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            id: 91,
+            jsonrpc: "2.0",
+            method: "fs/write_text_file",
+            params: {
+              content: "# Updated\n\nBody",
+              path: "/mock-vault/note.md",
+              sessionId: "session-acp"
+            }
+          }),
+          type: "message"
+        });
+      }
+    });
+
+    configureAppRuntime({
+      ...createDefaultAppRuntime(),
+      acp: {
+        listenAgentMessages: vi.fn(async (handler) => {
+          agentEventHandler = handler;
+
+          return () => {
+            agentEventHandler = null;
+          };
+        }),
+        startAgent: vi.fn(async () => ({ connectionId: "acp-1" })),
+        stopAgent: vi.fn(async () => undefined),
+        writeAgentMessage
+      }
+    });
+    mockedGetStoredAcpAgentSettings.mockResolvedValue({
+      args: "",
+      command: "synthetic-agent",
+      cwd: "",
+      enabled: true
+    });
+
+    const { result } = renderAiAgentSession({
+      documentPath: "/mock-vault/note.md",
+      getDocumentContent: () => "# Draft",
+      model: null,
+      onAiPreviewReady,
+      onAiResult,
+      provider: null,
+      sessionId: "session-a",
+      translate: testTranslate({
+        "app.aiAgentPreviewReady": "The editor change is ready."
+      }),
+      workspaceKey: "/mock-vault"
+    });
+
+    await act(async () => {
+      await result.current.submit("Update through ACP");
+    });
+
+    const preview = {
+      from: 0,
+      original: "# Draft",
+      replacement: "# Updated\n\nBody",
+      target: {
+        kind: "document" as const,
+        title: "note.md"
+      },
+      to: 7,
+      type: "replace" as const
+    };
+    expect(onAiResult).toHaveBeenCalledWith(preview, "acp-write:/mock-vault/note.md:1");
+    expect(onAiPreviewReady).toHaveBeenCalledWith(preview, "acp-write:/mock-vault/note.md:1");
+    expect(result.current.status).toBe("idle");
+    expect(result.current.messages.at(-1)).toMatchObject({
+      preview,
+      role: "assistant",
+      text: "The editor change is ready."
+    });
+  });
+
+  it("exposes ACP permission requests and resumes after the user chooses an option", async () => {
+    let agentEventHandler: ((event: { connectionId: string; message: string; type: "exit" | "message" | "stderr" }) => unknown) | null = null;
+    const writeAgentMessage = vi.fn(async (_connectionId, message) => {
+      if (message && typeof message === "object" && "id" in message && message.id === 91 && "result" in message) {
+        if (message.result && typeof message.result === "object" && "outcome" in message.result) {
+          const outcome = message.result.outcome;
+          if (outcome && typeof outcome === "object" && "optionId" in outcome && outcome.optionId === "allow_once") {
+            agentEventHandler?.({
+              connectionId: "acp-1",
+              message: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "session/update",
+                params: {
+                  sessionId: "session-acp",
+                  update: {
+                    content: { text: "Permission accepted.", type: "text" },
+                    messageId: "message-1",
+                    sessionUpdate: "agent_message_chunk"
+                  }
+                }
+              }),
+              type: "message"
+            });
+          }
+        }
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: 3, jsonrpc: "2.0", result: { stopReason: "end_turn" } }),
+          type: "message"
+        });
+        return;
+      }
+
+      if (!("id" in message) || !("method" in message)) return;
+
+      if (message.method === "initialize") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { protocolVersion: 1 } }),
+          type: "message"
+        });
+      }
+
+      if (message.method === "session/new") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { sessionId: "session-acp" } }),
+          type: "message"
+        });
+      }
+
+      if (message.method === "session/prompt") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            id: 91,
+            jsonrpc: "2.0",
+            method: "session/request_permission",
+            params: {
+              options: [
+                { kind: "allow_once", name: "Allow once", optionId: "allow_once" },
+                { kind: "reject_once", name: "Reject once", optionId: "reject_once" }
+              ],
+              sessionId: "session-acp",
+              toolCall: {
+                kind: "edit",
+                path: "notes/example.md",
+                title: "Write file"
+              }
+            }
+          }),
+          type: "message"
+        });
+      }
+    });
+
+    configureAppRuntime({
+      ...createDefaultAppRuntime(),
+      acp: {
+        listenAgentMessages: vi.fn(async (handler) => {
+          agentEventHandler = handler;
+
+          return () => {
+            agentEventHandler = null;
+          };
+        }),
+        startAgent: vi.fn(async () => ({ connectionId: "acp-1" })),
+        stopAgent: vi.fn(async () => undefined),
+        writeAgentMessage
+      }
+    });
+    mockedGetStoredAcpAgentSettings.mockResolvedValue({
+      args: "",
+      command: "synthetic-agent",
+      cwd: "",
+      enabled: true
+    });
+
+    const { result } = renderAiAgentSession({
+      documentPath: "/mock-vault/note.md",
+      model: null,
+      provider: null,
+      sessionId: "session-a",
+      workspaceKey: "/mock-vault"
+    });
+
+    let submitPromise: Promise<unknown> | null = null;
+    await act(async () => {
+      submitPromise = result.current.submit("Update through ACP");
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.pendingAcpPermission).toMatchObject({
+      detail: "notes/example.md",
+      options: [
+        { kind: "allow_once", name: "Allow once", optionId: "allow_once" },
+        { kind: "reject_once", name: "Reject once", optionId: "reject_once" }
+      ],
+      title: "Permission requested: Write file"
+    }));
+
+    act(() => {
+      result.current.resolveAcpPermission({
+        optionId: "allow_once",
+        outcome: "selected"
+      });
+    });
+    await act(async () => {
+      await submitPromise;
+    });
+
+    expect(result.current.pendingAcpPermission).toBeNull();
+    expect(result.current.status).toBe("idle");
+    expect(result.current.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "Permission accepted."
+    });
+  });
+
+  it("shows string errors returned by the ACP runtime", async () => {
+    configureAppRuntime({
+      ...createDefaultAppRuntime(),
+      acp: {
+        listenAgentMessages: vi.fn(async () => () => undefined),
+        startAgent: vi.fn(() => Promise.reject("Failed to start ACP agent: npx was not found.")),
+        stopAgent: vi.fn(async () => undefined),
+        writeAgentMessage: vi.fn(async () => undefined)
+      }
+    });
+    mockedGetStoredAcpAgentSettings.mockResolvedValue({
+      args: "-lc 'exec npx -y synthetic-acp-agent'",
+      command: "/bin/zsh",
+      cwd: "",
+      enabled: true
+    });
+
+    const { result } = renderAiAgentSession({
+      model: null,
+      provider: null,
+      sessionId: "session-a",
+      translate: testTranslate({
+        "app.aiRequestFailed": "AI request failed."
+      }),
+      workspaceKey: "/mock-vault"
+    });
+
+    await act(async () => {
+      await result.current.submit("Hello ACP");
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(result.current.messages.at(-1)).toMatchObject({
+      isError: true,
+      text: "Failed to start ACP agent: npx was not found."
+    });
+  });
+
+  it("stores ACP-advertised models and applies the selected ACP model on the next session", async () => {
+    let agentEventHandler: ((event: { connectionId: string; message: string; type: "exit" | "message" | "stderr" }) => unknown) | null = null;
+    const writeAgentMessage = vi.fn(async (_connectionId, message) => {
+      if (!("id" in message) || !("method" in message)) return;
+
+      if (message.method === "initialize") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { protocolVersion: 1 } }),
+          type: "message"
+        });
+      }
+
+      if (message.method === "session/new") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            id: message.id,
+            jsonrpc: "2.0",
+            result: {
+              configOptions: [
+                {
+                  category: "model",
+                  currentValue: "gpt-5.5",
+                  id: "model",
+                  options: [
+                    { name: "GPT-5.5", value: "gpt-5.5" },
+                    { name: "Claude Sonnet 4.6", value: "claude-sonnet-4-6" }
+                  ],
+                  type: "select"
+                }
+              ],
+              sessionId: "session-acp"
+            }
+          }),
+          type: "message"
+        });
+      }
+
+      if (message.method === "session/set_config_option") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            id: message.id,
+            jsonrpc: "2.0",
+            result: {
+              configOptions: [
+                {
+                  category: "model",
+                  currentValue: "claude-sonnet-4-6",
+                  id: "model",
+                  options: [
+                    { name: "GPT-5.5", value: "gpt-5.5" },
+                    { name: "Claude Sonnet 4.6", value: "claude-sonnet-4-6" }
+                  ],
+                  type: "select"
+                }
+              ]
+            }
+          }),
+          type: "message"
+        });
+      }
+
+      if (message.method === "session/prompt") {
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-acp",
+              update: {
+                content: { text: "ACP response", type: "text" },
+                messageId: "message-1",
+                sessionUpdate: "agent_message_chunk"
+              }
+            }
+          }),
+          type: "message"
+        });
+        agentEventHandler?.({
+          connectionId: "acp-1",
+          message: JSON.stringify({ id: message.id, jsonrpc: "2.0", result: { stopReason: "end_turn" } }),
+          type: "message"
+        });
+      }
+    });
+
+    configureAppRuntime({
+      ...createDefaultAppRuntime(),
+      acp: {
+        listenAgentMessages: vi.fn(async (handler) => {
+          agentEventHandler = handler;
+
+          return () => {
+            agentEventHandler = null;
+          };
+        }),
+        startAgent: vi.fn(async () => ({ connectionId: "acp-1" })),
+        stopAgent: vi.fn(async () => undefined),
+        writeAgentMessage
+      }
+    });
+    mockedGetStoredAcpAgentSettings.mockResolvedValue({
+      args: "",
+      command: "synthetic-agent",
+      cwd: "",
+      enabled: true
+    });
+
+    const { result } = renderAiAgentSession({
+      documentPath: "/mock-vault/note.md",
+      model: null,
+      provider: null,
+      workspaceKey: "/mock-vault"
+    });
+
+    await act(async () => {
+      await result.current.submit("List ACP models");
+    });
+
+    await waitFor(() => expect(result.current.status).toBe("idle"));
+    expect(result.current.acpModels).toEqual([
+      { description: undefined, id: "gpt-5.5", name: "GPT-5.5" },
+      { description: undefined, id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" }
+    ]);
+    expect(result.current.selectedAcpModelId).toBe("gpt-5.5");
+
+    act(() => {
+      result.current.selectAcpModel("claude-sonnet-4-6");
+    });
+
+    await act(async () => {
+      await result.current.submit("Use selected ACP model");
+    });
+
+    expect(writeAgentMessage).toHaveBeenCalledWith("acp-1", expect.objectContaining({
+      method: "session/set_config_option",
+      params: {
+        configId: "model",
+        sessionId: "session-acp",
+        value: "claude-sonnet-4-6"
+      }
+    }));
+    expect(result.current.selectedAcpModelId).toBe("claude-sonnet-4-6");
   });
 
   it("streams an assistant reply into the transcript", async () => {

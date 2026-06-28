@@ -30,6 +30,7 @@ import type { SettingsCategory } from "../hooks/useSettingsWindowState";
 export function SettingsWindow() {
   const settingsState = useSettingsWindowState();
   const {
+    acpAgentSettings,
     activeCategory,
     aiSettings,
     aiSettingsSaved,
@@ -55,6 +56,7 @@ export function SettingsWindow() {
     handleDetectPandocPath,
     handleRefreshShellCommandStatus,
     handleUninstallShellCommand,
+    handleUpdateAcpAgentSettings,
     handleUpdateAiSettings,
     handleUpdateBackupSettings,
     handleUpdateSyncSettings,
@@ -182,9 +184,11 @@ export function SettingsWindow() {
           ) : null}
           {appFeatures.ai && activeSettingsCategory === "ai" ? (
             <AiSettings
+              acpAgentSettings={acpAgentSettings}
               language={appLanguage.language}
               preferences={editorPreferences}
               translate={translate}
+              onUpdateAcpAgentSettings={handleUpdateAcpAgentSettings}
               onUpdatePreferences={handleUpdateEditorPreferences}
             />
           ) : null}

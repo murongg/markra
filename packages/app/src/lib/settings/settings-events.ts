@@ -3,6 +3,7 @@ import {
   isAppTheme,
   normalizeAppThemePreferences,
   normalizeBackupSettings,
+  normalizeAcpAgentSettings,
   normalizeCustomThemeCss,
   normalizeCustomThemeCssValues,
   normalizeEditorPreferences,
@@ -10,6 +11,7 @@ import {
   normalizeSyncSettings,
   normalizeWebSearchSettings,
   type AiProviderSettings,
+  type AcpAgentSettings,
   createThemePreferencesFromLegacyTheme,
   type AppThemePreferences,
   type BackupSettings,
@@ -31,6 +33,7 @@ const webSearchSettingsChangedEvent = "markra://web-search-settings-changed";
 const backupSettingsChangedEvent = "markra://backup-settings-changed";
 const syncSettingsChangedEvent = "markra://sync-settings-changed";
 const aiSettingsChangedEvent = "markra://ai-settings-changed";
+const acpAgentSettingsChangedEvent = "markra://acp-agent-settings-changed";
 
 type ThemeChangedPayload = {
   preferences?: AppThemePreferences;
@@ -68,6 +71,10 @@ type SyncSettingsChangedPayload = {
 
 type AiSettingsChangedPayload = {
   settings: AiProviderSettings;
+};
+
+type AcpAgentSettingsChangedPayload = {
+  settings: AcpAgentSettings;
 };
 
 function isEditorPreferencesPayload(value: unknown) {
@@ -240,5 +247,21 @@ export async function listenAppAiSettingsChanged(onAiSettingsChanged: (settings:
 
   return getAppRuntime().events.listen<AiSettingsChangedPayload>(aiSettingsChangedEvent, (event) => {
     onAiSettingsChanged(normalizeAiSettings(event.payload.settings));
+  });
+}
+
+export async function notifyAppAcpAgentSettingsChanged(settings: AcpAgentSettings) {
+  if (!getAppRuntime().events.isAvailable()) return;
+
+  await getAppRuntime().events.emit(acpAgentSettingsChangedEvent, { settings: normalizeAcpAgentSettings(settings) });
+}
+
+export async function listenAppAcpAgentSettingsChanged(
+  onSettingsChanged: (settings: AcpAgentSettings) => unknown
+) {
+  if (!getAppRuntime().events.isAvailable()) return () => {};
+
+  return getAppRuntime().events.listen<AcpAgentSettingsChangedPayload>(acpAgentSettingsChangedEvent, (event) => {
+    onSettingsChanged(normalizeAcpAgentSettings(event.payload.settings));
   });
 }

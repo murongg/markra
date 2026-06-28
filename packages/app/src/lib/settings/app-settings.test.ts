@@ -1,8 +1,10 @@
 import { createSettingsStoreHarness, resetSettingsStoreRuntime, setupSettingsStoreHarness } from "../../test/settings-store";
 import {
   darkEditorThemeOptions,
+  defaultAcpAgentSettings,
   defaultEditorPreferences,
   exportStoredAppSettings,
+  getStoredAcpAgentSettings,
   getStoredThemePreferences,
   appThemeOptions,
   consumeWelcomeDocumentState,
@@ -16,9 +18,11 @@ import {
   importStoredAppSettings,
   resetWelcomeDocumentState,
   normalizeEditorPreferences,
+  normalizeAcpAgentSettings,
   resolveAppAppearanceTheme,
   resolveAppThemePreferencesAppearance,
   resolveAppThemePreferencesEditorTheme,
+  saveStoredAcpAgentSettings,
   saveStoredCustomThemeCss,
   saveStoredLanguage,
   saveStoredTheme,
@@ -222,6 +226,39 @@ describe("app settings", () => {
     await saveStoredLanguage("ja");
 
     expect(store.set).toHaveBeenCalledWith("language", "ja");
+    expect(store.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("normalizes and persists ACP agent settings", async () => {
+    store.get.mockResolvedValue({
+      args: " --experimental-acp ",
+      command: " gemini ",
+      cwd: " /mock-vault ",
+      enabled: true
+    });
+
+    await expect(getStoredAcpAgentSettings()).resolves.toEqual({
+      args: "--experimental-acp",
+      command: "gemini",
+      cwd: "/mock-vault",
+      enabled: true
+    });
+
+    expect(normalizeAcpAgentSettings({ command: "", enabled: "yes" })).toEqual(defaultAcpAgentSettings);
+
+    await saveStoredAcpAgentSettings({
+      args: " --acp ",
+      command: " claude ",
+      cwd: " ",
+      enabled: true
+    });
+
+    expect(store.set).toHaveBeenCalledWith("acpAgentSettings", {
+      args: "--acp",
+      command: "claude",
+      cwd: "",
+      enabled: true
+    });
     expect(store.save).toHaveBeenCalledTimes(1);
   });
 

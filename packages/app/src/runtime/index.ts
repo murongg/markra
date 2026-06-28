@@ -74,6 +74,7 @@ import type {
 } from "../lib/tauri/spellcheck";
 import type { NativeWebResourceRequest, NativeWebResourceResponse } from "../lib/tauri/web-resource";
 import type { WorkspaceSearchRequest, WorkspaceSearchResponse } from "../lib/workspace-search";
+import type { AcpJsonRpcMessage } from "@markra/ai";
 
 export type { WorkspaceSearchRequest, WorkspaceSearchResponse } from "../lib/workspace-search";
 
@@ -254,6 +255,30 @@ export type AppAiRuntime = {
   ) => Promise<NativeAiStreamResponse>;
 };
 
+export type AppAcpAgentStartConfig = {
+  args?: string[];
+  command: string;
+  cwd?: string | null;
+  env?: Array<{ name: string; value: string }>;
+};
+
+export type AppAcpAgentConnection = {
+  connectionId: string;
+};
+
+export type AppAcpAgentMessageEvent = {
+  connectionId: string;
+  message: string;
+  type: "exit" | "message" | "stderr";
+};
+
+export type AppAcpRuntime = {
+  listenAgentMessages: (handler: (event: AppAcpAgentMessageEvent) => unknown) => Promise<RuntimeCleanup>;
+  startAgent: (config: AppAcpAgentStartConfig) => Promise<AppAcpAgentConnection>;
+  stopAgent: (connectionId: string) => Promise<unknown>;
+  writeAgentMessage: (connectionId: string, message: AcpJsonRpcMessage) => Promise<unknown>;
+};
+
 export type AppUpdaterRuntime = {
   checkAppUpdate: () => Promise<NativeAppUpdate | null>;
 };
@@ -320,6 +345,7 @@ export type AppWindowRuntime = {
 };
 
 export type AppRuntime = {
+  acp: AppAcpRuntime;
   ai: AppAiRuntime;
   dialog: AppDialogRuntime;
   events: AppEventsRuntime;
@@ -432,6 +458,12 @@ function createDefaultFileRuntime(): AppFileRuntime {
 
 export function createDefaultAppRuntime(): AppRuntime {
   return {
+    acp: {
+      listenAgentMessages: () => unsupportedFeature("listenAgentMessages"),
+      startAgent: () => unsupportedFeature("startAgent"),
+      stopAgent: () => unsupportedFeature("stopAgent"),
+      writeAgentMessage: () => unsupportedFeature("writeAgentMessage")
+    },
     ai: {
       requestAiJson: () => unsupportedFeature("requestAiJson"),
       requestChat: () => unsupportedFeature("requestChat"),

@@ -63,6 +63,7 @@ import {
   clearStoredRecentMarkdownFiles,
   consumeWelcomeDocumentState,
   deleteStoredAiAgentSession,
+  getStoredAcpAgentSettings,
   getStoredBackupSettings,
   getStoredSyncSettings,
   getStoredAiAgentPreferences,
@@ -85,6 +86,7 @@ import {
   removeStoredRecentMarkdownFolder,
   removeStoredRecentMarkdownFile,
   resetWelcomeDocumentState,
+  saveStoredAcpAgentSettings,
   saveStoredAiAgentPreferences,
   saveStoredAiAgentSession,
   saveStoredAiAgentSessionTitle,
@@ -102,6 +104,7 @@ import {
   saveStoredThemePreferences,
   saveStoredWorkspaceState,
   setStoredAiAgentSessionArchived,
+  normalizeAcpAgentSettings,
   normalizeBackupSettings,
   normalizeNetworkSettings,
   normalizeSyncSettings,
@@ -109,6 +112,7 @@ import {
   type RecentMarkdownFolder
 } from "../lib/settings/app-settings";
 import {
+  listenAppAcpAgentSettingsChanged,
   listenAppAiSettingsChanged,
   listenAppBackupSettingsChanged,
   listenAppSyncSettingsChanged,
@@ -118,6 +122,7 @@ import {
   listenAppLanguageChanged,
   listenAppThemeChanged,
   listenAppWebSearchSettingsChanged,
+  notifyAppAcpAgentSettingsChanged,
   notifyAppAiSettingsChanged,
   notifyAppBackupSettingsChanged,
   notifyAppSyncSettingsChanged,
@@ -222,6 +227,12 @@ vi.mock("../lib/settings/app-settings", () => ({
   createAiAgentSessionId: vi.fn(),
   consumeWelcomeDocumentState: vi.fn(),
   deleteStoredAiAgentSession: vi.fn(),
+  defaultAcpAgentSettings: {
+    args: "",
+    command: "",
+    cwd: "",
+    enabled: false
+  },
   defaultBackupSettings: {
     backupOnExit: false,
     intervalMinutes: 0,
@@ -496,6 +507,7 @@ vi.mock("../lib/settings/app-settings", () => ({
   getStoredAiAgentSession: vi.fn(),
   getStoredAiAgentSessionSummary: vi.fn(),
   getStoredAiAgentPreferences: vi.fn(),
+  getStoredAcpAgentSettings: vi.fn(),
   getStoredBackupSettings: vi.fn(),
   getStoredSyncSettings: vi.fn(),
   getStoredAiSettings: vi.fn(),
@@ -634,6 +646,16 @@ vi.mock("../lib/settings/app-settings", () => ({
     pdfWidthMm: 210,
     ...settings
   })),
+  normalizeAcpAgentSettings: vi.fn((settings) => {
+    const value = typeof settings === "object" && settings !== null ? settings as Record<string, unknown> : {};
+
+    return {
+      args: typeof value.args === "string" ? value.args.trim() : "",
+      command: typeof value.command === "string" ? value.command.trim() : "",
+      cwd: typeof value.cwd === "string" ? value.cwd.trim() : "",
+      enabled: typeof value.enabled === "boolean" ? value.enabled : false
+    };
+  }),
   normalizeWebSearchSettings: vi.fn((settings) => ({
     contentMaxChars: 12000,
     enabled: true,
@@ -700,6 +722,7 @@ vi.mock("../lib/settings/app-settings", () => ({
   resetWelcomeDocumentState: vi.fn(),
   removeStoredRecentMarkdownFolder: vi.fn(),
   removeStoredRecentMarkdownFile: vi.fn(),
+  saveStoredAcpAgentSettings: vi.fn(),
   saveStoredAiAgentPreferences: vi.fn(),
   saveStoredAiAgentSession: vi.fn(),
   saveStoredAiAgentSessionTitle: vi.fn(),
@@ -722,6 +745,7 @@ vi.mock("../lib/settings/app-settings", () => ({
 }));
 
 vi.mock("../lib/settings/settings-events", () => ({
+  listenAppAcpAgentSettingsChanged: vi.fn(),
   listenAppAiSettingsChanged: vi.fn(),
   listenAppBackupSettingsChanged: vi.fn(),
   listenAppSyncSettingsChanged: vi.fn(),
@@ -731,6 +755,7 @@ vi.mock("../lib/settings/settings-events", () => ({
   listenAppLanguageChanged: vi.fn(),
   listenAppThemeChanged: vi.fn(),
   listenAppWebSearchSettingsChanged: vi.fn(),
+  notifyAppAcpAgentSettingsChanged: vi.fn(),
   notifyAppAiSettingsChanged: vi.fn(),
   notifyAppBackupSettingsChanged: vi.fn(),
   notifyAppSyncSettingsChanged: vi.fn(),
@@ -823,6 +848,7 @@ export const mockedDeleteStoredAiAgentSession = vi.mocked(deleteStoredAiAgentSes
 export const mockedGetStoredBackupSettings = vi.mocked(getStoredBackupSettings);
 export const mockedGetStoredSyncSettings = vi.mocked(getStoredSyncSettings);
 export const mockedGetStoredAiAgentPreferences = vi.mocked(getStoredAiAgentPreferences);
+export const mockedGetStoredAcpAgentSettings = vi.mocked(getStoredAcpAgentSettings);
 export const mockedGetStoredAiAgentSession = vi.mocked(getStoredAiAgentSession);
 export const mockedGetStoredAiAgentSessionSummary = vi.mocked(getStoredAiAgentSessionSummary);
 export const mockedGetStoredAiSettings = vi.mocked(getStoredAiSettings);
@@ -847,6 +873,7 @@ export const mockedSaveStoredAiAgentSession = vi.mocked(saveStoredAiAgentSession
 export const mockedSaveStoredAiAgentPreferences = vi.mocked(saveStoredAiAgentPreferences);
 export const mockedSaveStoredAiAgentSessionTitle = vi.mocked(saveStoredAiAgentSessionTitle);
 export const mockedSaveStoredAiSettings = vi.mocked(saveStoredAiSettings);
+export const mockedSaveStoredAcpAgentSettings = vi.mocked(saveStoredAcpAgentSettings);
 export const mockedSaveStoredBackupSettings = vi.mocked(saveStoredBackupSettings);
 export const mockedSaveStoredSyncSettings = vi.mocked(saveStoredSyncSettings);
 export const mockedSaveStoredCustomThemeCss = vi.mocked(saveStoredCustomThemeCss);
@@ -861,8 +888,10 @@ export const mockedSaveStoredThemePreferences = vi.mocked(saveStoredThemePrefere
 export const mockedSaveStoredWorkspaceState = vi.mocked(saveStoredWorkspaceState);
 export const mockedSetStoredAiAgentSessionArchived = vi.mocked(setStoredAiAgentSessionArchived);
 export const mockedNormalizeBackupSettings = vi.mocked(normalizeBackupSettings);
+export const mockedNormalizeAcpAgentSettings = vi.mocked(normalizeAcpAgentSettings);
 export const mockedNormalizeNetworkSettings = vi.mocked(normalizeNetworkSettings);
 export const mockedNormalizeSyncSettings = vi.mocked(normalizeSyncSettings);
+export const mockedListenAppAcpAgentSettingsChanged = vi.mocked(listenAppAcpAgentSettingsChanged);
 export const mockedListenAppAiSettingsChanged = vi.mocked(listenAppAiSettingsChanged);
 export const mockedListenAppBackupSettingsChanged = vi.mocked(listenAppBackupSettingsChanged);
 export const mockedListenAppSyncSettingsChanged = vi.mocked(listenAppSyncSettingsChanged);
@@ -872,6 +901,7 @@ export const mockedListenAppExportSettingsChanged = vi.mocked(listenAppExportSet
 export const mockedListenAppLanguageChanged = vi.mocked(listenAppLanguageChanged);
 export const mockedListenAppThemeChanged = vi.mocked(listenAppThemeChanged);
 export const mockedListenAppWebSearchSettingsChanged = vi.mocked(listenAppWebSearchSettingsChanged);
+export const mockedNotifyAppAcpAgentSettingsChanged = vi.mocked(notifyAppAcpAgentSettingsChanged);
 export const mockedNotifyAppAiSettingsChanged = vi.mocked(notifyAppAiSettingsChanged);
 export const mockedNotifyAppBackupSettingsChanged = vi.mocked(notifyAppBackupSettingsChanged);
 export const mockedNotifyAppSyncSettingsChanged = vi.mocked(notifyAppSyncSettingsChanged);
@@ -1014,6 +1044,7 @@ export function installAppTestHarness() {
     mockedGetStoredRecentMarkdownFolders.mockReset();
     mockedGetStoredBackupSettings.mockReset();
     mockedGetStoredSyncSettings.mockReset();
+    mockedGetStoredAcpAgentSettings.mockReset();
     mockedGetStoredAiSettings.mockReset();
     mockedGetStoredAiAgentPreferences.mockReset();
     mockedGetStoredAiAgentSession.mockReset();
@@ -1032,12 +1063,14 @@ export function installAppTestHarness() {
     mockedRemoveStoredRecentMarkdownFolder.mockReset();
     mockedResetWelcomeDocumentState.mockReset();
     mockedNormalizeBackupSettings.mockReset();
+    mockedNormalizeAcpAgentSettings.mockReset();
     mockedNormalizeNetworkSettings.mockReset();
     mockedNormalizeSyncSettings.mockReset();
     mockedSaveStoredAiAgentPreferences.mockReset();
     mockedSaveStoredAiAgentSession.mockReset();
     mockedSaveStoredAiAgentSessionTitle.mockReset();
     mockedSaveStoredAiSettings.mockReset();
+    mockedSaveStoredAcpAgentSettings.mockReset();
     mockedSaveStoredBackupSettings.mockReset();
     mockedSaveStoredSyncSettings.mockReset();
     mockedSaveStoredCustomThemeCss.mockReset();
@@ -1051,6 +1084,7 @@ export function installAppTestHarness() {
     mockedSaveStoredThemePreferences.mockReset();
     mockedSaveStoredWorkspaceState.mockReset();
     mockedSetStoredAiAgentSessionArchived.mockReset();
+    mockedListenAppAcpAgentSettingsChanged.mockReset();
     mockedListenAppAiSettingsChanged.mockReset();
     mockedListenAppCustomThemeCssChanged.mockReset();
     mockedListenAppEditorPreferencesChanged.mockReset();
@@ -1059,6 +1093,7 @@ export function installAppTestHarness() {
     mockedListenAppExportSettingsChanged.mockReset();
     mockedListenAppLanguageChanged.mockReset();
     mockedListenAppThemeChanged.mockReset();
+    mockedNotifyAppAcpAgentSettingsChanged.mockReset();
     mockedNotifyAppAiSettingsChanged.mockReset();
     mockedNotifyAppCustomThemeCssChanged.mockReset();
     mockedNotifyAppEditorPreferencesChanged.mockReset();
@@ -1168,6 +1203,7 @@ export function installAppTestHarness() {
       skippedFiles: 0,
       uploadedFiles: 0
     });
+    mockedListenAppAcpAgentSettingsChanged.mockResolvedValue(() => {});
     mockedListenAppAiSettingsChanged.mockResolvedValue(() => {});
     mockedListenAppBackupSettingsChanged.mockResolvedValue(() => {});
     mockedListenAppSyncSettingsChanged.mockResolvedValue(() => {});
@@ -1210,6 +1246,12 @@ export function installAppTestHarness() {
     mockedGetStoredAiAgentPreferences.mockResolvedValue({
       thinkingEnabled: false,
       webSearchEnabled: false
+    });
+    mockedGetStoredAcpAgentSettings.mockResolvedValue({
+      args: "",
+      command: "",
+      cwd: "",
+      enabled: false
     });
     mockedGetStoredWebSearchSettings.mockResolvedValue({
       contentMaxChars: 12000,
@@ -1381,6 +1423,16 @@ export function installAppTestHarness() {
       openFilePaths: []
     });
     mockedResetWelcomeDocumentState.mockResolvedValue(undefined);
+    mockedNormalizeAcpAgentSettings.mockImplementation((settings) => {
+      const value = typeof settings === "object" && settings !== null ? settings as Record<string, unknown> : {};
+
+      return {
+        args: typeof value.args === "string" ? value.args.trim() : "",
+        command: typeof value.command === "string" ? value.command.trim() : "",
+        cwd: typeof value.cwd === "string" ? value.cwd.trim() : "",
+        enabled: typeof value.enabled === "boolean" ? value.enabled : false
+      };
+    });
     mockedNormalizeBackupSettings.mockImplementation((settings) => ({
       backupOnExit: false,
       intervalMinutes: 0,
@@ -1414,6 +1466,7 @@ export function installAppTestHarness() {
         remotePath
       };
     });
+    mockedSaveStoredAcpAgentSettings.mockResolvedValue(undefined);
     mockedSaveStoredBackupSettings.mockResolvedValue(undefined);
     mockedSaveStoredSyncSettings.mockResolvedValue(undefined);
     mockedSaveStoredAiAgentPreferences.mockResolvedValue(undefined);

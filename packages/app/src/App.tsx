@@ -53,6 +53,7 @@ import {
 } from "./hooks/useAiAgentPanelState";
 import { useAiAgentSessionList } from "./hooks/useAiAgentSessionList";
 import { useAiAgentSession } from "./hooks/useAiAgentSession";
+import { useAcpAgentSettings } from "./hooks/useAcpAgentSettings";
 import { useAiSettings } from "./hooks/useAiSettings";
 import { useDocumentSearchState } from "./hooks/useDocumentSearchState";
 import { useEditorContentWidthState } from "./hooks/useEditorContentWidthState";
@@ -299,6 +300,7 @@ function WorkspaceApp() {
   const updaterFeatureEnabled = appFeatures.updater;
   const appTheme = useAppTheme();
   const appLanguage = useAppLanguage();
+  const acpAgentSettings = useAcpAgentSettings();
   const aiSettings = useAiSettings();
   const backupSettings = useBackupSettings();
   const syncSettings = useSyncSettings();
@@ -3764,6 +3766,9 @@ function WorkspaceApp() {
     <Suspense fallback={null}>
       <AiAgentPanel
         activeSessionId={activeAiAgentSessionId}
+        acpAgentEnabled={acpAgentSettings.configured}
+        acpAgentName={acpAgentSettings.displayName}
+        acpModels={aiAgent.acpModels}
         availableModels={aiSettings.availableTextModels}
         context={aiAgentContext}
         documentAvailable={hasOpenDocument && !activeImageFile}
@@ -3772,8 +3777,10 @@ function WorkspaceApp() {
         messages={aiAgent.messages}
         modelName={aiAgentModelName}
         open={aiAgentOpen}
+        pendingAcpPermission={aiAgent.pendingAcpPermission}
         providerName={aiAgentProviderName}
         sessions={aiAgentSessions.sessions}
+        selectedAcpModelId={aiAgent.selectedAcpModelId}
         selectedModelId={aiSettings.agentModelId}
         selectedProviderId={aiSettings.agentProviderId}
         status={aiAgent.status}
@@ -3808,6 +3815,8 @@ function WorkspaceApp() {
         onResizeEnd={endAiAgentPanelResize}
         onResizeStart={startAiAgentPanelResize}
         onRetryMessage={aiAgent.retryMessage}
+        onResolveAcpPermission={aiAgent.resolveAcpPermission}
+        onSelectAcpModel={aiAgent.selectAcpModel}
         onSelectSession={handleSelectAiAgentSession}
         onSelectModel={aiSettings.selectAgentModel}
         onSubmit={aiAgent.submit}

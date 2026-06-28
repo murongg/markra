@@ -114,6 +114,37 @@ describe("AiAgentPanel", () => {
     expect(applyWorkspacePlan).toHaveBeenCalledTimes(1);
   });
 
+  it("renders a compact ACP permission prompt above the composer", () => {
+    const resolvePermission = vi.fn();
+
+    renderAgentPanel({
+      pendingAcpPermission: {
+        detail: "notes/example.md",
+        id: "permission-1",
+        options: [
+          { kind: "allow_once", name: "Allow once", optionId: "allow_once" },
+          { kind: "reject_once", name: "Reject once", optionId: "reject_once" }
+        ],
+        title: "Permission requested: Write file"
+      },
+      onResolveAcpPermission: resolvePermission
+    } as Partial<AiAgentPanelProps>);
+
+    const prompt = screen.getByRole("region", { name: "ACP permission request" });
+
+    expect(prompt).toBeInTheDocument();
+    expect(prompt.closest("form")).toBeInTheDocument();
+    expect(prompt).toHaveTextContent("Permission requested: Write file");
+    expect(prompt).toHaveTextContent("notes/example.md");
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+
+    expect(resolvePermission).toHaveBeenCalledWith({
+      optionId: "allow_once",
+      outcome: "selected"
+    });
+  });
+
   it("disables workspace plan apply while execution is running", () => {
     renderAgentPanel({
       workspacePlanApplyStatus: "applying",
@@ -773,6 +804,74 @@ describe("AiAgentPanel", () => {
     expect(deepThinking).toHaveAttribute("aria-pressed", "true");
     expect(webSearch).toHaveAttribute("aria-pressed", "true");
     expect(selectModel).toHaveBeenCalledWith("anthropic", "claude-sonnet-4-6");
+  });
+
+  it("marks the header when ACP agent mode is active", () => {
+    renderAgentPanel({
+      acpAgentEnabled: true,
+      acpAgentName: "Codex ACP",
+      modelName: "GPT-5.5",
+      providerName: "OpenAI"
+    });
+
+    expect(screen.getByText("ACP · Codex ACP")).toBeInTheDocument();
+    expect(screen.queryByText("OpenAI · GPT-5.5")).not.toBeInTheDocument();
+  });
+
+  it("hides provider-only mode controls while ACP agent mode is active", () => {
+    const disableThinking = vi.fn();
+    const toggleWebSearch = vi.fn();
+
+    renderAgentPanel({
+      acpAgentEnabled: true,
+      acpAgentName: "Codex ACP",
+      availableModels: [
+        {
+          capabilities: ["text", "reasoning", "web"],
+          id: "gpt-5.5",
+          name: "GPT-5.5",
+          providerId: "openai",
+          providerName: "OpenAI",
+          providerType: "openai"
+        }
+      ],
+      selectedModelId: "gpt-5.5",
+      selectedProviderId: "openai",
+      thinkingEnabled: true,
+      webSearchAvailable: true,
+      webSearchEnabled: true,
+      onDisableThinking: disableThinking,
+      onToggleWebSearch: toggleWebSearch
+    });
+
+    expect(screen.queryByRole("button", { name: "Deep thinking" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Web search" })).not.toBeInTheDocument();
+    expect(disableThinking).not.toHaveBeenCalled();
+    expect(toggleWebSearch).not.toHaveBeenCalled();
+  });
+
+  it("shows and selects ACP-supported models in the header", () => {
+    const selectAcpModel = vi.fn();
+
+    renderAgentPanel({
+      acpAgentEnabled: true,
+      acpModels: [
+        { id: "gpt-5.5", name: "GPT-5.5" },
+        { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" }
+      ],
+      selectedAcpModelId: "gpt-5.5",
+      onSelectAcpModel: selectAcpModel
+    });
+
+    const selector = screen.getByRole("combobox", { name: "ACP model" });
+
+    expect(selector).toHaveTextContent("ACP · GPT-5.5");
+    expect(screen.queryByText("AC")).not.toBeInTheDocument();
+    fireEvent.click(selector);
+    expect(screen.queryByText("AC")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: /Claude Sonnet 4.6/ }));
+
+    expect(selectAcpModel).toHaveBeenCalledWith("claude-sonnet-4-6");
   });
 
   it("disables agent modes that the selected model does not support", () => {

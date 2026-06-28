@@ -8,6 +8,7 @@ import {
 import { t, type I18nKey } from "@markra/shared";
 import {
   getStoredAiSettings,
+  getStoredAcpAgentSettings,
   getStoredBackupSettings,
   getStoredSyncSettings,
   getStoredEditorPreferences,
@@ -15,6 +16,7 @@ import {
   getStoredNetworkSettings,
   getStoredWebSearchSettings,
   getStoredWorkspaceState,
+  defaultAcpAgentSettings,
   defaultBackupSettings,
   defaultSyncSettings,
   defaultEditorPreferences,
@@ -25,16 +27,19 @@ import {
   exportStoredAppSettings,
   importStoredAppSettings,
   saveStoredAiSettings,
+  saveStoredAcpAgentSettings,
   saveStoredBackupSettings,
   saveStoredSyncSettings,
   saveStoredEditorPreferences,
   saveStoredExportSettings,
   saveStoredNetworkSettings,
   saveStoredWebSearchSettings,
+  normalizeAcpAgentSettings,
   normalizeBackupSettings,
   normalizeSyncSettings,
   normalizeExportSettings,
   normalizeWebSearchSettings,
+  type AcpAgentSettings,
   type AiProviderConfig,
   type AiProviderModel,
   type AiProviderSettings,
@@ -49,6 +54,7 @@ import {
 import {
   listenAppEditorPreferencesChanged,
   notifyAppAiSettingsChanged,
+  notifyAppAcpAgentSettingsChanged,
   notifyAppBackupSettingsChanged,
   notifyAppCustomThemeCssChanged,
   notifyAppEditorPreferencesChanged,
@@ -180,6 +186,7 @@ export function useSettingsWindowState() {
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<SettingsFocusTarget | null>(() =>
     settingsFocusTargetForNativeTarget(initialSettingsTarget)
   );
+  const [acpAgentSettings, setAcpAgentSettings] = useState<AcpAgentSettings>(defaultAcpAgentSettings);
   const [aiSettings, setAiSettings] = useState<AiProviderSettings>(() => createDefaultAiSettings());
   const [aiSettingsSaved, setAiSettingsSaved] = useState(false);
   const [backupSettings, setBackupSettings] = useState<BackupSettings>(defaultBackupSettings);
@@ -258,6 +265,18 @@ export function useSettingsWindowState() {
       if (cancelled) return;
       setAiSettings(settings);
       setSelectedAiProviderId(settings.defaultProviderId ?? settings.providers[0]?.id);
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getStoredAcpAgentSettings().then((settings) => {
+      if (!cancelled) setAcpAgentSettings(settings);
     }).catch(() => {});
 
     return () => {
@@ -461,6 +480,14 @@ export function useSettingsWindowState() {
       .catch(() => {});
   }, []);
 
+  const handleUpdateAcpAgentSettings = useCallback((settings: AcpAgentSettings) => {
+    const normalizedSettings = normalizeAcpAgentSettings(settings);
+    setAcpAgentSettings(normalizedSettings);
+    saveStoredAcpAgentSettings(normalizedSettings)
+      .then(() => notifyAppAcpAgentSettingsChanged(normalizedSettings))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const nextPreferences = canonicalizeEditorFontFamilyPreference(editorPreferences, systemFontFamilies);
     if (!nextPreferences) return;
@@ -623,6 +650,7 @@ export function useSettingsWindowState() {
   }, []);
 
   const applyImportedSettings = useCallback((settings: PortableStoredAppSettings) => {
+    setAcpAgentSettings(settings.acpAgentSettings);
     setAiSettings(settings.aiProviders);
     setAiSettingsSaved(true);
     setSelectedAiProviderId(settings.aiProviders.defaultProviderId ?? settings.aiProviders.providers[0]?.id);
@@ -637,6 +665,7 @@ export function useSettingsWindowState() {
       .catch(() => setMarkdownTemplates([]));
 
     notifyAppAiSettingsChanged(settings.aiProviders).catch(() => {});
+    notifyAppAcpAgentSettingsChanged(settings.acpAgentSettings).catch(() => {});
     notifyAppBackupSettingsChanged(settings.backupSettings).catch(() => {});
     notifyAppSyncSettingsChanged(settings.syncSettings).catch(() => {});
     notifyAppEditorPreferencesChanged(settings.editorPreferences).catch(() => {});
@@ -806,6 +835,7 @@ export function useSettingsWindowState() {
   }, [editorPreferences.imageUpload.webdav, syncRunning, syncSettings, syncSourcePath, translate]);
 
   return {
+    acpAgentSettings,
     activeCategory,
     aiSettings,
     aiSettingsSaved,
@@ -827,6 +857,7 @@ export function useSettingsWindowState() {
     handleDeleteMarkdownTemplate,
     handleUpdateMarkdownTemplate: handleSaveMarkdownTemplate,
     handleUpdateAiSettings,
+    handleUpdateAcpAgentSettings,
     handleRunBackup,
     handleRunSync,
     handleInstallShellCommand,

@@ -3,6 +3,7 @@ import { platform as tauriPlatform, version as tauriVersion, type Platform as Ta
 import { load } from "@tauri-apps/plugin-store";
 import { hasTauriRuntime } from "@markra/shared";
 import type { AppRuntime } from "@markra/app/runtime";
+import * as acp from "./tauri/acp";
 import * as ai from "./tauri/native-ai";
 import * as dialog from "./tauri/dialog";
 import * as files from "./tauri/file";
@@ -41,6 +42,12 @@ function resolveDesktopOsVersion() {
 }
 
 export const desktopRuntime = {
+  acp: {
+    listenAgentMessages: acp.listenNativeAcpAgentMessages,
+    startAgent: acp.startNativeAcpAgent,
+    stopAgent: acp.stopNativeAcpAgent,
+    writeAgentMessage: acp.writeNativeAcpAgentMessage
+  },
   ai: {
     requestAiJson: ai.requestNativeAiJson,
     requestChat: ai.requestNativeChat,

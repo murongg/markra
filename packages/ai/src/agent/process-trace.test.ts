@@ -5,6 +5,48 @@ import type { I18nKey } from "@markra/shared";
 const translate = (key: I18nKey) => key;
 
 describe("agentProcessTrace", () => {
+  it("uses ACP-provided titles and details for ACP tool activity", () => {
+    const initialProcesses = createInitialAgentProcesses(translate);
+    const runningProcesses = applyAgentEventToProcesses(
+      initialProcesses,
+      {
+        args: {
+          path: "notes/example.md",
+          title: "Read file 'notes/example.md'"
+        },
+        toolCallId: "acp-read-1",
+        toolName: "acp.read",
+        type: "tool_execution_start"
+      } as AgentEvent,
+      translate
+    );
+    const completedProcesses = applyAgentEventToProcesses(
+      runningProcesses,
+      {
+        isError: false,
+        result: {
+          details: {
+            path: "notes/example.md",
+            status: "completed",
+            title: "Read file 'notes/example.md'"
+          }
+        },
+        toolCallId: "acp-read-1",
+        toolName: "acp.read",
+        type: "tool_execution_end"
+      } as AgentEvent,
+      translate
+    );
+
+    expect(completedProcesses).toContainEqual(expect.objectContaining({
+      detail: "notes/example.md",
+      id: "tool:acp-read-1",
+      label: "Read file 'notes/example.md'",
+      rawLabel: "acp.read",
+      status: "completed"
+    }));
+  });
+
   it("labels workspace file reads with the file path and length", () => {
     const initialProcesses = createInitialAgentProcesses(translate);
     const nextProcesses = applyAgentEventToProcesses(

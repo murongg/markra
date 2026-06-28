@@ -23,6 +23,7 @@ type AiModelPickerProps = {
   models: AiModelPickerOption[];
   selectedModelId?: string | null;
   selectedProviderId?: string | null;
+  showProviderBadge?: boolean;
   variant?: "footer" | "subtitle";
   onSelect?: (providerId: string, modelId: string) => unknown;
   translate: (key: I18nKey) => string;
@@ -34,6 +35,7 @@ export function AiModelPicker({
   models,
   selectedModelId = null,
   selectedProviderId = null,
+  showProviderBadge = true,
   variant = "footer",
   onSelect,
   translate
@@ -181,9 +183,11 @@ export function AiModelPicker({
                   aria-selected={active}
                   onClick={() => handleSelect(model.providerId, model.id)}
                 >
-                  <span className="shrink-0 scale-75">
-                    <AiProviderBadge provider={buildProviderBadge(model)} translate={translate} />
-                  </span>
+                  {showProviderBadge ? (
+                    <span className="shrink-0 scale-75">
+                      <AiProviderBadge provider={buildProviderBadge(model)} translate={translate} />
+                    </span>
+                  ) : null}
                   <span className="min-w-0 flex-1 truncate text-[12px] leading-5 font-[560]">
                     {`${model.providerName} · ${model.name}`}
                   </span>
@@ -218,9 +222,11 @@ export function AiModelPicker({
           setOpen(!open);
         }}
       >
-        <span className="shrink-0 scale-[0.68]">
-          <AiProviderBadge provider={buildProviderBadge(selectedModel)} translate={translate} />
-        </span>
+        {showProviderBadge ? (
+          <span className="shrink-0 scale-[0.68]">
+            <AiProviderBadge provider={buildProviderBadge(selectedModel)} translate={translate} />
+          </span>
+        ) : null}
         <span className={labelClassName}>{`${selectedModel.providerName} · ${selectedModel.name}`}</span>
         <ChevronDown
           aria-hidden="true"

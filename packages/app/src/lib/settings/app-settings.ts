@@ -167,6 +167,7 @@ const customThemeCssKey = "customThemeCss";
 const lightCustomThemeCssKey = "lightCustomThemeCss";
 const darkCustomThemeCssKey = "darkCustomThemeCss";
 const languageKey = "language";
+const acpAgentSettingsKey = "acpAgentSettings";
 const aiProvidersKey = "aiProviders";
 const aiAgentPreferencesKey = "aiAgentPreferences";
 const editorPreferencesKey = "editorPreferences";
@@ -311,7 +312,14 @@ export type AiAgentPreferences = {
   thinkingEnabled: boolean;
   webSearchEnabled: boolean;
 };
+export type AcpAgentSettings = {
+  args: string;
+  command: string;
+  cwd: string;
+  enabled: boolean;
+};
 export type PortableStoredAppSettings = {
+  acpAgentSettings: AcpAgentSettings;
   aiAgentPreferences: AiAgentPreferences;
   aiProviders: AiProviderSettings;
   appearanceMode: AppAppearanceMode;
@@ -500,6 +508,12 @@ export const defaultAiAgentPreferences: AiAgentPreferences = {
   thinkingEnabled: false,
   webSearchEnabled: false
 };
+export const defaultAcpAgentSettings: AcpAgentSettings = {
+  args: "",
+  command: "",
+  cwd: "",
+  enabled: false
+};
 
 const editorBodyFontSizeOptions = [14, 15, 16, 17, 18, 20] as const;
 const editorLineHeightOptions = [1.5, 1.65, 1.8] as const;
@@ -546,6 +560,7 @@ function normalizePortableStoredAppSettings(value: Record<string, unknown>): Por
   const themePreferences = normalizeAppThemePreferences(value);
 
   return {
+    acpAgentSettings: normalizeAcpAgentSettings(value.acpAgentSettings),
     aiAgentPreferences: normalizeAiAgentPreferences(value.aiAgentPreferences),
     aiProviders: normalizeAiSettings(value.aiProviders),
     appearanceMode: themePreferences.appearanceMode,
@@ -579,6 +594,7 @@ async function readPortableStoredAppSettings(): Promise<PortableStoredAppSetting
     light: await store.get<string>(lightCustomThemeCssKey) ?? legacyCustomThemeCss
   });
   const language = await store.get<AppLanguage>(languageKey);
+  const acpAgentSettings = await store.get<Partial<AcpAgentSettings>>(acpAgentSettingsKey);
   const aiProviders = await store.get<AiProviderSettings>(aiProvidersKey);
   const aiAgentPreferences = await store.get<Partial<AiAgentPreferences>>(aiAgentPreferencesKey);
   const editorPreferences = await store.get<Partial<EditorPreferences>>(editorPreferencesKey);
@@ -589,6 +605,7 @@ async function readPortableStoredAppSettings(): Promise<PortableStoredAppSetting
   const syncSettings = await store.get<Partial<SyncSettings>>(syncSettingsKey);
 
   return {
+    acpAgentSettings: normalizeAcpAgentSettings(acpAgentSettings),
     aiAgentPreferences: normalizeAiAgentPreferences(aiAgentPreferences),
     aiProviders: aiProviders ? normalizeAiSettings(aiProviders) : createDefaultAiSettings(),
     appearanceMode: themePreferences.appearanceMode,
@@ -608,6 +625,7 @@ async function readPortableStoredAppSettings(): Promise<PortableStoredAppSetting
 async function writePortableStoredAppSettings(settings: PortableStoredAppSettings) {
   const store = await loadSettingsStore();
 
+  await store.set(acpAgentSettingsKey, settings.acpAgentSettings);
   await store.set(aiAgentPreferencesKey, settings.aiAgentPreferences);
   await store.set(aiProvidersKey, settings.aiProviders);
   await store.set(appearanceModeKey, settings.appearanceMode);
@@ -856,6 +874,13 @@ export async function getStoredAiSettings(): Promise<AiProviderSettings> {
   return settings ? normalizeAiSettings(settings) : createDefaultAiSettings();
 }
 
+export async function getStoredAcpAgentSettings(): Promise<AcpAgentSettings> {
+  const store = await loadSettingsStore();
+  const settings = await store.get<Partial<AcpAgentSettings>>(acpAgentSettingsKey);
+
+  return normalizeAcpAgentSettings(settings);
+}
+
 export async function getStoredAiAgentPreferences(): Promise<AiAgentPreferences> {
   const store = await loadSettingsStore();
   const preferences = await store.get<Partial<AiAgentPreferences>>(aiAgentPreferencesKey);
@@ -1040,6 +1065,13 @@ export async function saveStoredAiSettings(settings: AiProviderSettings) {
   const store = await loadSettingsStore();
 
   await store.set(aiProvidersKey, settings);
+  await store.save();
+}
+
+export async function saveStoredAcpAgentSettings(settings: AcpAgentSettings) {
+  const store = await loadSettingsStore();
+
+  await store.set(acpAgentSettingsKey, normalizeAcpAgentSettings(settings));
   await store.save();
 }
 
@@ -1411,6 +1443,19 @@ export function normalizeAiAgentPreferences(value: unknown): AiAgentPreferences 
       typeof preferences.webSearchEnabled === "boolean"
         ? preferences.webSearchEnabled
         : defaultAiAgentPreferences.webSearchEnabled
+  };
+}
+
+export function normalizeAcpAgentSettings(value: unknown): AcpAgentSettings {
+  if (typeof value !== "object" || value === null) return defaultAcpAgentSettings;
+
+  const settings = value as Partial<AcpAgentSettings>;
+
+  return {
+    args: typeof settings.args === "string" ? settings.args.trim() : defaultAcpAgentSettings.args,
+    command: typeof settings.command === "string" ? settings.command.trim() : defaultAcpAgentSettings.command,
+    cwd: typeof settings.cwd === "string" ? settings.cwd.trim() : defaultAcpAgentSettings.cwd,
+    enabled: typeof settings.enabled === "boolean" ? settings.enabled : defaultAcpAgentSettings.enabled
   };
 }
 
