@@ -9194,6 +9194,30 @@ describe("MarkdownPaper editing", () => {
     expect(serializeMarkdown(view.state.doc)).toContain("</v-clicks>");
   });
 
+  it("hides empty raw HTML wrapper boundary tags without swallowing markdown blocks", async () => {
+    const source = [
+      '<div class="text-center">',
+      "",
+      "## Synthetic questions?",
+      "",
+      "**Example Presenter**",
+      "",
+      "</div>"
+    ].join("\n");
+    const { container, editor, view } = await renderEditor(source);
+
+    const surfaceText = container.querySelector(".ProseMirror")?.textContent ?? "";
+
+    expect(surfaceText).toContain("Synthetic questions?");
+    expect(surfaceText).toContain("Example Presenter");
+    expect(surfaceText).not.toContain('<div class="text-center">');
+    expect(surfaceText).not.toContain("</div>");
+
+    const serializeMarkdown = editor.action((ctx) => ctx.get(serializerCtx));
+    expect(serializeMarkdown(view.state.doc)).toContain('<div class="text-center">');
+    expect(serializeMarkdown(view.state.doc)).toContain("</div>");
+  });
+
   it("keeps raw HTML class attributes out of preview layout while preserving source", async () => {
     const source = [
       '<div class="text-center mt-20">',
