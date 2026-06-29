@@ -89,6 +89,30 @@ describe("MarkdownTabsBar", () => {
     expect(newTabButton.closest(".document-tabs-controls")).toBeInTheDocument();
   });
 
+  it("renders deleted document tab labels with a strikethrough", () => {
+    render(
+      <MarkdownTabsBar
+        activeTabId="tab-a"
+        items={[
+          {
+            deleted: true,
+            dirty: false,
+            id: "tab-a",
+            name: "Alpha.md",
+            path: "/synthetic/alpha.md"
+          }
+        ]}
+        placement="titlebar"
+        onCloseTab={() => {}}
+        onNewTab={() => {}}
+        onSelectTab={() => {}}
+      />
+    );
+
+    expect(screen.getByRole("tab", { name: /Alpha\.md/ })).toBeInTheDocument();
+    expect(screen.getByText("Alpha.md")).toHaveClass("line-through");
+  });
+
   it("scrolls overflowing tabs horizontally with a vertical mouse wheel", () => {
     render(
       <MarkdownTabsBar
