@@ -1520,6 +1520,126 @@ describe("useMarkdownDocument", () => {
     });
   });
 
+  it("marks an externally deleted active document tab without closing it", async () => {
+    let emitExternalChange: (path: string) => unknown | Promise<unknown> = () => {};
+    let deletedExternally = false;
+    mockedWatchNativeMarkdownFile.mockImplementation(async (_path, onChange) => {
+      emitExternalChange = onChange;
+      return () => {};
+    });
+    mockedReadNativeMarkdownFile.mockImplementation(async (path) => {
+      if (deletedExternally) throw new Error("No such file or directory");
+
+      return {
+        content: "# Guide",
+        name: "guide.md",
+        path
+      };
+    });
+    const { result } = renderHook(() =>
+      useMarkdownDocument({
+        documentTabsEnabled: true,
+        getCurrentMarkdown: (fallbackContent) => fallbackContent,
+        onTreeRootFromFilePath: vi.fn(),
+        onTreeRootFromFolderPath: vi.fn(),
+        preferencesReady: false,
+        restoreWorkspaceOnStartup: false
+      })
+    );
+
+    await act(async () => {
+      await result.current.openTreeMarkdownFile({
+        name: "guide.md",
+        path: "/mock-files/guide.md",
+        relativePath: "guide.md"
+      });
+    });
+    await waitFor(() => expect(mockedWatchNativeMarkdownFile).toHaveBeenCalled());
+    const activeTabId = result.current.activeTabId;
+
+    deletedExternally = true;
+    await act(async () => {
+      await emitExternalChange("/mock-files/guide.md");
+    });
+
+    expect(result.current.activeTabId).toBe(activeTabId);
+    expect(result.current.document).toMatchObject({
+      deleted: true,
+      name: "guide.md",
+      open: true,
+      path: "/mock-files/guide.md"
+    });
+    expect(result.current.tabs).toMatchObject([
+      {
+        deleted: true,
+        name: "guide.md",
+        path: "/mock-files/guide.md"
+      }
+    ]);
+  });
+
+  it("saves an externally deleted active document through a new target path", async () => {
+    let emitExternalChange: (path: string) => unknown | Promise<unknown> = () => {};
+    let deletedExternally = false;
+    mockedWatchNativeMarkdownFile.mockImplementation(async (_path, onChange) => {
+      emitExternalChange = onChange;
+      return () => {};
+    });
+    mockedReadNativeMarkdownFile.mockImplementation(async (path) => {
+      if (deletedExternally) throw new Error("No such file or directory");
+
+      return {
+        content: "# Guide",
+        name: "guide.md",
+        path
+      };
+    });
+    mockedSaveNativeMarkdownFile.mockResolvedValue({
+      name: "guide-restored.md",
+      path: "/mock-files/restored/guide-restored.md"
+    });
+    const { result } = renderHook(() =>
+      useMarkdownDocument({
+        documentTabsEnabled: true,
+        getCurrentMarkdown: (fallbackContent) => fallbackContent,
+        onTreeRootFromFilePath: vi.fn(),
+        onTreeRootFromFolderPath: vi.fn(),
+        preferencesReady: false,
+        restoreWorkspaceOnStartup: false
+      })
+    );
+
+    await act(async () => {
+      await result.current.openTreeMarkdownFile({
+        name: "guide.md",
+        path: "/mock-files/guide.md",
+        relativePath: "guide.md"
+      });
+    });
+    await waitFor(() => expect(mockedWatchNativeMarkdownFile).toHaveBeenCalled());
+
+    deletedExternally = true;
+    await act(async () => {
+      await emitExternalChange("/mock-files/guide.md");
+    });
+    mockedSaveNativeMarkdownFile.mockClear();
+
+    await act(async () => {
+      await result.current.saveCurrentDocument();
+    });
+
+    expect(mockedSaveNativeMarkdownFile).toHaveBeenCalledWith(expect.objectContaining({
+      contents: "# Guide",
+      path: null,
+      suggestedName: "guide.md"
+    }));
+    expect(result.current.document).toMatchObject({
+      deleted: false,
+      name: "guide-restored.md",
+      path: "/mock-files/restored/guide-restored.md"
+    });
+  });
+
   it("updates open tree document paths when their containing folder is moved", async () => {
     mockedReadNativeMarkdownFile.mockImplementation(async (path) => ({
       content: path.endsWith("guide.md") ? "# Guide" : "# Notes",

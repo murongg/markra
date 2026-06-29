@@ -13,7 +13,7 @@ import { t, type AppLanguage } from "@markra/shared";
 import type { MarkdownDocumentTab } from "../hooks/useMarkdownDocument";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 
-export type MarkdownTabsBarDocumentItem = Pick<MarkdownDocumentTab, "dirty" | "id" | "name"> & {
+export type MarkdownTabsBarDocumentItem = Pick<MarkdownDocumentTab, "deleted" | "dirty" | "id" | "name"> & {
   displayKind?: "image" | "markdown";
   path?: string | null;
 };
@@ -536,7 +536,9 @@ export function MarkdownTabsBar({
           onPointerDown={(event) => handleTabPointerDown(event, tab)}
         >
           <TabIcon aria-hidden="true" className="shrink-0 opacity-65" size={13} />
-          <span className="min-w-0 truncate">{tab.name || "Untitled.md"}</span>
+          <span className={`min-w-0 truncate ${tab.deleted ? "line-through decoration-(--text-tertiary) decoration-1" : ""}`}>
+            {tab.name || "Untitled.md"}
+          </span>
           {tab.dirty ? (
             <span className="size-1.25 shrink-0 rounded-full bg-(--accent)" aria-label={label("app.unsavedChanges")} />
           ) : null}

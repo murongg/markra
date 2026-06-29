@@ -3,6 +3,7 @@ export type DocumentState = {
   name: string;
   content: string;
   sizeBytes?: number;
+  deleted?: boolean;
   dirty: boolean;
   open: boolean;
   revision: number;

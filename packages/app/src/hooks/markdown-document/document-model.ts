@@ -14,6 +14,7 @@ export function createInitialDocumentState(): DocumentState {
     path: null,
     name: "Untitled.md",
     content: "",
+    deleted: false,
     dirty: false,
     open: true,
     revision: 0
@@ -38,6 +39,7 @@ export function documentFromTab(tab: MarkdownDocumentTab): DocumentState {
     name: tab.name,
     content: tab.content,
     sizeBytes: tab.sizeBytes,
+    deleted: tab.deleted,
     dirty: tab.dirty,
     open: tab.open,
     revision: tab.revision
@@ -49,6 +51,7 @@ export function documentFromDraftTab(draft: StoredWorkspaceDraftTab, revision: n
     path: draft.path,
     name: draft.name,
     content: draft.content,
+    deleted: false,
     dirty: true,
     open: true,
     revision

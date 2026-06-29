@@ -118,6 +118,11 @@ function markdownDocumentSummaryKey(document: DocumentState) {
   ].join(":");
 }
 
+function isMissingMarkdownFileReadError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /(?:cannot find|no longer exists|no such file|not found)/iu.test(message);
+}
+
 function calculateMarkdownDocumentSummary(
   content: string,
   detail: Record<string, unknown>
@@ -441,6 +446,7 @@ export function useMarkdownDocument({
         path: null,
         name: "",
         content: "",
+        deleted: false,
         dirty: false,
         open: false,
         revision: documentRef.current.revision + 1
@@ -645,6 +651,7 @@ export function useMarkdownDocument({
       path: null,
       name: blankDocumentName(options.name),
       content: options.content ?? "",
+      deleted: false,
       dirty: true,
       open: true,
       revision: documentRef.current.revision + 1
@@ -696,6 +703,7 @@ export function useMarkdownDocument({
       path: null,
       name: "",
       content: "",
+      deleted: false,
       dirty: false,
       open: false,
       revision: documentRef.current.revision + 1
@@ -742,7 +750,7 @@ export function useMarkdownDocument({
         targetTab.revision !== expectedTab.revision ||
         targetTab.content !== expectedTab.content
       );
-    if (!targetTab || staleRequest || targetTab.dirty || targetTab.content === file.content) {
+    if (!targetTab || staleRequest || targetTab.dirty || (!targetTab.deleted && targetTab.content === file.content)) {
       debug(() => ["[markra-history] disk file event ignored", {
         diskPath: file.path,
         reason: !targetTab
@@ -751,7 +759,9 @@ export function useMarkdownDocument({
             ? "stale request"
             : targetTab.dirty
               ? "tab dirty"
-              : "contents unchanged",
+              : !targetTab.deleted && targetTab.content === file.content
+                ? "contents unchanged"
+                : "unknown",
         source: reason,
         tabId: targetTab?.id ?? null
       }]);
@@ -763,6 +773,7 @@ export function useMarkdownDocument({
       name: file.name,
       content: file.content,
       sizeBytes: file.sizeBytes,
+      deleted: false,
       dirty: false,
       open: true,
       revision: targetTab.revision + 1
@@ -816,6 +827,7 @@ export function useMarkdownDocument({
           name: file.name,
           content: file.content,
           sizeBytes: file.sizeBytes,
+          deleted: false,
           dirty: false,
           open: true,
           revision: documentRef.current.revision + 1
@@ -932,6 +944,7 @@ export function useMarkdownDocument({
             name: file.name,
             content: file.content,
             sizeBytes: file.sizeBytes,
+            deleted: false,
             dirty: false,
             open: true,
             revision: documentRef.current.revision + 1
@@ -945,6 +958,7 @@ export function useMarkdownDocument({
           name: activeFile.name,
           content: activeFile.content,
           sizeBytes: activeFile.sizeBytes,
+          deleted: false,
           dirty: false,
           open: true,
           revision: documentRef.current.revision + 1
@@ -1051,6 +1065,7 @@ export function useMarkdownDocument({
           name: nativeFile.name,
           content: nativeFile.content,
           sizeBytes: nativeFile.sizeBytes,
+          deleted: false,
           dirty: false,
           open: true,
           revision: documentRef.current.revision + 1
@@ -1090,6 +1105,7 @@ export function useMarkdownDocument({
     if (current.path === previousPath) {
       setActiveDocument({
         ...current,
+        deleted: false,
         name: file.name,
         path: file.path
       });
@@ -1100,6 +1116,7 @@ export function useMarkdownDocument({
 
       return {
         ...tab,
+        deleted: false,
         name: file.name,
         path: file.path
       };
@@ -1128,6 +1145,7 @@ export function useMarkdownDocument({
       if (nextPath !== current.path) {
         setActiveDocument({
           ...current,
+          deleted: false,
           name: current.path === previousPath ? file.name : current.name,
           path: nextPath
         });
@@ -1140,6 +1158,7 @@ export function useMarkdownDocument({
 
       return {
         ...tab,
+        deleted: false,
         name: tab.path === previousPath ? file.name : tab.name,
         path: nextPath
       };
@@ -1197,6 +1216,39 @@ export function useMarkdownDocument({
     return true;
   }, [documentTabsEnabled, registerWindowRestoreState, setActiveDocument, setActiveTabState]);
 
+  const markExternallyDeletedDocumentFile = useCallback((path: string) => {
+    const matchesDeletedPath = (documentPath: string | null) =>
+      documentPath !== null && isDeletedDocumentPath(documentPath, path);
+    const currentTabs = tabsRef.current;
+    const current = documentRef.current;
+    const activeTabId = activeTabIdRef.current;
+    const affectsCurrent = matchesDeletedPath(current.path);
+    const affectsTabs = currentTabs.some((tab) => matchesDeletedPath(tab.path));
+
+    if (!affectsCurrent && !affectsTabs) return false;
+
+    const nextDocument = affectsCurrent ? { ...current, deleted: true } : current;
+    const nextTabs = currentTabs.map((tab) => {
+      if (affectsCurrent && tab.id === activeTabId) return createDocumentTab(nextDocument, tab.id);
+      if (matchesDeletedPath(tab.path)) return { ...tab, deleted: true };
+      return tab;
+    });
+
+    tabsRef.current = nextTabs;
+    setTabs(nextTabs);
+    if (affectsCurrent) {
+      documentRef.current = nextDocument;
+      setDocument(nextDocument);
+    }
+    persistWorkspaceState({
+      ...draftWorkspacePatchFromTabs(nextTabs, activeTabId),
+      filePath: activeFilePathFromTabs(nextTabs, activeTabId),
+      openFilePaths: openFilePathsFromTabs(nextTabs)
+    });
+    registerWindowRestoreState(activeFilePathFromTabs(nextTabs, activeTabId), openFilePathsFromTabs(nextTabs));
+    return true;
+  }, [registerWindowRestoreState]);
+
   const applySavedCurrentDocument = useCallback((
     savedFile: { name: string; path: string },
     contents: string,
@@ -1228,6 +1280,7 @@ export function useMarkdownDocument({
       path: savedFile.path,
       name: savedFile.name,
       content: contentChangedAfterSaveStarted ? targetDocument.content : contents,
+      deleted: false,
       dirty: contentChangedAfterSaveStarted ? true : false,
       revision: targetDocument.revision
     };
@@ -1276,7 +1329,7 @@ export function useMarkdownDocument({
 
       const targetTabId = activeTabIdRef.current;
       const contents = currentMarkdownForSave(current, targetTabId);
-      const savePath = saveAs ? null : current.path;
+      const savePath = saveAs || current.deleted ? null : current.path;
       const savedFile = await saveNativeMarkdownFile({
         ...defaultSaveDirectoryInput(defaultSaveDirectory, savePath),
         path: savePath,
@@ -1287,7 +1340,7 @@ export function useMarkdownDocument({
       if (!savedFile) return null;
 
       applySavedCurrentDocument(savedFile, contents, {
-        retargetWorkspaceRoot: saveAs || current.path === null,
+        retargetWorkspaceRoot: saveAs || current.path === null || current.deleted === true,
         sourceContent: current.content,
         targetTabId
       });
@@ -1302,7 +1355,7 @@ export function useMarkdownDocument({
       contents: string,
       options: SaveCurrentDocumentContentOptions = {}
     ) => {
-      const savePath = tab.path;
+      const savePath = tab.deleted ? null : tab.path;
       const savedFile = await saveNativeMarkdownFile({
         ...defaultSaveDirectoryInput(defaultSaveDirectory, savePath),
         historyCursorId: options.historyCursorId,
@@ -1315,7 +1368,7 @@ export function useMarkdownDocument({
       if (!savedFile) return null;
 
       applySavedCurrentDocument(savedFile, contents, {
-        retargetWorkspaceRoot: tab.path === null,
+        retargetWorkspaceRoot: tab.path === null || tab.deleted === true,
         sourceContent: tab.content,
         targetTabId: tab.id
       });
@@ -1345,7 +1398,7 @@ export function useMarkdownDocument({
         suggestedName: current.name || "Untitled.md"
       }]);
 
-      const savePath = current.path;
+      const savePath = current.deleted ? null : current.path;
       let savedFile: Awaited<ReturnType<typeof saveNativeMarkdownFile>>;
       try {
         savedFile = await saveNativeMarkdownFile({
@@ -1372,7 +1425,7 @@ export function useMarkdownDocument({
       }
 
       applySavedCurrentDocument(savedFile, contents, {
-        retargetWorkspaceRoot: current.path === null,
+        retargetWorkspaceRoot: current.path === null || current.deleted === true,
         sourceContent: current.content,
         targetTabId
       });
@@ -1395,7 +1448,7 @@ export function useMarkdownDocument({
       const contents = tab.id === activeTabIdRef.current
         ? currentMarkdownForSave(documentFromTab(tab), tab.id)
         : tab.content;
-      const savePath = saveAs ? null : tab.path;
+      const savePath = saveAs || tab.deleted ? null : tab.path;
       const savedFile = await saveNativeMarkdownFile({
         ...defaultSaveDirectoryInput(defaultSaveDirectory, savePath),
         path: savePath,
@@ -1411,6 +1464,7 @@ export function useMarkdownDocument({
         path: savedFile.path,
         name: savedFile.name,
         content: contents,
+        deleted: false,
         dirty: false,
         revision: sourceDocument.revision
       };
@@ -1431,14 +1485,14 @@ export function useMarkdownDocument({
         setDocument(nextDocument);
       }
 
-      if (saveAs || tab.path === null) onTreeRootFromFilePath(savedFile.path);
+      if (saveAs || tab.path === null || tab.deleted) onTreeRootFromFilePath(savedFile.path);
       rememberRecentMarkdownFile(savedFile);
       registerWindowRestoreState(activeFilePathFromTabs(nextTabs, activeTabIdRef.current), openFilePathsFromTabs(nextTabs));
       persistWorkspaceState({
         ...draftWorkspacePatchFromTabs(nextTabs, activeTabIdRef.current),
         filePath: activeFilePathFromTabs(nextTabs, activeTabIdRef.current),
         openFilePaths: openFilePathsFromTabs(nextTabs),
-        ...(saveAs || tab.path === null ? { folderName: null, folderPath: null } : {})
+        ...(saveAs || tab.path === null || tab.deleted ? { folderName: null, folderPath: null } : {})
       });
       return savedFile;
     },
@@ -1462,7 +1516,7 @@ export function useMarkdownDocument({
 
     const savePromise = (async () => {
       syncActiveDocumentFromEditor();
-      const dirtyTabs = tabsRef.current.filter((tab) => tab.open && tab.dirty && tab.path !== null);
+      const dirtyTabs = tabsRef.current.filter((tab) => tab.open && tab.dirty && tab.path !== null && !tab.deleted);
       for (const tab of dirtyTabs) {
         await saveMarkdownTabContent(tab, tab.content, { skipHistorySnapshot: true });
       }
@@ -1936,7 +1990,28 @@ export function useMarkdownDocument({
           changedPath,
           watchedPath
         }]);
-        const file = await readMarkdownFileWithPerformance(changedPath, "watcher");
+        let file: NativeMarkdownFile;
+        try {
+          file = await readMarkdownFileWithPerformance(changedPath, "watcher");
+        } catch (error: unknown) {
+          if (active && isMissingMarkdownFileReadError(error)) {
+            const markedDeleted = markExternallyDeletedDocumentFile(changedPath);
+            debug(() => ["[markra-history] watcher marked missing file", {
+              changedPath,
+              markedDeleted,
+              watchedPath
+            }]);
+            onMarkdownTreeChange?.(changedPath);
+            return;
+          }
+
+          debug(() => ["[markra-history] watcher read failed", {
+            changedPath,
+            error: error instanceof Error ? error.message : String(error),
+            watchedPath
+          }]);
+          return;
+        }
         if (!active) return;
 
         applyDiskFileToCleanOpenTab(file, "watcher");
@@ -1970,6 +2045,7 @@ export function useMarkdownDocument({
   }, [
     applyDiskFileToCleanOpenTab,
     document.path,
+    markExternallyDeletedDocumentFile,
     onMarkdownTreeChange,
     readMarkdownFileWithPerformance,
     watchedMarkdownFilePathsKey
