@@ -272,14 +272,32 @@ function firstRawHtmlElementTagName(rawHtml: string, ownerDocument: Document) {
   return firstElement instanceof HTMLElement ? firstElement.tagName.toLowerCase() : null;
 }
 
-function rawHtmlIsCustomComponentBoundary(rawHtml: string) {
+function rawHtmlBoundaryTagName(rawHtml: string) {
   const match = /^<\/?\s*([A-Za-z][\w:.-]*)(?:\s[^<>]*)?\/?\s*>$/u.exec(rawHtml.trim());
-  if (!match) return false;
+  return match?.[1]?.toLowerCase() ?? null;
+}
 
-  const tagName = match[1]?.toLowerCase() ?? "";
+function rawHtmlIsSelfClosingBoundary(rawHtml: string) {
+  return /\/\s*>$/u.test(rawHtml.trim());
+}
+
+function rawHtmlIsCustomComponentBoundary(rawHtml: string) {
+  const tagName = rawHtmlBoundaryTagName(rawHtml);
+  if (!tagName) return false;
   if (allowedRawHtmlTags.has(tagName) || droppedRawHtmlTags.has(tagName)) return false;
 
   return tagName.includes("-") || tagName.includes(":");
+}
+
+function rawHtmlIsBlockWrapperBoundary(rawHtml: string) {
+  const tagName = rawHtmlBoundaryTagName(rawHtml);
+  if (!tagName || !blockRawHtmlTags.has(tagName)) return false;
+
+  return rawHtml.trim().startsWith("</") || !rawHtmlIsSelfClosingBoundary(rawHtml);
+}
+
+function rawHtmlIsHiddenBoundary(rawHtml: string) {
+  return rawHtmlIsCustomComponentBoundary(rawHtml) || rawHtmlIsBlockWrapperBoundary(rawHtml);
 }
 
 function createRawHtmlRoot(rawHtml: string, ownerDocument: Document) {
@@ -313,7 +331,7 @@ function renderRawHtmlPreviewInto(root: HTMLElement, rawHtml: string, ownerDocum
   }
 
   if (!root.childNodes.length) {
-    if (!rawHtmlIsCustomComponentBoundary(rawHtml)) {
+    if (!rawHtmlIsHiddenBoundary(rawHtml)) {
       root.replaceChildren(createRawHtmlFallback(rawHtml, ownerDocument));
     }
   }
