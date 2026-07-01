@@ -1,6 +1,6 @@
 {
   "name": "@markra/web",
-  "version": "0.17.1",
+  "version": "1.0.0-rc.0",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",

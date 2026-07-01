@@ -1,3 +1,5 @@
+## [1.0.0-rc.0](https://github.com/markrahq/markra/compare/v0.17.1...v1.0.0-rc.0) (2026-07-01)
+
 ## [0.17.1](https://github.com/markrahq/markra/compare/v0.17.0...v0.17.1) (2026-07-01)
 
 ### Bug Fixes
