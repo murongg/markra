@@ -223,6 +223,62 @@ jobs:
           tauri_args="$(node .release-scripts/scripts/release/resolve-tauri-build-args.mjs)"
           echo "args=${tauri_args}" >> "${GITHUB_OUTPUT}"
 
+      - name: Import Apple Developer ID certificate
+        if: startsWith(matrix.os, 'macos-')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          : "${APPLE_CERTIFICATE:?Missing APPLE_CERTIFICATE secret}"
+          : "${APPLE_CERTIFICATE_PASSWORD:?Missing APPLE_CERTIFICATE_PASSWORD secret}"
+          : "${APPLE_SIGNING_IDENTITY:?Missing APPLE_SIGNING_IDENTITY secret}"
+          : "${KEYCHAIN_PASSWORD:?Missing KEYCHAIN_PASSWORD secret}"
+
+          certificate_path="${RUNNER_TEMP}/developer-id.p12"
+          keychain_path="${RUNNER_TEMP}/app-signing.keychain-db"
+
+          echo "${APPLE_CERTIFICATE}" | base64 --decode > "${certificate_path}"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}"
+          security import "${certificate_path}" -k "${keychain_path}" -P "${APPLE_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychains -d user -s "${keychain_path}"
+          security default-keychain -s "${keychain_path}"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${KEYCHAIN_PASSWORD}" "${keychain_path}"
+
+          if ! security find-identity -v -p codesigning "${keychain_path}" | grep -F "${APPLE_SIGNING_IDENTITY}"; then
+            echo "Apple signing identity was not found in the imported keychain." >&2
+            exit 1
+          fi
+
+          echo "APPLE_SIGNING_IDENTITY=${APPLE_SIGNING_IDENTITY}" >> "${GITHUB_ENV}"
+
+      - name: Prepare Apple notarization key
+        if: startsWith(matrix.os, 'macos-')
+        shell: bash
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          : "${APPLE_API_ISSUER:?Missing APPLE_API_ISSUER secret}"
+          : "${APPLE_API_KEY:?Missing APPLE_API_KEY secret}"
+          : "${APPLE_API_KEY_PRIVATE_KEY:?Missing APPLE_API_KEY_PRIVATE_KEY secret}"
+
+          api_key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY}.p8"
+          printf "%s" "${APPLE_API_KEY_PRIVATE_KEY}" > "${api_key_path}"
+          chmod 600 "${api_key_path}"
+          echo "APPLE_API_ISSUER=${APPLE_API_ISSUER}" >> "${GITHUB_ENV}"
+          echo "APPLE_API_KEY=${APPLE_API_KEY}" >> "${GITHUB_ENV}"
+          echo "APPLE_API_KEY_PATH=${api_key_path}" >> "${GITHUB_ENV}"
+
       - name: Build and bundle app
         id: tauri_build
         uses: tauri-apps/tauri-action@v0.6.0
@@ -276,20 +332,6 @@ jobs:
         run: |
           node .release-scripts/scripts/release/verify-linux-appimage-libraries.mjs
           node .release-scripts/scripts/release/verify-linux-appimage-gtk-ime.mjs
-
-      - name: Add macOS open helper to DMG
-        if: startsWith(matrix.os, 'macos-')
-        shell: bash
-        env:
-          APP_PRODUCT_NAME: ${{ env.APP_PRODUCT_NAME }}
-          DMG_DIR: ${{ env.DESKTOP_DIR }}/src-tauri/target/${{ matrix.target }}/release/bundle/dmg
-          HELPER_PATH: ${{ runner.temp }}/Markra-macOS-Open-Anyway.command
-          MACOS_BUNDLE_DIR: ${{ env.DESKTOP_DIR }}/src-tauri/target/${{ matrix.target }}/release/bundle/macos
-        run: |
-          set -euo pipefail
-
-          OUTPUT_PATH="${HELPER_PATH}" node .release-scripts/scripts/release/create-macos-open-helper.mjs
-          node .release-scripts/scripts/release/rebuild-macos-dmg-with-helper.mjs
 
       - name: Normalize release asset names
         shell: bash
@@ -485,9 +527,6 @@ jobs:
               echo "- Release ${RELEASE_TAG}"
             } > release-notes.md
           fi
-
-      - name: Add macOS unsigned app notice
-        run: node .release-scripts/scripts/release/prepend-macos-unsigned-notice.mjs
 
       - name: Download bundled artifacts
         uses: actions/download-artifact@v4
