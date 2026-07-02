@@ -221,6 +221,7 @@ describe("settings events", () => {
         { id: "history", visible: true }
       ],
       showWordCount: false,
+      vimModeEnabled: false,
       wrapCodeBlocks: false
     };
 

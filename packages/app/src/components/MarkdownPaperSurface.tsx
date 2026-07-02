@@ -50,6 +50,7 @@ import {
   markraTaskListPlugin,
   markraTrailingParagraphPlugin,
   markraTaskListSchema,
+  markraVimModePlugin,
   getActiveSpellcheckMatch,
   normalizeMarkdownShortcuts,
   replaceSpellcheckMatch,
@@ -83,6 +84,7 @@ export type MarkdownPaperSurfaceProps = {
   language: AppLanguage;
   extendedSyntax?: ExtendedSyntaxPreferences;
   markdownShortcuts?: MarkdownShortcutMap;
+  vimModeEnabled?: boolean;
   onEditorReady: (editor: Editor | null, options?: { autoFocus?: boolean }) => unknown;
   onActiveOutlineIndexChange?: (index: number | null) => unknown;
   onMarkdownChange: (content: string) => unknown;
@@ -210,6 +212,7 @@ function MilkdownEditorSurface({
   initialContent,
   language,
   markdownShortcuts,
+  vimModeEnabled = false,
   onEditorReady,
   onActiveOutlineIndexChange,
   onMarkdownChange,
@@ -241,6 +244,7 @@ function MilkdownEditorSurface({
   const readOnlyRef = useRef(readOnly);
   const resolveImageSrcRef = useRef(resolveImageSrc);
   const spellcheckEnabledRef = useRef(spellcheckEnabled);
+  const vimModeEnabledRef = useRef(vimModeEnabled);
   const spellcheckIgnoredWordsRef = useRef(spellcheckIgnoredWords);
   const tableColumnWidthModeRef = useRef(tableColumnWidthMode ?? "auto");
   const spellcheckMenuViewRef = useRef<EditorView | null>(null);
@@ -346,6 +350,10 @@ function MilkdownEditorSurface({
   useEffect(() => {
     readOnlyRef.current = readOnly;
   }, [readOnly]);
+
+  useEffect(() => {
+    vimModeEnabledRef.current = vimModeEnabled;
+  }, [vimModeEnabled]);
 
   useEffect(() => {
     resolveImageSrcRef.current = resolveImageSrc;
@@ -481,6 +489,7 @@ function MilkdownEditorSurface({
       editor
         .use(markraSlashCommands(slashCommandLabels, { callout: githubAlertsEnabled }))
         .use(markraMathSourcePlugin)
+        .use(markraVimModePlugin({ enabled: () => vimModeEnabledRef.current && !readOnlyRef.current }))
         .use(markraMarkdownShortcuts(normalizedMarkdownShortcuts))
         .use(markraCodeBlockPlugin)
         .use(markraMathCaretAnchorSuppressionPlugin)
