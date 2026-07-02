@@ -1,9 +1,21 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex, OnceLock,
+    },
+    time::Duration,
+};
 
-use crate::menu::remember_native_menu_webview_window;
+use crate::{
+    language::{resolve_startup_language, AppLanguage},
+    menu::remember_native_menu_webview_window,
+    menu_labels,
+};
 
 #[cfg(target_os = "macos")]
-use std::{ops::Deref, time::Duration};
+use std::ops::Deref;
 
 #[cfg(target_os = "macos")]
 use dispatch2::{DispatchQueue, DispatchTime};
@@ -11,6 +23,7 @@ use dispatch2::{DispatchQueue, DispatchTime};
 use objc2::Message;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSWindow, NSWindowStyleMask};
+use serde_json::{Map, Value};
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 use tauri::{utils::config::Color, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -28,6 +41,17 @@ const SETTINGS_WINDOW_LABEL: &str = "markra-settings";
 const SETTINGS_WINDOW_URL: &str = "index.html?settings=1";
 const SETTINGS_WINDOW_TARGET_EVENT: &str = "markra://settings-window-target";
 const SETTINGS_WINDOW_TARGET_EXPORT_PANDOC_PATH: &str = "exportPandocPath";
+const SETTINGS_STORE_PATH: &str = "settings.json";
+const SETTINGS_STARTUP_LANGUAGE_PARAM: &str = "startupLanguage";
+const SETTINGS_STARTUP_APPEARANCE_MODE_PARAM: &str = "startupAppearanceMode";
+const SETTINGS_STARTUP_LIGHT_THEME_PARAM: &str = "startupLightTheme";
+const SETTINGS_STARTUP_DARK_THEME_PARAM: &str = "startupDarkTheme";
+const SETTINGS_LEGACY_THEME_KEY: &str = "theme";
+const SETTINGS_APPEARANCE_MODE_KEY: &str = "appearanceMode";
+const SETTINGS_LIGHT_THEME_KEY: &str = "lightTheme";
+const SETTINGS_DARK_THEME_KEY: &str = "darkTheme";
+const SETTINGS_WINDOW_NATIVE_REVEAL_FALLBACK_MS: u64 = 1_800;
+const SETTINGS_WINDOW_IDLE_DESTROY_MS: u64 = 5 * 60 * 1000;
 const SETTINGS_WINDOW_WIDTH: f64 = 1040.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 720.0;
 const SETTINGS_WINDOW_MIN_WIDTH: f64 = 860.0;
@@ -40,6 +64,74 @@ const SETTINGS_WINDOW_HIDDEN_TITLE: bool = true;
 const MACOS_FULLSCREEN_MINIMIZE_DELAY_MS: u64 = 700;
 
 static NEXT_EDITOR_WINDOW_ID: AtomicUsize = AtomicUsize::new(1);
+
+#[derive(Default)]
+struct SettingsWindowRuntimeState {
+    creating: bool,
+    idle_destroy_generation: usize,
+    pending_target: Option<String>,
+    ready: bool,
+    show_when_ready: bool,
+}
+
+static SETTINGS_WINDOW_RUNTIME_STATE: OnceLock<Mutex<SettingsWindowRuntimeState>> = OnceLock::new();
+
+fn settings_window_runtime_state() -> &'static Mutex<SettingsWindowRuntimeState> {
+    SETTINGS_WINDOW_RUNTIME_STATE.get_or_init(|| Mutex::new(SettingsWindowRuntimeState::default()))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SettingsWindowStartupPreferences {
+    language: AppLanguage,
+    appearance_mode: String,
+    light_theme: String,
+    dark_theme: String,
+}
+
+impl SettingsWindowStartupPreferences {
+    fn default_for_language(language: AppLanguage) -> Self {
+        Self {
+            language,
+            appearance_mode: "system".to_string(),
+            light_theme: "light".to_string(),
+            dark_theme: "dark".to_string(),
+        }
+    }
+}
+
+impl Default for SettingsWindowStartupPreferences {
+    fn default() -> Self {
+        Self::default_for_language(AppLanguage::En)
+    }
+}
+
+const APP_APPEARANCE_MODE_OPTIONS: &[&str] = &["system", "light", "dark"];
+const LIGHT_EDITOR_THEME_OPTIONS: &[&str] = &[
+    "light",
+    "github",
+    "one-light",
+    "gothic",
+    "newsprint",
+    "pixyll",
+    "whitey",
+    "sepia",
+    "solarized-light",
+    "catppuccin-latte",
+    "academic",
+    "minimal",
+    "custom",
+];
+const DARK_EDITOR_THEME_OPTIONS: &[&str] = &[
+    "dark",
+    "github-dark",
+    "one-dark",
+    "one-dark-pro",
+    "night",
+    "solarized-dark",
+    "nord",
+    "catppuccin-mocha",
+    "custom",
+];
 
 fn current_window_chrome_platform() -> &'static str {
     std::env::consts::OS
@@ -271,23 +363,134 @@ fn normalized_settings_window_target(target: Option<&str>) -> Option<&'static st
     }
 }
 
-fn settings_window_url(target: Option<&str>) -> String {
-    if let Some(target) = normalized_settings_window_target(target) {
-        return format!(
-            "{SETTINGS_WINDOW_URL}&settingsTarget={}",
-            encode_url_query_component(target)
-        );
-    }
-
-    SETTINGS_WINDOW_URL.to_string()
+fn append_url_query_param(url: &mut String, key: &str, value: &str) {
+    url.push('&');
+    url.push_str(key);
+    url.push('=');
+    url.push_str(&encode_url_query_component(value));
 }
 
-#[cfg(not(target_os = "macos"))]
-fn create_settings_window_menu<R>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>>
-where
-    R: tauri::Runtime,
-{
-    tauri::menu::MenuBuilder::new(app).build()
+fn settings_store_path(identifier: &str) -> Option<PathBuf> {
+    dirs::data_dir().map(|data_dir| data_dir.join(identifier).join(SETTINGS_STORE_PATH))
+}
+
+fn read_settings_object(path: &Path) -> Option<Map<String, Value>> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<Value>(&contents).ok())
+        .and_then(|settings| settings.as_object().cloned())
+}
+
+fn stored_settings_string<'a>(settings: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+    settings.get(key).and_then(Value::as_str)
+}
+
+fn is_app_appearance_mode(value: &str) -> bool {
+    APP_APPEARANCE_MODE_OPTIONS.contains(&value)
+}
+
+fn is_light_editor_theme(value: &str) -> bool {
+    LIGHT_EDITOR_THEME_OPTIONS.contains(&value)
+}
+
+fn is_dark_editor_theme(value: &str) -> bool {
+    DARK_EDITOR_THEME_OPTIONS.contains(&value)
+}
+
+fn legacy_theme_preferences(
+    language: AppLanguage,
+    theme: Option<&str>,
+) -> SettingsWindowStartupPreferences {
+    let mut preferences = SettingsWindowStartupPreferences::default_for_language(language);
+    let Some(theme) = theme else {
+        return preferences;
+    };
+
+    if theme == "system" {
+        return preferences;
+    }
+
+    if is_dark_editor_theme(theme) {
+        preferences.appearance_mode = "dark".to_string();
+        preferences.dark_theme = theme.to_string();
+        return preferences;
+    }
+
+    if is_light_editor_theme(theme) {
+        preferences.appearance_mode = "light".to_string();
+        preferences.light_theme = theme.to_string();
+    }
+
+    preferences
+}
+
+fn settings_window_startup_preferences(identifier: &str) -> SettingsWindowStartupPreferences {
+    let language = resolve_startup_language(identifier);
+    let Some(settings_path) = settings_store_path(identifier) else {
+        return SettingsWindowStartupPreferences::default_for_language(language);
+    };
+    let Some(settings) = read_settings_object(&settings_path) else {
+        return SettingsWindowStartupPreferences::default_for_language(language);
+    };
+
+    let mut preferences = legacy_theme_preferences(
+        language,
+        stored_settings_string(&settings, SETTINGS_LEGACY_THEME_KEY),
+    );
+
+    if let Some(appearance_mode) = stored_settings_string(&settings, SETTINGS_APPEARANCE_MODE_KEY)
+        .filter(|value| is_app_appearance_mode(value))
+    {
+        preferences.appearance_mode = appearance_mode.to_string();
+    }
+
+    if let Some(light_theme) = stored_settings_string(&settings, SETTINGS_LIGHT_THEME_KEY)
+        .filter(|value| is_light_editor_theme(value))
+    {
+        preferences.light_theme = light_theme.to_string();
+    }
+
+    if let Some(dark_theme) = stored_settings_string(&settings, SETTINGS_DARK_THEME_KEY)
+        .filter(|value| is_dark_editor_theme(value))
+    {
+        preferences.dark_theme = dark_theme.to_string();
+    }
+
+    preferences
+}
+
+fn settings_window_url(
+    target: Option<&str>,
+    startup_preferences: &SettingsWindowStartupPreferences,
+) -> String {
+    let mut url = SETTINGS_WINDOW_URL.to_string();
+
+    append_url_query_param(
+        &mut url,
+        SETTINGS_STARTUP_LANGUAGE_PARAM,
+        startup_preferences.language.as_code(),
+    );
+    append_url_query_param(
+        &mut url,
+        SETTINGS_STARTUP_APPEARANCE_MODE_PARAM,
+        &startup_preferences.appearance_mode,
+    );
+    append_url_query_param(
+        &mut url,
+        SETTINGS_STARTUP_LIGHT_THEME_PARAM,
+        &startup_preferences.light_theme,
+    );
+    append_url_query_param(
+        &mut url,
+        SETTINGS_STARTUP_DARK_THEME_PARAM,
+        &startup_preferences.dark_theme,
+    );
+
+    if let Some(target) = normalized_settings_window_target(target) {
+        append_url_query_param(&mut url, "settingsTarget", target);
+    }
+
+    url
 }
 
 pub(crate) fn spawn_editor_window<R>(app: tauri::AppHandle<R>, url: String)
@@ -434,8 +637,180 @@ fn settings_window_shadow() -> bool {
     SETTINGS_WINDOW_SHADOW
 }
 
-fn settings_window_background_color() -> Option<Color> {
-    transparent_window_background_color_for_platform(current_window_chrome_platform())
+fn settings_window_visible() -> bool {
+    false
+}
+
+fn settings_window_resolved_appearance(
+    startup_preferences: &SettingsWindowStartupPreferences,
+) -> &str {
+    if startup_preferences.appearance_mode == "light" {
+        return "light";
+    }
+
+    "dark"
+}
+
+fn settings_window_background_color_for_preferences(
+    platform: &str,
+    startup_preferences: &SettingsWindowStartupPreferences,
+) -> Option<Color> {
+    if let Some(color) = transparent_window_background_color_for_platform(platform) {
+        return Some(color);
+    }
+
+    if settings_window_resolved_appearance(startup_preferences) == "light" {
+        return Some(Color(255, 255, 255, 255));
+    }
+
+    Some(Color(30, 30, 30, 255))
+}
+
+fn settings_window_title(language: AppLanguage) -> String {
+    menu_labels::for_language(language)
+        .settings
+        .trim_end_matches('.')
+        .to_string()
+}
+
+fn next_settings_window_idle_destroy_generation(state: &mut SettingsWindowRuntimeState) -> usize {
+    state.idle_destroy_generation = state.idle_destroy_generation.wrapping_add(1);
+    state.idle_destroy_generation
+}
+
+fn begin_settings_window_creation(show_when_ready: bool, pending_target: Option<String>) -> bool {
+    let Ok(mut state) = settings_window_runtime_state().lock() else {
+        return true;
+    };
+
+    if state.creating {
+        if show_when_ready {
+            state.show_when_ready = true;
+            if pending_target.is_some() {
+                state.pending_target = pending_target;
+            }
+            next_settings_window_idle_destroy_generation(&mut state);
+        }
+        return false;
+    }
+
+    state.creating = true;
+    state.ready = false;
+    state.show_when_ready = show_when_ready;
+    state.pending_target = pending_target;
+    next_settings_window_idle_destroy_generation(&mut state);
+    true
+}
+
+fn finish_settings_window_creation() -> bool {
+    let Ok(mut state) = settings_window_runtime_state().lock() else {
+        return false;
+    };
+
+    state.creating = false;
+    state.show_when_ready
+}
+
+fn cancel_settings_window_creation() {
+    let Ok(mut state) = settings_window_runtime_state().lock() else {
+        return;
+    };
+
+    state.creating = false;
+    state.ready = false;
+    state.show_when_ready = false;
+    state.pending_target = None;
+    next_settings_window_idle_destroy_generation(&mut state);
+}
+
+fn reset_settings_window_runtime_state() {
+    let Ok(mut state) = settings_window_runtime_state().lock() else {
+        return;
+    };
+
+    state.creating = false;
+    state.ready = false;
+    state.show_when_ready = false;
+    state.pending_target = None;
+    next_settings_window_idle_destroy_generation(&mut state);
+}
+
+fn request_settings_window_show_when_ready(target: Option<&str>) -> bool {
+    let Ok(mut state) = settings_window_runtime_state().lock() else {
+        return true;
+    };
+
+    next_settings_window_idle_destroy_generation(&mut state);
+    if state.ready {
+        return true;
+    }
+
+    state.show_when_ready = true;
+    if let Some(target) = target {
+        state.pending_target = Some(target.to_string());
+    }
+    false
+}
+
+fn mark_settings_window_runtime_ready() -> Option<Option<String>> {
+    let Ok(mut state) = settings_window_runtime_state().lock() else {
+        return None;
+    };
+
+    state.creating = false;
+    state.ready = true;
+    if !state.show_when_ready {
+        return None;
+    }
+
+    state.show_when_ready = false;
+    Some(state.pending_target.take())
+}
+
+fn settings_window_should_reveal_from_fallback() -> bool {
+    let Ok(state) = settings_window_runtime_state().lock() else {
+        return true;
+    };
+
+    state.show_when_ready
+}
+
+fn schedule_settings_window_idle_destroy<R>(window: tauri::WebviewWindow<R>)
+where
+    R: tauri::Runtime,
+{
+    let generation = {
+        let Ok(mut state) = settings_window_runtime_state().lock() else {
+            return;
+        };
+
+        state.show_when_ready = false;
+        state.pending_target = None;
+        next_settings_window_idle_destroy_generation(&mut state)
+    };
+
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(SETTINGS_WINDOW_IDLE_DESTROY_MS));
+        let should_destroy = {
+            let Ok(mut state) = settings_window_runtime_state().lock() else {
+                return;
+            };
+
+            if state.idle_destroy_generation != generation {
+                return;
+            }
+
+            state.creating = false;
+            state.ready = false;
+            state.show_when_ready = false;
+            state.pending_target = None;
+            true
+        };
+
+        if should_destroy && !window.is_visible().unwrap_or(false) {
+            let _ = window.close();
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -448,42 +823,219 @@ fn settings_window_hidden_title() -> bool {
     SETTINGS_WINDOW_HIDDEN_TITLE
 }
 
+fn show_settings_window<R>(window: &tauri::WebviewWindow<R>)
+where
+    R: tauri::Runtime,
+{
+    let Ok(mut state) = settings_window_runtime_state().lock() else {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    };
+    state.show_when_ready = false;
+    state.pending_target = None;
+    next_settings_window_idle_destroy_generation(&mut state);
+    drop(state);
+
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+fn emit_settings_window_target<R>(window: &tauri::WebviewWindow<R>, target: &str)
+where
+    R: tauri::Runtime,
+{
+    let _ = window.emit(
+        SETTINGS_WINDOW_TARGET_EVENT,
+        SettingsWindowTargetPayload {
+            target: target.to_string(),
+        },
+    );
+}
+
+fn show_settings_window_if_hidden<R>(window: &tauri::WebviewWindow<R>)
+where
+    R: tauri::Runtime,
+{
+    if window.is_visible().unwrap_or(false) {
+        return;
+    }
+
+    show_settings_window(window);
+}
+
+fn hide_settings_window_instance<R>(window: &tauri::WebviewWindow<R>)
+where
+    R: tauri::Runtime,
+{
+    let _ = window.hide();
+    schedule_settings_window_idle_destroy(window.clone());
+}
+
+fn should_close_hidden_settings_window(
+    has_visible_user_window: bool,
+    settings_window_visible: bool,
+) -> bool {
+    !has_visible_user_window && !settings_window_visible
+}
+
+fn close_hidden_settings_window_if_no_user_windows<R>(
+    app: &tauri::AppHandle<R>,
+    destroyed_window_label: &str,
+) where
+    R: tauri::Runtime,
+{
+    let windows = app.webview_windows();
+    let has_visible_user_window = windows.values().any(|window| {
+        let label = window.label();
+        label != destroyed_window_label
+            && !is_settings_window_label(label)
+            && window.is_visible().unwrap_or(false)
+    });
+    let Some(settings_window) = windows.get(SETTINGS_WINDOW_LABEL) else {
+        return;
+    };
+    if !should_close_hidden_settings_window(
+        has_visible_user_window,
+        settings_window.is_visible().unwrap_or(false),
+    ) {
+        return;
+    }
+
+    reset_settings_window_runtime_state();
+    let _ = settings_window.close();
+}
+
+pub(crate) fn apply_settings_window_lifecycle<R>(
+    app: &tauri::AppHandle<R>,
+    window: &tauri::Window<R>,
+    event: &tauri::WindowEvent,
+) where
+    R: tauri::Runtime,
+{
+    if !matches!(event, tauri::WindowEvent::Destroyed) {
+        return;
+    }
+
+    if is_settings_window_label(window.label()) {
+        reset_settings_window_runtime_state();
+        return;
+    }
+
+    close_hidden_settings_window_if_no_user_windows(app, window.label());
+}
+
+fn spawn_settings_window_reveal_fallback<R>(window: tauri::WebviewWindow<R>)
+where
+    R: tauri::Runtime,
+{
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(
+            SETTINGS_WINDOW_NATIVE_REVEAL_FALLBACK_MS,
+        ));
+        if !settings_window_should_reveal_from_fallback() {
+            return;
+        }
+        show_settings_window_if_hidden(&window);
+    });
+}
+
 #[derive(Clone, serde::Serialize)]
 struct SettingsWindowTargetPayload {
     target: String,
 }
 
-pub(crate) fn spawn_settings_window<R>(app: tauri::AppHandle<R>, target: Option<String>)
-where
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExistingSettingsWindowAction {
+    Hide,
+    Show,
+}
+
+fn existing_settings_window_action(
+    is_focused: bool,
+    is_visible: bool,
+) -> ExistingSettingsWindowAction {
+    if is_focused && is_visible {
+        return ExistingSettingsWindowAction::Hide;
+    }
+
+    ExistingSettingsWindowAction::Show
+}
+
+fn handle_existing_settings_window<R>(
+    window: &tauri::WebviewWindow<R>,
+    target: Option<&str>,
+    action: ExistingSettingsWindowAction,
+) where
+    R: tauri::Runtime,
+{
+    match action {
+        ExistingSettingsWindowAction::Hide => {
+            hide_settings_window_instance(window);
+        }
+        ExistingSettingsWindowAction::Show => {
+            hide_native_menu_for_settings_window(window);
+            if request_settings_window_show_when_ready(target) {
+                show_settings_window(window);
+                if let Some(target) = target {
+                    emit_settings_window_target(window, target);
+                }
+            } else {
+                spawn_settings_window_reveal_fallback(window.clone());
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SettingsWindowStartupMode {
+    Open,
+    Prewarm,
+}
+
+fn spawn_settings_window_with_mode<R>(
+    app: tauri::AppHandle<R>,
+    target: Option<String>,
+    mode: SettingsWindowStartupMode,
+) where
     R: tauri::Runtime,
 {
     let target = normalized_settings_window_target(target.as_deref()).map(str::to_string);
+    let identifier = app.config().identifier.clone();
 
     std::thread::spawn(move || {
         if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
-            let _ = window.show();
-            hide_native_menu_for_settings_window(&window);
-            let _ = window.set_focus();
-            if let Some(target) = target.clone() {
-                let _ = window.emit(
-                    SETTINGS_WINDOW_TARGET_EVENT,
-                    SettingsWindowTargetPayload { target },
+            if mode == SettingsWindowStartupMode::Open {
+                handle_existing_settings_window(
+                    &window,
+                    target.as_deref(),
+                    ExistingSettingsWindowAction::Show,
                 );
             }
             return;
         }
 
+        let show_when_ready = mode == SettingsWindowStartupMode::Open;
+        if !begin_settings_window_creation(
+            show_when_ready,
+            show_when_ready.then(|| target.clone()).flatten(),
+        ) {
+            return;
+        }
+
         let (width, height) = settings_window_inner_size();
         let (min_width, min_height) = settings_window_min_inner_size();
+        let startup_preferences = settings_window_startup_preferences(&identifier);
 
         let builder = WebviewWindowBuilder::new(
             &app,
             SETTINGS_WINDOW_LABEL,
-            WebviewUrl::App(settings_window_url(target.as_deref()).into()),
+            WebviewUrl::App(settings_window_url(target.as_deref(), &startup_preferences).into()),
         )
-        .title("Settings")
+        .title(settings_window_title(startup_preferences.language))
         .inner_size(width, height)
         .min_inner_size(min_width, min_height)
+        .visible(settings_window_visible())
         .decorations(settings_window_decorations())
         .transparent(settings_window_transparent())
         .resizable(settings_window_resizable())
@@ -491,7 +1043,7 @@ where
         .center();
 
         #[cfg(not(target_os = "macos"))]
-        let builder = match create_settings_window_menu(&app) {
+        let builder = match crate::menu::create_settings_window_menu(&app) {
             Ok(menu) => builder.menu(menu),
             Err(error) => {
                 eprintln!("failed to create settings window menu: {error}");
@@ -499,7 +1051,10 @@ where
             }
         };
 
-        let builder = if let Some(color) = settings_window_background_color() {
+        let builder = if let Some(color) = settings_window_background_color_for_preferences(
+            current_window_chrome_platform(),
+            &startup_preferences,
+        ) {
             builder.background_color(color)
         } else {
             builder
@@ -514,17 +1069,81 @@ where
             Ok(window) => {
                 hide_native_macos_window_controls(&window);
                 hide_native_menu_for_settings_window(&window);
+                if finish_settings_window_creation() {
+                    spawn_settings_window_reveal_fallback(window.clone());
+                } else {
+                    schedule_settings_window_idle_destroy(window.clone());
+                }
             }
             Err(error) => {
+                cancel_settings_window_creation();
                 eprintln!("failed to create settings window: {error}");
             }
         }
     });
 }
 
+pub(crate) fn spawn_settings_window<R>(app: tauri::AppHandle<R>, target: Option<String>)
+where
+    R: tauri::Runtime,
+{
+    spawn_settings_window_with_mode(app, target, SettingsWindowStartupMode::Open);
+}
+
+pub(crate) fn toggle_settings_window<R>(app: tauri::AppHandle<R>, target: Option<String>)
+where
+    R: tauri::Runtime,
+{
+    let target = normalized_settings_window_target(target.as_deref()).map(str::to_string);
+
+    std::thread::spawn(move || {
+        if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
+            handle_existing_settings_window(
+                &window,
+                target.as_deref(),
+                existing_settings_window_action(
+                    window.is_focused().unwrap_or(false),
+                    window.is_visible().unwrap_or(false),
+                ),
+            );
+            return;
+        }
+
+        spawn_settings_window(app, target);
+    });
+}
+
 #[tauri::command]
 pub(crate) fn open_settings_window(app: tauri::AppHandle, target: Option<String>) {
     spawn_settings_window(app, target);
+}
+
+#[tauri::command]
+pub(crate) fn prewarm_settings_window(app: tauri::AppHandle) {
+    spawn_settings_window_with_mode(app, None, SettingsWindowStartupMode::Prewarm);
+}
+
+#[tauri::command]
+pub(crate) fn mark_settings_window_ready(window: tauri::WebviewWindow) {
+    if !is_settings_window_label(window.label()) {
+        return;
+    }
+
+    let Some(target) = mark_settings_window_runtime_ready() else {
+        return;
+    };
+
+    show_settings_window(&window);
+    if let Some(target) = target {
+        emit_settings_window_target(&window, &target);
+    }
+}
+
+#[tauri::command]
+pub(crate) fn hide_settings_window(window: tauri::WebviewWindow) {
+    if is_settings_window_label(window.label()) {
+        hide_settings_window_instance(&window);
+    }
 }
 
 #[cfg(test)]
@@ -703,6 +1322,49 @@ mod tests {
     }
 
     #[test]
+    fn settings_window_starts_hidden_until_frontend_reveal() {
+        assert!(!settings_window_visible());
+    }
+
+    #[test]
+    fn settings_window_registers_native_reveal_fallback() {
+        let windows_source = include_str!("windows.rs");
+
+        assert_eq!(SETTINGS_WINDOW_NATIVE_REVEAL_FALLBACK_MS, 1_800);
+        assert!(windows_source.contains("spawn_settings_window_reveal_fallback(window.clone())"));
+        assert!(windows_source.contains("show_settings_window_if_hidden(&window)"));
+    }
+
+    #[test]
+    fn settings_window_native_menu_command_toggles_only_when_focused() {
+        assert_eq!(
+            existing_settings_window_action(true, true),
+            ExistingSettingsWindowAction::Hide
+        );
+        assert_eq!(
+            existing_settings_window_action(false, true),
+            ExistingSettingsWindowAction::Show
+        );
+        assert_eq!(
+            existing_settings_window_action(true, false),
+            ExistingSettingsWindowAction::Show
+        );
+    }
+
+    #[test]
+    fn settings_window_lifecycle_closes_only_hidden_cache_without_user_windows() {
+        assert!(should_close_hidden_settings_window(false, false));
+        assert!(!should_close_hidden_settings_window(true, false));
+        assert!(!should_close_hidden_settings_window(false, true));
+    }
+
+    #[test]
+    fn localizes_settings_window_native_title_from_startup_language() {
+        assert_eq!(settings_window_title(AppLanguage::En), "Settings");
+        assert_eq!(settings_window_title(AppLanguage::ZhCn), "设置");
+    }
+
+    #[test]
     fn windows_editor_windows_hide_native_menu() {
         assert!(should_hide_native_menu_for_window_label_on_platform(
             "windows",
@@ -752,15 +1414,28 @@ mod tests {
     #[test]
     fn settings_window_background_matches_current_platform_strategy() {
         assert!(settings_window_shadow());
+        let startup_preferences = SettingsWindowStartupPreferences::default();
 
-        #[cfg(target_os = "macos")]
         assert_eq!(
-            settings_window_background_color(),
+            settings_window_background_color_for_preferences("macos", &startup_preferences),
             Some(Color(255, 255, 255, 0))
         );
+        assert_eq!(
+            settings_window_background_color_for_preferences("windows", &startup_preferences),
+            Some(Color(30, 30, 30, 255))
+        );
 
-        #[cfg(not(target_os = "macos"))]
-        assert_eq!(settings_window_background_color(), None);
+        let light_startup_preferences = SettingsWindowStartupPreferences {
+            language: AppLanguage::En,
+            appearance_mode: "light".to_string(),
+            light_theme: "light".to_string(),
+            dark_theme: "dark".to_string(),
+        };
+
+        assert_eq!(
+            settings_window_background_color_for_preferences("windows", &light_startup_preferences),
+            Some(Color(255, 255, 255, 255))
+        );
     }
 
     #[test]
@@ -801,9 +1476,46 @@ mod tests {
 
     #[test]
     fn targets_export_pandoc_settings_from_window_url() {
+        let startup_preferences = SettingsWindowStartupPreferences {
+            language: AppLanguage::ZhCn,
+            appearance_mode: "dark".to_string(),
+            light_theme: "sepia".to_string(),
+            dark_theme: "night".to_string(),
+        };
+
         assert_eq!(
-            settings_window_url(Some("exportPandocPath")),
-            "index.html?settings=1&settingsTarget=exportPandocPath"
+            settings_window_url(Some("exportPandocPath"), &startup_preferences),
+            "index.html?settings=1&startupLanguage=zh-CN&startupAppearanceMode=dark&startupLightTheme=sepia&startupDarkTheme=night&settingsTarget=exportPandocPath"
+        );
+    }
+
+    #[test]
+    fn settings_window_url_uses_default_startup_preferences() {
+        assert_eq!(
+            settings_window_url(None, &SettingsWindowStartupPreferences::default()),
+            "index.html?settings=1&startupLanguage=en&startupAppearanceMode=system&startupLightTheme=light&startupDarkTheme=dark"
+        );
+    }
+
+    #[test]
+    fn legacy_theme_preferences_preserve_old_theme_settings() {
+        assert_eq!(
+            legacy_theme_preferences(AppLanguage::En, Some("night")),
+            SettingsWindowStartupPreferences {
+                language: AppLanguage::En,
+                appearance_mode: "dark".to_string(),
+                light_theme: "light".to_string(),
+                dark_theme: "night".to_string(),
+            }
+        );
+        assert_eq!(
+            legacy_theme_preferences(AppLanguage::En, Some("sepia")),
+            SettingsWindowStartupPreferences {
+                language: AppLanguage::En,
+                appearance_mode: "light".to_string(),
+                light_theme: "sepia".to_string(),
+                dark_theme: "dark".to_string(),
+            }
         );
     }
 

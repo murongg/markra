@@ -66,6 +66,7 @@ type ApplicationShortcutOptions = {
   openDocument: () => unknown | Promise<unknown>;
   openDocumentReplace?: () => unknown | Promise<unknown>;
   openDocumentSearch?: () => unknown | Promise<unknown>;
+  openSettings?: () => unknown | Promise<unknown>;
   openWorkspaceSearch?: () => unknown | Promise<unknown>;
   openFolder: () => unknown | Promise<unknown>;
   openQuickOpen?: () => unknown | Promise<unknown>;
@@ -98,6 +99,20 @@ function runFocusedEditableTextCommand(command: "redo" | "undo") {
     // Keep the command scoped to the focused text control even if the WebView refuses it.
   }
 
+  return true;
+}
+
+function isSettingsWindowShortcutEvent(event: KeyboardEvent) {
+  const isModKey = event.metaKey || event.ctrlKey;
+  return isModKey && !event.altKey && !event.shiftKey && (event.key === "," || event.code === "Comma");
+}
+
+function handleSettingsWindowShortcut(event: KeyboardEvent, openSettings?: () => unknown | Promise<unknown>) {
+  if (!openSettings || event.defaultPrevented || !isSettingsWindowShortcutEvent(event)) return false;
+
+  event.preventDefault();
+  event.stopPropagation();
+  openSettings();
   return true;
 }
 
@@ -384,6 +399,19 @@ export function useNativeMenus(
   }, [handlers, language, options.getAiCommandsAvailable, markdownShortcuts]);
 }
 
+export function useSettingsWindowShortcut(openSettings?: () => unknown | Promise<unknown>) {
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      handleSettingsWindowShortcut(event, openSettings);
+    };
+
+    window.addEventListener("keydown", handleShortcut, true);
+    return () => {
+      window.removeEventListener("keydown", handleShortcut, true);
+    };
+  }, [openSettings]);
+}
+
 export function useApplicationShortcuts({
   closeDocument,
   exportHtml,
@@ -392,6 +420,7 @@ export function useApplicationShortcuts({
   openDocument,
   openDocumentReplace,
   openDocumentSearch,
+  openSettings,
   openWorkspaceSearch,
   openFolder,
   openQuickOpen,
@@ -414,6 +443,8 @@ export function useApplicationShortcuts({
     const handleApplicationShortcut = (event: KeyboardEvent) => {
       const isModKey = event.metaKey || event.ctrlKey;
       if (event.defaultPrevented || !isModKey) return;
+
+      if (handleSettingsWindowShortcut(event, openSettings)) return;
 
       const configurableActions: Array<[string, (() => unknown | Promise<unknown>) | undefined]> = [
         [normalizedMarkdownShortcuts.openQuickOpen, openQuickOpen],
@@ -497,6 +528,7 @@ export function useApplicationShortcuts({
     openDocument,
     openDocumentReplace,
     openDocumentSearch,
+    openSettings,
     openWorkspaceSearch,
     openFolder,
     openQuickOpen,

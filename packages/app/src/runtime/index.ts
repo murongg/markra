@@ -337,6 +337,9 @@ export type AppWindowRuntime = {
   minimizeWindow: () => Promise<unknown>;
   openExternalUrl: (url: string) => Promise<unknown>;
   openSettingsWindow: (target?: NativeSettingsWindowTarget) => Promise<unknown>;
+  prewarmSettingsWindow: () => Promise<unknown>;
+  markSettingsWindowReady: () => Promise<unknown>;
+  hideSettingsWindow: () => Promise<unknown>;
   setEditorWindowRestoreState: (input: SetNativeEditorWindowRestoreStateInput) => Promise<unknown>;
   setWindowTitle: (title: string) => Promise<unknown>;
   showWindow: () => Promise<unknown>;
@@ -538,6 +541,9 @@ export function createDefaultAppRuntime(): AppRuntime {
         }
       },
       openSettingsWindow: async () => undefined,
+      prewarmSettingsWindow: async () => undefined,
+      markSettingsWindowReady: async () => undefined,
+      hideSettingsWindow: async () => undefined,
       setEditorWindowRestoreState: async () => undefined,
       setWindowTitle: async (title) => {
         if (typeof document !== "undefined") {

@@ -15,6 +15,7 @@ import {
   mockOpenMarkdownFile,
   mockSystemColorScheme,
   mockUntitledPath,
+  mockedCloseNativeWindow,
   mockedConfirmNativeMarkdownFileDelete,
   mockedConfirmNativeUnsavedMarkdownDocumentDiscard,
   mockedConsumeWelcomeDocumentState,
@@ -23,7 +24,8 @@ import {
   mockedCreateNativeMarkdownTreeFolder,
   mockedDetectNativePandocPath,
   mockedCheckNativeAppUpdate,
-  mockedCloseNativeWindow,
+  mockedHideSettingsWindow,
+  mockedMarkSettingsWindowReady,
   mockedClearStoredRecentMarkdownFiles,
   mockedDeleteNativeMarkdownTreeFile,
   mockedFetchAiProviderModels,
@@ -60,6 +62,7 @@ import {
   mockedOpenNativeMarkdownPath,
   mockedOpenNativeExternalUrl,
   mockedOpenSettingsWindow,
+  mockedPrewarmSettingsWindow,
   mockedReadNativeLocalImageFile,
   mockedReadNativeMarkdownFile,
   mockedReadNativeMarkdownFileHistory,
@@ -87,6 +90,7 @@ import {
   mockedSaveStoredThemePreferences,
   mockedSaveStoredWorkspaceState,
   mockedShowNativeMarkdownFileTreeContextMenu,
+  mockedShowNativeWindow,
   mockedTakeNativeOpenedMarkdownPaths,
   mockedTestAiProviderConnection,
   mockedWatchNativeMarkdownFile,
@@ -1444,6 +1448,115 @@ describe("Markra workspace", () => {
     );
   });
 
+  it("waits for the stored theme before revealing the workspace window", async () => {
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+    let resolveThemePreferences: ((preferences: {
+      appearanceMode: "dark";
+      darkTheme: "night";
+      lightTheme: "light";
+    }) => unknown) | null = null;
+    mockedGetStoredThemePreferences.mockReturnValue(
+      new Promise((resolve) => {
+        resolveThemePreferences = resolve;
+      })
+    );
+
+    renderApp();
+
+    await waitFor(() => expect(mockedGetStoredThemePreferences).toHaveBeenCalledTimes(1));
+    expect(mockedShowNativeWindow).not.toHaveBeenCalled();
+
+    act(() => {
+      resolveThemePreferences?.({
+        appearanceMode: "dark",
+        darkTheme: "night",
+        lightTheme: "light"
+      });
+    });
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "night"));
+    await waitFor(() => expect(mockedShowNativeWindow).toHaveBeenCalledTimes(1));
+  });
+
+  it("prewarms the settings window after workspace startup is ready", async () => {
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "Untitled.md" })).toBeInTheDocument();
+    await waitFor(() => expect(mockedShowNativeWindow).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockedPrewarmSettingsWindow).toHaveBeenCalledTimes(1), {
+      timeout: 2000
+    });
+  });
+
+  it("waits for stored settings before revealing a settings route without startup preferences", async () => {
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+    let resolveLanguage: ((language: "fr") => unknown) | null = null;
+    mockedGetStoredLanguage.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLanguage = resolve;
+      })
+    );
+    window.history.pushState({}, "", "/?settings=1");
+
+    const { container } = renderApp();
+
+    await waitFor(() => expect(mockedGetStoredLanguage).toHaveBeenCalledTimes(1));
+    expect(container.querySelector(".settings-window")).not.toBeInTheDocument();
+    expect(mockedMarkSettingsWindowReady).not.toHaveBeenCalled();
+
+    act(() => {
+      resolveLanguage?.("fr");
+    });
+
+    expect(await screen.findByRole("button", { name: "Général" })).toBeInTheDocument();
+    await waitFor(() => expect(mockedMarkSettingsWindowReady).toHaveBeenCalledTimes(1));
+  });
+
+  it("uses settings startup language and theme before async settings resolve", async () => {
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+    mockedGetStoredLanguage.mockReturnValue(new Promise<never>(() => {}));
+    mockedGetStoredThemePreferences.mockReturnValue(new Promise<never>(() => {}));
+    window.history.pushState(
+      {},
+      "",
+      "/?settings=1&startupLanguage=zh-CN&startupAppearanceMode=dark&startupLightTheme=light&startupDarkTheme=night"
+    );
+
+    const { container } = renderApp();
+
+    await waitFor(() => expect(container.querySelector(".settings-window")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "通用" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "General" })).not.toBeInTheDocument();
+    expect(document.documentElement).toHaveAttribute("data-theme", "night");
+    await waitFor(() => expect(mockedMarkSettingsWindowReady).toHaveBeenCalledTimes(1));
+  });
+
+  it("removes the settings startup background once the app theme is applied", async () => {
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+    mockedGetStoredThemePreferences.mockReturnValue(new Promise<never>(() => {}));
+    window.history.pushState(
+      {},
+      "",
+      "/?settings=1&startupLanguage=zh-CN&startupAppearanceMode=dark&startupLightTheme=light&startupDarkTheme=night"
+    );
+    const startupStyle = document.createElement("style");
+    startupStyle.id = "markra-startup-theme-style";
+    startupStyle.textContent = "html,body,#root{background:#1e1e1e;color-scheme:dark;}";
+    document.head.append(startupStyle);
+    document.documentElement.style.backgroundColor = "rgb(30, 30, 30)";
+    document.documentElement.style.colorScheme = "dark";
+
+    const { container } = renderApp();
+
+    await waitFor(() => expect(container.querySelector(".settings-window")).toBeInTheDocument());
+    expect(document.documentElement).toHaveAttribute("data-theme", "night");
+    expect(document.getElementById("markra-startup-theme-style")).not.toBeInTheDocument();
+    expect(document.documentElement.style.backgroundColor).toBe("");
+    expect(document.documentElement.style.colorScheme).toBe("");
+  });
+
   it("renders an independent settings window route", async () => {
     mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
     window.history.pushState({}, "", "/?settings=1");
@@ -1620,7 +1733,24 @@ describe("Markra workspace", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /close window/i }));
 
-    expect(mockedCloseNativeWindow).toHaveBeenCalledTimes(1);
+    expect(mockedHideSettingsWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the settings window from the settings shortcut", async () => {
+    mockedConsumeWelcomeDocumentState.mockResolvedValue(false);
+    window.history.pushState({}, "", "/?settings=1");
+
+    const { container } = renderApp();
+
+    await waitFor(() => expect(container.querySelector(".settings-window")).toBeInTheDocument());
+    fireEvent.keyDown(window, {
+      code: "Comma",
+      ctrlKey: true,
+      key: ","
+    });
+
+    expect(mockedHideSettingsWindow).toHaveBeenCalledTimes(1);
+    expect(mockedCloseNativeWindow).not.toHaveBeenCalled();
   });
 
   it("syncs toolbar button order in the settings window after another window changes it", async () => {

@@ -16,6 +16,7 @@ const OPEN_RECENT_FILE_COMMAND: &str = "openRecentFile";
 const OPEN_RECENT_FILE_COMMAND_PREFIX: &str = "openRecentFile:";
 const CLEAR_RECENT_FILES_COMMAND: &str = "clearRecentFiles";
 const SETTINGS_WINDOW_COMMAND: &str = "openSettings";
+const SETTINGS_WINDOW_ACCELERATOR: &str = "CmdOrCtrl+Comma";
 const CHECK_FOR_UPDATES_COMMAND: &str = "checkForUpdates";
 const EDIT_UNDO_COMMAND: &str = "editUndo";
 const EDIT_REDO_COMMAND: &str = "editRedo";
@@ -418,7 +419,12 @@ fn create_markra_app_submenu<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     labels: crate::menu_labels::MenuLabels,
 ) -> tauri::Result<Submenu<R>> {
-    let settings = app_menu_item(app, SETTINGS_WINDOW_COMMAND, labels.settings, "CmdOrCtrl+,")?;
+    let settings = app_menu_item(
+        app,
+        SETTINGS_WINDOW_COMMAND,
+        labels.settings,
+        SETTINGS_WINDOW_ACCELERATOR,
+    )?;
     let check_updates =
         app_menu_item_without_accelerator(app, CHECK_FOR_UPDATES_COMMAND, labels.check_updates)?;
 
@@ -546,6 +552,14 @@ pub(crate) fn create_application_menu<R: tauri::Runtime>(
 ) -> tauri::Result<Menu<R>> {
     let language = resolve_startup_language(&app.config().identifier);
     create_application_menu_for_language(app, language, None, &[])
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn create_settings_window_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> tauri::Result<Menu<R>> {
+    let language = resolve_startup_language(&app.config().identifier);
+    create_settings_menu_for_language(app, language)
 }
 
 fn create_settings_menu_for_language<R: tauri::Runtime>(
@@ -1161,6 +1175,11 @@ mod tests {
         assert!(is_native_settings_window_command("openSettings"));
         assert!(!is_native_settings_window_command("saveDocument"));
         assert!(!is_frontend_menu_command("openSettings"));
+    }
+
+    #[test]
+    fn settings_window_uses_comma_key_accelerator() {
+        assert_eq!(SETTINGS_WINDOW_ACCELERATOR, "CmdOrCtrl+Comma");
     }
 
     #[test]

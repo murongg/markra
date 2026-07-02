@@ -10,8 +10,11 @@ import {
   listenNativeWindowCloseRequested,
   listenNativeSettingsWindowTarget,
   listNativeEditorWindowRestoreStates,
+  hideSettingsWindow,
+  markSettingsWindowReady,
   minimizeNativeWindow,
   openSettingsWindow,
+  prewarmSettingsWindow,
   setNativeEditorWindowRestoreState,
   showNativeWindow,
   toggleNativeWindowFullscreen,
@@ -214,6 +217,30 @@ describe("native window actions", () => {
     expect(mockedInvoke).toHaveBeenCalledWith("open_settings_window", {
       target: "exportPandocPath"
     });
+  });
+
+  it("prewarms the settings window", async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+
+    await prewarmSettingsWindow();
+
+    expect(mockedInvoke).toHaveBeenCalledWith("prewarm_settings_window");
+  });
+
+  it("marks the settings window ready", async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+
+    await markSettingsWindowReady();
+
+    expect(mockedInvoke).toHaveBeenCalledWith("mark_settings_window_ready");
+  });
+
+  it("hides the settings window", async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+
+    await hideSettingsWindow();
+
+    expect(mockedInvoke).toHaveBeenCalledWith("hide_settings_window");
   });
 
   it("listens for native settings window target events", async () => {

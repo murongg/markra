@@ -80,7 +80,8 @@ import {
   useApplicationShortcuts,
   useNativeMarkdownDrop,
   useNativeMenuHandlers,
-  useNativeMenus
+  useNativeMenus,
+  useSettingsWindowShortcut
 } from "./hooks/useNativeBindings";
 import type { Editor as MilkdownEditor } from "@milkdown/kit/core";
 import {
@@ -124,8 +125,10 @@ import type {
 } from "./lib/selection-formatting";
 import {
   closeNativeWindow,
+  hideSettingsWindow,
   openNativeExternalUrl,
   openSettingsWindow,
+  prewarmSettingsWindow,
   showNativeAppAbout,
   toggleNativeWindowFullscreen,
   toggleNativeWindowMaximized
@@ -268,6 +271,7 @@ const SettingsWindow = lazy(async () => {
   return { default: module.SettingsWindow };
 });
 const workspaceLinkIndexDeferMs = 320;
+const settingsWindowPrewarmDelayMs = 600;
 
 export default function App() {
   const isSettingsRoute = useSettingsWindowRoute();
@@ -276,7 +280,11 @@ export default function App() {
 }
 
 function SettingsRouteApp() {
-  useStartupWindowReveal({ ready: true });
+  const handleCloseSettings = useCallback(() => {
+    hideSettingsWindow().catch(() => {});
+  }, []);
+
+  useSettingsWindowShortcut(handleCloseSettings);
 
   return (
     <Suspense fallback={null}>
@@ -727,7 +735,7 @@ function WorkspaceApp() {
       sizeBytes: document.sizeBytes
     });
   largeMarkdownVisualBlockedRef.current = largeMarkdownVisualBlocked;
-  const startupSettingsReady = appLanguage.ready && !editorPreferences.loading;
+  const startupSettingsReady = appLanguage.ready && appTheme.ready && !editorPreferences.loading;
   const startupWindowReady =
     startupSettingsReady &&
     (
@@ -738,6 +746,17 @@ function WorkspaceApp() {
       visualEditorReadyRevisionRef.current === documentRevisionRef.current
     );
   useStartupWindowReveal({ ready: startupWindowReady });
+  useEffect(() => {
+    if (!startupWindowReady) return;
+
+    const timeout = window.setTimeout(() => {
+      prewarmSettingsWindow().catch(() => {});
+    }, settingsWindowPrewarmDelayMs);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [startupWindowReady]);
   const documentHistoryAvailable = hasOpenDocument && document.path !== null && !activeImageFile && !readOnlyMode;
   const documentSearchAvailable = hasOpenDocument && !activeImageFile;
   const documentSearchSurface: EditorSurface =
@@ -3381,6 +3400,7 @@ function WorkspaceApp() {
     openDocument: handleOpenMarkdownFile,
     openDocumentReplace: handleDocumentReplaceOpen,
     openDocumentSearch: handleDocumentSearchOpen,
+    openSettings: handleOpenSettings,
     openWorkspaceSearch: handleGlobalSearchOpen,
     openFolder: handleOpenMarkdownFolder,
     openQuickOpen: handleQuickOpenOpen,

@@ -13,6 +13,8 @@ import {
   installNativeShellCommand,
   closeNativeWindow,
   exitNativeApp,
+  hideSettingsWindow,
+  markSettingsWindowReady,
   openNativeContainingFolder,
   openNativeLocalImages,
   openNativeMarkdownFolder,
@@ -56,7 +58,7 @@ import {
   installNativeApplicationMenu,
   installNativeEditorContextMenu
 } from "../lib/tauri";
-import { openNativeExternalUrl, openSettingsWindow } from "../lib/tauri";
+import { openNativeExternalUrl, openSettingsWindow, prewarmSettingsWindow } from "../lib/tauri";
 import { checkNativeAppUpdate } from "../lib/tauri/updater";
 import {
   createAiAgentSessionId,
@@ -198,10 +200,13 @@ vi.mock("../lib/tauri", () => ({
   installNativeEditorContextMenu: vi.fn(),
   openNativeExternalUrl: vi.fn(),
   closeNativeWindow: vi.fn(),
+  hideSettingsWindow: vi.fn(),
+  markSettingsWindowReady: vi.fn(),
   exitNativeApp: vi.fn(),
   listenNativeAppExitRequested: vi.fn(),
   listenNativeWindowCloseRequested: vi.fn(),
   openSettingsWindow: vi.fn(),
+  prewarmSettingsWindow: vi.fn(),
   setNativeWindowTitle: vi.fn(),
   showNativeWindow: vi.fn(),
   showNativeAppAbout: vi.fn(),
@@ -817,6 +822,8 @@ export const mockedSaveNativePdfFile = vi.mocked(saveNativePdfFile);
 export const mockedSearchNativeMarkdownFilesForPath = vi.mocked(searchNativeMarkdownFilesForPath);
 export const mockedSetNativeEditorWindowRestoreState = vi.mocked(setNativeEditorWindowRestoreState);
 export const mockedShowNativeWindow = vi.mocked(showNativeWindow);
+export const mockedHideSettingsWindow = vi.mocked(hideSettingsWindow);
+export const mockedMarkSettingsWindowReady = vi.mocked(markSettingsWindowReady);
 export const mockedShowNativeAppAbout = vi.mocked(showNativeAppAbout);
 export const mockedShowNativePandocSetup = vi.mocked(showNativePandocSetup);
 export const mockedShowNativeMarkdownFileTreeContextMenu = vi.mocked(showNativeMarkdownFileTreeContextMenu);
@@ -833,6 +840,7 @@ export const mockedWatchNativeMarkdownTree = vi.mocked(watchNativeMarkdownTree);
 export const mockedInstallNativeApplicationMenu = vi.mocked(installNativeApplicationMenu);
 export const mockedInstallNativeEditorContextMenu = vi.mocked(installNativeEditorContextMenu);
 export const mockedOpenSettingsWindow = vi.mocked(openSettingsWindow);
+export const mockedPrewarmSettingsWindow = vi.mocked(prewarmSettingsWindow);
 export const mockedOpenNativeExternalUrl = vi.mocked(openNativeExternalUrl);
 export const mockedCloseNativeWindow = vi.mocked(closeNativeWindow);
 export const mockedToggleNativeWindowFullscreen = vi.mocked(toggleNativeWindowFullscreen);
@@ -1031,6 +1039,8 @@ export function installAppTestHarness() {
     mockedOpenNativeExternalUrl.mockReset();
     mockedCloseNativeWindow.mockReset();
     mockedShowNativeWindow.mockReset();
+    mockedHideSettingsWindow.mockReset();
+    mockedMarkSettingsWindowReady.mockReset();
     mockedShowNativeAppAbout.mockReset();
     mockedExitNativeApp.mockReset();
     mockedListenNativeAppExitRequested.mockReset();
@@ -1039,6 +1049,7 @@ export function installAppTestHarness() {
     mockedResolveDesktopOsVersion.mockReset();
     mockedResolveDesktopPlatform.mockReset();
     mockedOpenSettingsWindow.mockReset();
+    mockedPrewarmSettingsWindow.mockReset();
     mockedGetStoredLanguage.mockReset();
     mockedGetStoredRecentMarkdownFiles.mockReset();
     mockedGetStoredRecentMarkdownFolders.mockReset();
@@ -1116,6 +1127,9 @@ export function installAppTestHarness() {
     document.documentElement.removeAttribute("data-webkit-scroll-workaround");
     document.documentElement.removeAttribute("data-window");
     document.getElementById("markra-custom-theme-style")?.remove();
+    document.getElementById("markra-startup-theme-style")?.remove();
+    document.documentElement.style.removeProperty("background-color");
+    document.documentElement.style.removeProperty("color-scheme");
     mockedWatchNativeMarkdownFile.mockResolvedValue(() => {});
     mockedWatchNativeMarkdownTree.mockResolvedValue(() => {});
     mockedListNativeMarkdownFileHistory.mockResolvedValue([]);
@@ -1132,6 +1146,8 @@ export function installAppTestHarness() {
     mockedOpenNativeExternalUrl.mockResolvedValue(undefined);
     mockedCloseNativeWindow.mockResolvedValue(undefined);
     mockedShowNativeWindow.mockResolvedValue(undefined);
+    mockedHideSettingsWindow.mockResolvedValue(undefined);
+    mockedMarkSettingsWindowReady.mockResolvedValue(undefined);
     mockedShowNativeAppAbout.mockResolvedValue(undefined);
     mockedExitNativeApp.mockResolvedValue(undefined);
     mockedListenNativeAppExitRequested.mockResolvedValue(() => {});
@@ -1163,6 +1179,7 @@ export function installAppTestHarness() {
     mockedResolveDesktopOsVersion.mockReturnValue(null);
     mockedResolveDesktopPlatform.mockReturnValue("macos");
     mockedOpenSettingsWindow.mockResolvedValue(undefined);
+    mockedPrewarmSettingsWindow.mockResolvedValue(undefined);
     mockedReadNativeMarkdownImageFile.mockResolvedValue({
       dataUrl: "data:image/png;base64,aGVsbG8=",
       mimeType: "image/png",

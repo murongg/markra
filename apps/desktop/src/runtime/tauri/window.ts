@@ -35,6 +35,18 @@ export function openSettingsWindow(target?: NativeSettingsWindowTarget) {
   });
 }
 
+export function prewarmSettingsWindow() {
+  return invoke("prewarm_settings_window");
+}
+
+export function markSettingsWindowReady() {
+  return invoke("mark_settings_window_ready");
+}
+
+export function hideSettingsWindow() {
+  return invoke("hide_settings_window");
+}
+
 export async function listenNativeSettingsWindowTarget(onTarget: (target: NativeSettingsWindowTarget) => unknown) {
   if (!("__TAURI_INTERNALS__" in window)) {
     return () => {};

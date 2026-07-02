@@ -25,6 +25,18 @@ export function openSettingsWindow(target?: NativeSettingsWindowTarget) {
   return getAppRuntime().window.openSettingsWindow(target);
 }
 
+export function prewarmSettingsWindow() {
+  return getAppRuntime().window.prewarmSettingsWindow();
+}
+
+export function markSettingsWindowReady() {
+  return getAppRuntime().window.markSettingsWindowReady();
+}
+
+export function hideSettingsWindow() {
+  return getAppRuntime().window.hideSettingsWindow();
+}
+
 export function listenNativeSettingsWindowTarget(onTarget: (target: NativeSettingsWindowTarget) => unknown) {
   return getAppRuntime().window.listenSettingsWindowTarget(onTarget);
 }

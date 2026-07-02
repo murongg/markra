@@ -72,10 +72,11 @@ use window_state::{
     set_editor_window_restore_state, EditorWindowRestoreState,
 };
 use windows::{
-    apply_main_window_chrome, apply_webview_window_chrome, apply_window_event_chrome,
-    editor_window_url_for_folder, editor_window_url_for_path, minimize_current_window,
-    open_blank_editor_window, open_settings_window, spawn_blank_editor_window, spawn_editor_window,
-    spawn_settings_window,
+    apply_main_window_chrome, apply_settings_window_lifecycle, apply_webview_window_chrome,
+    apply_window_event_chrome, editor_window_url_for_folder, editor_window_url_for_path,
+    hide_settings_window, mark_settings_window_ready, minimize_current_window,
+    open_blank_editor_window, open_settings_window, prewarm_settings_window,
+    spawn_blank_editor_window, spawn_editor_window, toggle_settings_window,
 };
 
 const STARTUP_WINDOW_NATIVE_REVEAL_FALLBACK_MS: u64 = 2400;
@@ -207,6 +208,7 @@ pub fn run() {
             remember_native_menu_window_from_event(window, event);
             apply_native_application_menu_for_window_event(window, event);
             apply_window_event_chrome(window, event);
+            apply_settings_window_lifecycle(&window.app_handle(), window, event);
             remove_editor_window_restore_state(window, event);
         })
         .menu(create_application_menu)
@@ -218,7 +220,7 @@ pub fn run() {
             }
 
             if is_native_settings_window_command(command) {
-                spawn_settings_window(app.clone(), None);
+                toggle_settings_window(app.clone(), None);
                 return;
             }
 
@@ -259,6 +261,9 @@ pub fn run() {
             minimize_current_window,
             open_blank_editor_window,
             open_settings_window,
+            prewarm_settings_window,
+            mark_settings_window_ready,
+            hide_settings_window,
             open_external_url,
             request_ai_provider_json,
             request_native_chat,

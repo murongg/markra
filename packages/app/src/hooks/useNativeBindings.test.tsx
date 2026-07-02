@@ -1,6 +1,6 @@
 import { fireEvent, renderHook } from "@testing-library/react";
 import { defaultAiQuickActionPrompt } from "../lib/ai-actions";
-import { useApplicationShortcuts, useNativeMenuHandlers } from "./useNativeBindings";
+import { useApplicationShortcuts, useNativeMenuHandlers, useSettingsWindowShortcut } from "./useNativeBindings";
 
 describe("useNativeMenuHandlers", () => {
   const baseOptions = {
@@ -308,6 +308,25 @@ describe("useApplicationShortcuts", () => {
     saveDocumentAs: vi.fn()
   };
 
+  it("opens settings from the default settings shortcut", () => {
+    const openSettings = vi.fn();
+    renderHook(() =>
+      useApplicationShortcuts({
+        ...baseOptions,
+        openSettings
+      })
+    );
+
+    const handled = fireEvent.keyDown(window, {
+      code: "Comma",
+      ctrlKey: true,
+      key: ","
+    });
+
+    expect(handled).toBe(false);
+    expect(openSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("routes configurable app shortcuts to panel toggles", () => {
     const toggleAiAgent = vi.fn();
     renderHook(() =>
@@ -595,5 +614,21 @@ describe("useApplicationShortcuts", () => {
 
     expect(handled).toBe(true);
     expect(openDocumentReplace).not.toHaveBeenCalled();
+  });
+});
+
+describe("useSettingsWindowShortcut", () => {
+  it("runs the settings toggle from the default settings shortcut", () => {
+    const openSettings = vi.fn();
+    renderHook(() => useSettingsWindowShortcut(openSettings));
+
+    const handled = fireEvent.keyDown(window, {
+      code: "Comma",
+      ctrlKey: true,
+      key: ","
+    });
+
+    expect(handled).toBe(false);
+    expect(openSettings).toHaveBeenCalledTimes(1);
   });
 });

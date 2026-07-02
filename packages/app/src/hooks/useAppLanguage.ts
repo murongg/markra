@@ -1,15 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { isAppLanguage } from "@markra/shared";
 import { getStoredLanguage, saveStoredLanguage, type AppLanguage } from "../lib/settings/app-settings";
 import { listenAppLanguageChanged, notifyAppLanguageChanged } from "../lib/settings/settings-events";
+
+const startupLanguageParam = "startupLanguage";
 
 function applyAppLanguage(language: AppLanguage) {
   document.documentElement.lang = language;
 }
 
+function startupLanguageFromLocation(): AppLanguage | null {
+  if (typeof window === "undefined") return null;
+
+  const language = new URLSearchParams(window.location.search).get(startupLanguageParam);
+
+  return isAppLanguage(language) ? language : null;
+}
+
 export function useAppLanguage() {
-  const [language, setLanguage] = useState<AppLanguage>("en");
-  const [ready, setReady] = useState(false);
+  const startupLanguageRef = useRef<AppLanguage | null>(startupLanguageFromLocation());
+  const [language, setLanguage] = useState<AppLanguage>(() => startupLanguageRef.current ?? "en");
+  const [ready, setReady] = useState(() => startupLanguageRef.current !== null);
   const liveLanguageReceivedRef = useRef(false);
+
+  useLayoutEffect(() => {
+    applyAppLanguage(language);
+  }, [language]);
 
   useEffect(() => {
     let active = true;
@@ -22,12 +38,13 @@ export function useAppLanguage() {
       }
 
       setLanguage(storedLanguage);
-      applyAppLanguage(storedLanguage);
       setReady(true);
     }).catch(() => {
       if (!active) return;
 
-      applyAppLanguage("en");
+      if (startupLanguageRef.current === null) {
+        setLanguage("en");
+      }
       setReady(true);
     });
 
@@ -43,7 +60,6 @@ export function useAppLanguage() {
     listenAppLanguageChanged((nextLanguage) => {
       liveLanguageReceivedRef.current = true;
       setLanguage(nextLanguage);
-      applyAppLanguage(nextLanguage);
       setReady(true);
     }).then((stopListening) => {
       if (!active) {
@@ -64,7 +80,6 @@ export function useAppLanguage() {
     setLanguage(nextLanguage);
     liveLanguageReceivedRef.current = true;
     setReady(true);
-    applyAppLanguage(nextLanguage);
 
     saveStoredLanguage(nextLanguage)
       .then(() => notifyAppLanguageChanged(nextLanguage))

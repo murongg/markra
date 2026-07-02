@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { AppToaster } from "./AppToaster";
 import { AiProviderSettingsPanel } from "./AiProviderSettingsPanel";
 import {
@@ -21,7 +22,7 @@ import { useAutoUpdater } from "../hooks/useAutoUpdater";
 import { useDefaultContextMenuBlocker } from "../hooks/useDefaultContextMenuBlocker";
 import { appVersion } from "../lib/app-version";
 import { resolveDesktopPlatform } from "../lib/platform";
-import { closeNativeWindow } from "../lib/tauri";
+import { hideSettingsWindow, markSettingsWindowReady } from "../lib/tauri";
 import { MacWindowControls } from "./MacWindowControls";
 import { WindowsWindowControls } from "./WindowsWindowControls";
 import { getAppRuntime } from "../runtime";
@@ -93,16 +94,24 @@ export function SettingsWindow() {
   const platform = resolveDesktopPlatform();
   const showWindowsWindowChrome = platform === "windows" && appFeatures.nativeWindowChrome;
   const showMacosWindowChrome = platform === "macos" && appFeatures.nativeWindowChrome;
+  const settingsStartupReady = appLanguage.ready && appTheme.ready;
   const settingsLayoutClassName = showWindowsWindowChrome
     ? "settings-layout absolute inset-x-0 top-10 bottom-0 grid grid-cols-[180px_minmax(0,1fr)]"
     : "settings-layout grid h-screen grid-cols-[180px_minmax(0,1fr)]";
   const handleCloseSettings = () => {
-    closeNativeWindow().catch(() => {});
+    hideSettingsWindow().catch(() => {});
   };
   useDefaultContextMenuBlocker();
   const updater = useAutoUpdater(appLanguage.language, appFeatures.updater && appLanguage.ready, {
     autoCheck: false
   });
+  useEffect(() => {
+    if (!settingsStartupReady) return;
+
+    markSettingsWindowReady().catch(() => {});
+  }, [settingsStartupReady]);
+
+  if (!settingsStartupReady) return null;
 
   return (
     <main
@@ -118,7 +127,10 @@ export function SettingsWindow() {
         />
       ) : null}
       {showMacosWindowChrome ? (
-        <MacWindowControls className="fixed top-0 left-0 z-20 h-9.5" />
+        <MacWindowControls
+          className="fixed top-0 left-0 z-20 h-9.5"
+          onClose={handleCloseSettings}
+        />
       ) : null}
       {showWindowsWindowChrome ? (
         <header
@@ -138,7 +150,7 @@ export function SettingsWindow() {
           >
             {translate("settings.title")}
           </div>
-          <WindowsWindowControls />
+          <WindowsWindowControls onClose={handleCloseSettings} />
         </header>
       ) : null}
       <div className={settingsLayoutClassName}>
