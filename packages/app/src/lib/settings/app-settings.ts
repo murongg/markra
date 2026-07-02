@@ -378,6 +378,7 @@ export type EditorPreferences = {
   tableColumnWidthMode: TableColumnWidthModePreference;
   titlebarActions: TitlebarActionPreference[];
   showWordCount: boolean;
+  vimModeEnabled: boolean;
   wrapCodeBlocks: boolean;
 };
 export type { AppLanguage };
@@ -501,6 +502,7 @@ export const defaultEditorPreferences: EditorPreferences = {
   tableColumnWidthMode: "auto",
   titlebarActions: [...defaultTitlebarActions],
   showWordCount: true,
+  vimModeEnabled: false,
   wrapCodeBlocks: true
 };
 
@@ -1598,6 +1600,8 @@ export function normalizeEditorPreferences(value: unknown): EditorPreferences {
     titlebarActions: normalizeTitlebarActions(preferences.titlebarActions),
     showWordCount:
       typeof preferences.showWordCount === "boolean" ? preferences.showWordCount : defaultEditorPreferences.showWordCount,
+    vimModeEnabled:
+      typeof preferences.vimModeEnabled === "boolean" ? preferences.vimModeEnabled : defaultEditorPreferences.vimModeEnabled,
     wrapCodeBlocks:
       typeof preferences.wrapCodeBlocks === "boolean" ? preferences.wrapCodeBlocks : defaultEditorPreferences.wrapCodeBlocks
   };

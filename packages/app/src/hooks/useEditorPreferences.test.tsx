@@ -206,6 +206,7 @@ describe("useEditorPreferences", () => {
         { id: "theme", visible: true }
       ],
       showWordCount: true,
+      vimModeEnabled: false,
       wrapCodeBlocks: true
     });
     mockedListenAppEditorPreferencesChanged.mockImplementation(async (listener) => {
@@ -313,6 +314,7 @@ describe("useEditorPreferences", () => {
           { id: "aiAgent", visible: true }
         ],
         showWordCount: false,
+        vimModeEnabled: false,
         wrapCodeBlocks: false
       });
     });

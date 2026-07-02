@@ -365,6 +365,7 @@ function createStoredEditorPreferences(
     showWordCount: true,
     ...overrides,
     aiWorkspaceAnimationEnabled: overrides.aiWorkspaceAnimationEnabled ?? false,
+    vimModeEnabled: overrides.vimModeEnabled ?? false,
     wrapCodeBlocks: overrides.wrapCodeBlocks ?? true
   };
 }
@@ -866,6 +867,7 @@ describe("Markra workspace", () => {
         { id: "theme", visible: true }
       ],
       showWordCount: true,
+      vimModeEnabled: false,
       wrapCodeBlocks: true
     });
     renderApp();
@@ -924,6 +926,7 @@ describe("Markra workspace", () => {
           { id: "aiAgent", visible: true }
         ],
         showWordCount: true,
+        vimModeEnabled: false,
         wrapCodeBlocks: true
       })
     );
@@ -970,6 +973,7 @@ describe("Markra workspace", () => {
           { id: "aiAgent", visible: true }
         ],
         showWordCount: true,
+        vimModeEnabled: false,
         wrapCodeBlocks: true
       })
     );
@@ -1802,6 +1806,7 @@ describe("Markra workspace", () => {
         { id: "theme" as const, visible: true }
       ],
       showWordCount: true,
+      vimModeEnabled: false,
       wrapCodeBlocks: true
     };
     mockedGetStoredEditorPreferences.mockResolvedValue(initialPreferences);
@@ -1935,6 +1940,7 @@ describe("Markra workspace", () => {
         { id: "theme", visible: true }
       ],
       showWordCount: true,
+      vimModeEnabled: false,
       wrapCodeBlocks: true
     });
     window.history.pushState({}, "", "/?settings=1");
@@ -4891,6 +4897,7 @@ describe("Markra workspace", () => {
         { id: "theme", visible: true }
       ],
       showWordCount: true,
+      vimModeEnabled: false,
       wrapCodeBlocks: true
     });
     mockedOpenNativeMarkdownPath.mockResolvedValue({
@@ -5037,6 +5044,7 @@ describe("Markra workspace", () => {
         { id: "theme", visible: true }
       ],
       showWordCount: true,
+      vimModeEnabled: false,
       wrapCodeBlocks: true
     });
     mockOpenMarkdownFile({

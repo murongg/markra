@@ -3814,6 +3814,7 @@ function WorkspaceApp() {
               tableColumnWidthMode={editorPreferences.preferences.tableColumnWidthMode}
               onAddSpellcheckIgnoredWord={handleAddSpellcheckIgnoredWord}
               topInset="titlebar"
+              vimModeEnabled={editorPreferences.preferences.vimModeEnabled}
               workspaceFiles={fileTreeFiles}
               wrapCodeBlocks={editorPreferences.preferences.wrapCodeBlocks}
             />
@@ -4156,6 +4157,7 @@ function WorkspaceApp() {
                           searchMatches={visibleSourceDocumentSearchMatches}
                           scrollRef={sourceScrollRef}
                           topInset="titlebar"
+                          vimModeEnabled={editorPreferences.preferences.vimModeEnabled}
                         />
                       </div>
                     </div>
@@ -4186,6 +4188,7 @@ function WorkspaceApp() {
                           searchMatches={visibleSourceDocumentSearchMatches}
                           scrollRef={sourceScrollRef}
                           topInset="titlebar"
+                          vimModeEnabled={editorPreferences.preferences.vimModeEnabled}
                         />
                       ) : null}
                     </div>
@@ -4258,6 +4261,7 @@ function WorkspaceApp() {
                         onContentWidthChange={editorWidthResizerVisible ? handleEditorContentWidthChange : undefined}
                         onContentWidthResizeEnd={editorWidthResizerVisible ? handleEditorContentWidthResizeEnd : undefined}
                         onFocus={handleSideDocumentPaneFocus}
+                        vimModeEnabled={editorPreferences.preferences.vimModeEnabled}
                         wrapCodeBlocks={editorPreferences.preferences.wrapCodeBlocks}
                       />
                     </>
