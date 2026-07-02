@@ -155,6 +155,10 @@ describe("MarkdownFileTreeDrawer", () => {
       minWidth: "288px",
       width: "288px"
     });
+    expect(container.querySelector(".markdown-file-tree-content")).toHaveStyle({
+      minWidth: "288px",
+      width: "288px"
+    });
 
     rerender(
       <MarkdownFileTreeDrawer
@@ -175,6 +179,10 @@ describe("MarkdownFileTreeDrawer", () => {
     });
     expect(container.querySelector(".markdown-file-tree")).not.toHaveClass("opacity-0");
     expect(container.querySelector(".markdown-file-tree-content")).toHaveClass("opacity-0");
+    expect(container.querySelector(".markdown-file-tree-content")).toHaveStyle({
+      minWidth: "288px",
+      width: "288px"
+    });
   });
 
   it("marks file rows as AI workspace operation targets", () => {
@@ -1502,6 +1510,48 @@ describe("MarkdownFileTreeDrawer", () => {
         onSelectOutlineItem={() => {}}
       />
     );
+
+    expect(screen.getByRole("button", { name: "deploy" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "deploy/deploy.md" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("defers automatic active-file reveal until after the drawer starts opening", () => {
+    vi.useFakeTimers();
+
+    const { rerender } = render(
+      <MarkdownFileTreeDrawer
+        autoRevealActiveFile
+        currentPath="/vault/deploy/deploy.md"
+        files={markdownFiles}
+        open={false}
+        outlineItems={[]}
+        rootPath="/vault"
+        rootName="Obsidian Vault"
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    rerender(
+      <MarkdownFileTreeDrawer
+        autoRevealActiveFile
+        currentPath="/vault/deploy/deploy.md"
+        files={markdownFiles}
+        open
+        outlineItems={[]}
+        rootPath="/vault"
+        rootName="Obsidian Vault"
+        onOpenFile={() => {}}
+        onSelectOutlineItem={() => {}}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "deploy" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "deploy/deploy.md" })).not.toBeInTheDocument();
+
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
 
     expect(screen.getByRole("button", { name: "deploy" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: "deploy/deploy.md" })).toHaveAttribute("aria-current", "page");

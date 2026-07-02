@@ -448,12 +448,18 @@ export function useMarkdownFileTree({
       openChangedBeforeWorkspaceRestoreRef.current = true;
       setOpen((currentOpen) => {
         const nextOpen = !currentOpen;
-        if (nextOpen) refresh(fallbackPath);
+        const refreshPath = sourcePath ?? fallbackPath;
+        const treeAlreadyLoaded =
+          Boolean(refreshPath) &&
+          loadedFileTreeRequestRef.current?.path === refreshPath &&
+          loadedFileTreeRequestRef.current.managedAttachmentFolder === normalizedManagedAttachmentFolder;
+
+        if (nextOpen && !treeAlreadyLoaded) refresh(fallbackPath);
         persistWorkspaceState({ fileTreeOpen: nextOpen });
         return nextOpen;
       });
     },
-    [refresh]
+    [normalizedManagedAttachmentFolder, refresh, sourcePath]
   );
 
   const rootNameForDocument = useCallback(

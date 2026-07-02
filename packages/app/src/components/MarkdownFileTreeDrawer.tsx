@@ -204,6 +204,7 @@ const minOutlineHeightPercent = 24;
 const maxOutlineHeightPercent = 72;
 const outlineResizeKeyboardStepPercent = 5;
 const outlineResizeFallbackHeight = 320;
+const sidebarAutoRevealDelayMs = 220;
 const defaultDocumentLinksHeightPercent = 28;
 const minDocumentLinksHeightPercent = 16;
 const maxDocumentLinksHeightPercent = 60;
@@ -529,6 +530,7 @@ export function MarkdownFileTreeDrawer({
   const [pendingRevealPath, setPendingRevealPath] = useState<string | null>(null);
   const [selectedFileTreePaths, setSelectedFileTreePaths] = useState<Set<string>>(() => new Set());
   const [fileTreeSelectionAnchorPath, setFileTreeSelectionAnchorPath] = useState<string | null>(null);
+  const fileTreeWasOpenRef = useRef(open);
   const lastRevealRequestIdRef = useRef<number | null>(null);
   const lastAutoRevealedPathRef = useRef<string | null>(null);
   const operationOpenedFolderPathsRef = useRef<Set<string>>(new Set());
@@ -691,6 +693,7 @@ export function MarkdownFileTreeDrawer({
   const resolvedMaxWidth = Math.max(resolvedMinWidth, maxWidth);
   const resolvedWidth = clampNumber(width, resolvedMinWidth, resolvedMaxWidth);
   const drawerWidth = resolvedWidth === null ? null : open ? resolvedWidth : 0;
+  const drawerContentStyle = resolvedWidth === null ? undefined : { minWidth: resolvedWidth, width: resolvedWidth };
   const showWindowsOpenFolderAction = platform === "windows" && onOpenFolder;
   const drawerTopPaddingClassName = platform === "windows" ? "pt-0" : "pt-10";
   const fileCreationAvailable = Boolean(onCreateFile);
@@ -991,12 +994,30 @@ export function MarkdownFileTreeDrawer({
   }, [open, revealFileTreePath, revealPathRequest]);
 
   useEffect(() => {
+    const openedFromClosed = open && !fileTreeWasOpenRef.current;
+    fileTreeWasOpenRef.current = open;
     if (!autoRevealActiveFile || !open || !currentPath) return;
     if (lastAutoRevealedPathRef.current === currentPath) return;
 
-    if (revealFileTreePath(currentPath)) {
-      lastAutoRevealedPathRef.current = currentPath;
+    const revealActiveFile = () => {
+      if (lastAutoRevealedPathRef.current === currentPath) return;
+
+      if (revealFileTreePath(currentPath)) {
+        lastAutoRevealedPathRef.current = currentPath;
+      }
+    };
+
+    if (!openedFromClosed) {
+      revealActiveFile();
+      return;
     }
+
+    // Keep automatic reveal from competing with the sidebar opening animation.
+    const timeoutId = window.setTimeout(revealActiveFile, sidebarAutoRevealDelayMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [autoRevealActiveFile, currentPath, open, revealFileTreePath]);
 
   useEffect(() => {
@@ -2592,7 +2613,10 @@ export function MarkdownFileTreeDrawer({
         inert={!open}
         style={drawerWidth === null ? undefined : { maxWidth: drawerWidth, minWidth: drawerWidth, width: drawerWidth }}
       >
-        <div className={`markdown-file-tree-content flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${drawerContentStateClass}`}>
+        <div
+          className={`markdown-file-tree-content flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${drawerContentStateClass}`}
+          style={drawerContentStyle}
+        >
         {renderSidebarPanelTabs()}
         {open && onResize && resolvedWidth !== null ? (
           <div

@@ -971,6 +971,32 @@ describe("useMarkdownFileTree", () => {
     expect(mockedSaveStoredWorkspaceState).toHaveBeenCalledWith({ fileTreeOpen: true });
   });
 
+  it("reopens an already loaded file tree without immediately rescanning the folder", async () => {
+    mockedOpenNativeMarkdownFolder.mockResolvedValue({
+      path: "/vault",
+      name: "vault"
+    });
+    mockedListNativeMarkdownFilesForPath.mockResolvedValue([
+      { path: "/vault/index.md", name: "index.md", relativePath: "index.md" }
+    ]);
+
+    render(<FileTreeProbe currentPath="/vault/index.md" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open folder" }));
+
+    expect(await screen.findByText("index.md")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle" }));
+    expect(screen.getByTestId("open-state")).toHaveTextContent("closed");
+
+    mockedListNativeMarkdownFilesForPath.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle" }));
+
+    expect(screen.getByTestId("open-state")).toHaveTextContent("open");
+    expect(mockedListNativeMarkdownFilesForPath).not.toHaveBeenCalled();
+  });
+
   it("tracks a resizable markdown tree width for the workspace layout", async () => {
     mockedListNativeMarkdownFilesForPath.mockResolvedValue([]);
 
